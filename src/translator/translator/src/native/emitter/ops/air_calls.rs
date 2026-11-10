@@ -15,10 +15,15 @@ impl Emitter {
                         call.args.len()
                     ));
                 }
-                let execution = air_barrier_execution_scope(call)?;
+                // The callee names the execution scope; the last operand is Metal's thread_scope argument, which
+                // is the MEMORY scope (simdgroup_barrier(flags, thread_scope_threadgroup) emits
+                // air.simdgroup.barrier(flags, 1)). Reading that operand as the execution scope turned simdgroup
+                // barriers into workgroup barriers (BAR.SYNC) and threadgroup barriers with a simdgroup memory scope
+                // into subgroup-only barriers.
+                let execution = air_barrier_execution_scope(call);
                 let scope = self.const_uint(execution as u32)?;
                 let memory_scope =
-                    self.const_uint(air_barrier_memory_scope(call, execution) as u32)?;
+                    self.const_uint(air_barrier_memory_scope(call, air_barrier_operand_scope(call)?) as u32)?;
                 let semantics = self.const_uint(air_barrier_memory_semantics(call).bits())?;
                 instructions.push(Self::inst(
                     Op::ControlBarrier,
@@ -98,9 +103,9 @@ impl Emitter {
                 Ok(true)
             }
             "air.atomic.local.store.i32" | "air.atomic.global.store.i32" => {
-                if call.args.len() != 5 {
+                if !Self::atomic_arity_ok(call, 5) {
                     return Err(format!(
-                        "native emitter: {} expects 5 operands",
+                        "native emitter: {} expects 5 operands (or 6 from the newer toolchain)",
                         call.callee
                     ));
                 }
@@ -315,9 +320,9 @@ impl Emitter {
                 Ok(true)
             }
             "air.atomic.local.load.i32" | "air.atomic.global.load.i32" => {
-                if call.args.len() != 4 {
+                if !Self::atomic_arity_ok(call, 4) {
                     return Err(format!(
-                        "native emitter: {} expects 4 operands",
+                        "native emitter: {} expects 4 operands (or 5 from the newer toolchain)",
                         call.callee
                     ));
                 }
@@ -349,9 +354,9 @@ impl Emitter {
                 Ok(true)
             }
             "air.atomic.global.add.f32" => {
-                if call.args.len() != 5 {
+                if !Self::atomic_arity_ok(call, 5) {
                     return Err(format!(
-                        "native emitter: {} expects 5 operands",
+                        "native emitter: {} expects 5 operands (or 6 from the newer toolchain)",
                         call.callee
                     ));
                 }
@@ -385,9 +390,9 @@ impl Emitter {
                 Ok(true)
             }
             "air.atomic.global.sub.f32" => {
-                if call.args.len() != 5 {
+                if !Self::atomic_arity_ok(call, 5) {
                     return Err(format!(
-                        "native emitter: {} expects 5 operands",
+                        "native emitter: {} expects 5 operands (or 6 from the newer toolchain)",
                         call.callee
                     ));
                 }
@@ -428,9 +433,9 @@ impl Emitter {
                 Ok(true)
             }
             "air.atomic.local.cmpxchg.weak.i32" | "air.atomic.global.cmpxchg.weak.i32" => {
-                if call.args.len() != 7 {
+                if !Self::atomic_arity_ok(call, 7) {
                     return Err(format!(
-                        "native emitter: {} expects 7 operands",
+                        "native emitter: {} expects 7 operands (or 8 from the newer toolchain)",
                         call.callee
                     ));
                 }
@@ -497,6 +502,19 @@ impl Emitter {
             _ => Ok(false),
         }
     }
+    /// Atomic intrinsics take `base` operands in AIR up to 2.8. The AIR 2.9 toolchain inserts one more i32 ahead of the
+    /// trailing volatile flag; everything the lowering reads (pointer, values) keeps its position, so both lengths lower
+    /// the same way as long as the extra operand really is an i32.
+    fn atomic_arity_ok(call: &LlCall, base: usize) -> bool {
+        match call.args.len() {
+            n if n == base => true,
+            n if n == base + 1 => {
+                matches!(call.args[n - 2].ty, LlType::Int(32)) && matches!(call.args[n - 1].ty, LlType::Int(1))
+            }
+            _ => false,
+        }
+    }
+
     fn emit_integer_atomic_rmw(
         &mut self,
         call: &LlCall,
@@ -505,9 +523,9 @@ impl Emitter {
     ) -> Result<(), String> {
         let (op, width) = crate::air_intrinsics::integer_atomic_rmw(&call.callee)
             .ok_or("native emitter: missing integer atomic ABI")?;
-        if call.args.len() != 5 {
+        if !Self::atomic_arity_ok(call, 5) {
             return Err(format!(
-                "native emitter: {} expects 5 operands",
+                "native emitter: {} expects 5 operands (or 6 from the newer toolchain)",
                 call.callee
             ));
         }
@@ -576,7 +594,16 @@ fn air_barrier_memory_semantics(call: &LlCall) -> MemorySemantics {
     semantics
 }
 
-fn air_barrier_execution_scope(call: &LlCall) -> Result<Scope, String> {
+fn air_barrier_execution_scope(call: &LlCall) -> Scope {
+    if call.callee == "air.simdgroup.barrier" {
+        Scope::Subgroup
+    } else {
+        Scope::Workgroup
+    }
+}
+
+// Metal thread_scope values as AIR spells them: 1 threadgroup, 2 device, 4 simdgroup (0, thread, has no barrier meaning).
+fn air_barrier_operand_scope(call: &LlCall) -> Result<Scope, String> {
     let scope_index = call.args.len().saturating_sub(1);
     match call
         .args
@@ -584,14 +611,15 @@ fn air_barrier_execution_scope(call: &LlCall) -> Result<Scope, String> {
         .and_then(|arg| air_i32_literal(&arg.value))
     {
         Some(1) => Ok(Scope::Workgroup),
+        Some(2) => Ok(Scope::Device),
         Some(4) => Ok(Scope::Subgroup),
         Some(other) => Err(format!(
-            "native emitter: {} states execution scope {other}, which is neither AIR's threadgroup \
-             (1) nor its simdgroup (4)",
+            "native emitter: {} states memory scope {other}, which is none of AIR's threadgroup (1), \
+             device (2) or simdgroup (4)",
             call.callee
         )),
         None => Err(format!(
-            "native emitter: {} has no constant execution scope operand",
+            "native emitter: {} has no constant memory scope operand",
             call.callee
         )),
     }
