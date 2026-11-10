@@ -2627,8 +2627,11 @@ fn canonicalize_local_field_addresses_in(f: &mut FuncBlock, named: &HashMap<Stri
         let derived = if let Some(cast) = rest.strip_prefix("bitcast ptr ") {
             let Some(base) = cast.strip_suffix(" to ptr").map(str::trim) else { continue };
             let Some(base) = addrs.get(base) else { continue };
-            if base.path.is_empty() {
-                continue; // the object itself, as lifetime markers take it
+            // The object itself, as lifetime markers take it, stays a cast. A cast of the object used only as the address
+            // of a pointer load or store names its first pointer member (ANGLE stores element 0 of the texture env
+            // through the object's own address, and the helper reads it back through a GEP to that member, #485).
+            if base.path.is_empty() && !pointer_access_only(&f.body, name) {
+                continue;
             }
             Addr { root: base.root.clone(), root_ty: base.root_ty.clone(), path: base.path.clone(), ty: base.ty.clone(), inbounds: base.inbounds }
         } else {

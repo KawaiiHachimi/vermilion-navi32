@@ -242,3 +242,74 @@ fn a_sampler_array_element_reached_through_angles_texture_env_samples_its_own_el
     assert!(images.len() == 2 && images[0] != images[1], "each light reads its own shadow map:\n{asm}");
     spirv_val(&spv);
 }
+
+const TEXTURE_ENV_BEHIND_A_SWITCH: &str =
+    include_str!("fixtures/gl/texture_env_three_sites_behind_a_switch.ll");
+
+#[test]
+fn three_samples_of_one_array_element_behind_a_switch_all_reach_the_sampler_and_image() {
+    // The glyph shader of xterm.js samples a texture in every arm of an if / else-if chain. Metal turns three or more arms
+    // into a switch and leaves the user main as a call, so the texture and sampler addresses are read inside the callee out
+    // of the object the entry filled. Those reads came out as placeholders and every sample was folded to zero: the whole
+    // fragment result was lost with no error, as a terminal with a background and no text.
+    let spv = translate_sanitized_native(TEXTURE_ENV_BEHIND_A_SWITCH, Stage::Fragment, &tmp())
+        .expect("the chain must translate");
+    let asm = disassemble(&spv).expect("disassemble");
+    if std::env::var_os("M2V_SHOW_ASM").is_some() {
+        eprintln!("{asm}");
+    }
+    let ops = operations(&asm);
+    let sampled: Vec<&str> = ops
+        .iter()
+        .filter_map(|(_, body)| {
+            body.strip_prefix("OpImageSampleImplicitLod")?.split_whitespace().nth(1).map(bare)
+        })
+        .collect();
+    assert_eq!(sampled.len(), 3, "one sample per arm, none folded to zero:\n{asm}");
+    let first = metal2vulkan::reflect::sampler_resource_binding(0).expect("sampler band");
+    for combined in sampled {
+        assert_eq!(
+            sampler_binding_of(&asm, &ops, combined),
+            Some(first + 1),
+            "every arm samples with element 1 of the sampler array:\n{asm}"
+        );
+    }
+    spirv_val(&spv);
+}
+
+const TEXTURE_ENV_ELEMENT_ZERO: &str = include_str!("fixtures/gl/texture_env_element_zero_behind_a_switch.ll");
+
+#[test]
+fn element_zero_of_the_texture_env_behind_a_switch_reaches_its_sampler_and_image_on_the_inline_retry() {
+    // B-23 (#485 on page 0): the entry stores element 0's texture address through the env object's own address, so the
+    // helper's read of that member was never matched to a store, before or after inlining, and every page-0 glyph was
+    // refused (4bdacbc) or folded to zero (before it).
+    if let Ok(spv) = translate_native_no_retry(TEXTURE_ENV_ELEMENT_ZERO, Stage::Fragment) {
+        let asm = disassemble(&spv).expect("disassemble");
+        assert_eq!(asm.matches("OpImageSampleImplicitLod").count(), 3, "as written, none folded to zero:\n{asm}");
+    }
+    let retry = inline_and_forward_object_fields(TEXTURE_ENV_ELEMENT_ZERO).expect("the helper is inlined");
+    let spv = translate_native_no_retry(&retry, Stage::Fragment)
+        .unwrap_or_else(|e| panic!("the inline retry must translate: {e}\n{retry}"));
+    let asm = disassemble(&spv).expect("disassemble");
+    if std::env::var_os("M2V_SHOW_ASM").is_some() {
+        eprintln!("{asm}");
+    }
+    let ops = operations(&asm);
+    let sampled: Vec<&str> = ops
+        .iter()
+        .filter_map(|(_, body)| {
+            body.strip_prefix("OpImageSampleImplicitLod")?.split_whitespace().nth(1).map(bare)
+        })
+        .collect();
+    assert_eq!(sampled.len(), 3, "one sample per arm, none folded to zero:\n{asm}");
+    let first = metal2vulkan::reflect::sampler_resource_binding(0).expect("sampler band");
+    for combined in sampled {
+        assert_eq!(
+            sampler_binding_of(&asm, &ops, combined),
+            Some(first),
+            "every arm samples with element 0 of the sampler array:\n{asm}"
+        );
+    }
+    spirv_val(&spv);
+}
