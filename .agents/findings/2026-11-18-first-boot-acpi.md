@@ -88,3 +88,17 @@ Check with `acpiexec` (which reads the condition fields as 0, like a late or fai
 has no `GPP7.UP00` devices at all, while the resolved table loads cleanly with `UP00`, `DP58.WIFI`, `XH00` and all
 `RHUB.POTx`. The Scope wrap is no longer needed (nothing top-level points into a conditional device any more).
 Installed on `/boot` for the third boot.
+
+## Third boot: the resolved, recompiled DSDT did not help either
+
+Same hang at the same line, ACPI clean. The difference from the method proven on other ASUS AM5 boards: they patch the
+firmware DSDT in place (NOP the If headers), while fix v2 replaced the whole DSDT with an iasl-recompiled copy plus
+RebaseRegions. Fix v3 does what they do, limited to the 5 blocks Linux proves active:
+
+- 5 `ACPI > Patch` entries in `efi/machines/b650e-i-xtx.json`: each Find is `A0 <PkgLength> <predicate>` of one active
+  block (offsets 0x0ED92, 0x0F812, 0x10E80, 0x10EE3, 0x113C2). Each occurs exactly once in the BIOS 4005 DSDT and is
+  directly followed by a ScopeOp (0x10). Replace is the same number of `A3` (NOP).
+- No DSDT replacement, no RebaseRegions.
+- Check: the firmware DSDT, patched byte for byte as OpenCore does it (checksum fixed), loads in `acpiexec` with all
+  SSDTs, no errors, and `GPP7.UP00`, `DP58.WIFI`, `XH00`, `RHUB.POTI` exist. The unpatched one still shows the DP58
+  error and no chipset devices.

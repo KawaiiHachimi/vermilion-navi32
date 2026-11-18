@@ -212,7 +212,17 @@ def amd_patches(patches_plist, cores):
 def make_config(sample, machine, stage, components, patches, acpi_files, smbios):
     c = sample
     c["ACPI"]["Add"] = [{"Comment": f.replace(".aml", ""), "Enabled": True, "Path": f} for f in acpi_files]
-    c["ACPI"]["Delete"], c["ACPI"]["Patch"] = [], []
+    c["ACPI"]["Delete"] = []
+    template = dict(c["ACPI"]["Patch"][0]) if c["ACPI"]["Patch"] else {}
+    c["ACPI"]["Patch"] = []
+    for p in machine.get("acpi_patches", []):
+        find = bytes.fromhex(p["find"])
+        entry = dict(template)
+        entry.update({"Base": "", "BaseSkip": 0, "Comment": p["comment"], "Count": p.get("count", 1), "Enabled": True,
+                      "Find": find, "Limit": 0, "Mask": b"", "OemTableId": b"\x00" * 8,
+                      "Replace": bytes.fromhex(p["replace"]) if "replace" in p else b"\xa3" * len(find),
+                      "ReplaceMask": b"", "Skip": 0, "TableLength": 0, "TableSignature": p["table"].encode()})
+        c["ACPI"]["Patch"].append(entry)
     c["ACPI"]["Quirks"].update({k: v for k, v in machine.get("acpi_quirks", {}).items() if not k.startswith("_")})
 
     c["Booter"]["MmioWhitelist"], c["Booter"]["Patch"] = [], []
@@ -313,6 +323,7 @@ def build(args):
             die("iasl not found (Arch: pacman -S acpica; macOS: brew install acpica)")
         if machine.get("dsdt_fix"):
             acpi_files.append(fixed_dsdt(args.machine, tmp, ocd / "ACPI"))
+        check_acpi_patches(args.machine, machine)
         for dsl in machine["acpi"]:
             aml = Path(dsl).with_suffix(".aml").name
             subprocess.run(["iasl", "-p", str(tmp / Path(aml).stem), str(HERE / "acpi" / dsl)],
@@ -435,6 +446,22 @@ def fixed_dsdt(machine_id, tmp, acpi_out):
         die("the fixed DSDT does not compile:\n" + r.stdout[-2000:] + r.stderr[-2000:])
     shutil.copy2(tmp / "DSDT.aml", acpi_out / "DSDT.aml")
     return "DSDT.aml"
+
+
+def check_acpi_patches(machine_id, machine):
+    """Each DSDT Find must occur exactly once in the machine's dumped DSDT, or the patch would hit the wrong bytes."""
+    patches = [p for p in machine.get("acpi_patches", []) if p["table"] == "DSDT"]
+    if not patches:
+        return
+    dump = acpi_dir(machine_id) / "DSDT.aml"
+    if not dump.is_file():
+        die(f"{machine_id} has DSDT patches but no DSDT dump to check them against (sudo efi/build.py acpi-dump)")
+    data = dump.read_bytes()
+    for p in patches:
+        n = data.count(bytes.fromhex(p["find"]))
+        if n != 1:
+            die(f"ACPI patch matches {n} times in the dumped DSDT (needs exactly 1): {p['comment']}")
+    print(f"  ACPI: {len(patches)} DSDT patches, each matches exactly once in the dumped DSDT")
 
 
 def install(args):
