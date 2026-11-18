@@ -42,8 +42,11 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
   - [x] AMD_Vanilla `eaf52ef2` with core count `0x0C` and the Zen 4 IOPCIFamily patch
   - [x] `SSDT-EC-USBX-B650EI` written against this board's DSDT (EC0 at `\_SB.PCI0.SBRG.EC0`, no `_STA`)
   - [x] SMBIOS MacPro7,1 generated locally (`~/.config/vermilion/`, not in git)
-  - [ ] First boot of the `install` stage. Watch for the AM5 new-firmware hang (BIOS 4005); fallbacks: RebaseRegions,
-        a DSDT fix, the `IOPCIIsHotplugPort` patch
+  - [x] 2026-11-18 First boot of the `install` stage: the installer kernel started, then macOS rejected the DSDT
+        (`GPP7.UP00.DP58` defined in a module-level `If`) ([findings](findings/2026-11-18-first-boot-acpi.md))
+  - [x] 2026-11-18 DSDT fix: `efi/acpi/fix_dsdt.py` + `acpi-dump` + `RebaseRegions`; verified with `acpiexec`
+  - [ ] Second boot with the fixed DSDT (installed on `/boot` 2026-11-18). Fallbacks if it still hangs: the
+        `IOPCIIsHotplugPort` patch, `npci=0x3000`, Resizable BAR off as a test
   - [ ] USB map: the chipset controller `0c:00.0` has 17 ports (12 USB 2 + 5 USB 3), over macOS's 15 per controller.
         Map after the install (USBToolBox), or generate from Linux sysfs
 - [x] 2026-11-18 `install` stage on the EFI partition (`/boot/EFI/OC`), firmware entry Boot0006 "OpenCore",

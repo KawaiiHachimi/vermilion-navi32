@@ -28,6 +28,12 @@ Press F2 or Del at power-on, then F7 for Advanced Mode.
 | Fast Boot | Disabled (reliable F8 menu and USB at boot) | Boot > Boot Configuration |
 | SVM, IOMMU | leave on (Linux VFIO later; macOS ignores AMD-Vi) | Advanced > AMD CBS |
 
+## Booting Linux
+
+Start Linux the normal way (Limine is first in the firmware boot order), **not** from OpenCore's picker. Linux started
+by OpenCore gets OpenCore's Mac identity and ACPI tables, and `efibootmgr` then shows OpenCore's private (empty) boot
+list instead of the real one.
+
 ## First boot of OpenCore
 
 1. Power off fully, then power on and press **F8**: the firmware boot menu. Pick **OpenCore** (Limine stays the

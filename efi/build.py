@@ -11,6 +11,7 @@ Usage (Linux or macOS; needs python3, iasl for the ACPI tables):
   efi/build.py build   [--machine b650e-i-xtx] [--stage install|base|vermilion] [--placeholder-smbios]
   efi/build.py smbios  [--machine b650e-i-xtx]           generate the SMBIOS file if it does not exist
   efi/build.py install --esp /boot [--stage ...]         copy EFI/OC onto an EFI partition (root; keeps EFI/OC.prev)
+  efi/build.py acpi-dump [--machine ...]                 save this machine's DSDT for the DSDT fix (Linux, root)
   efi/build.py stages  [--machine ...]                   print what each stage contains
 
 Output: build/efi/<machine>-<stage>/EFI/{BOOT,OC}. See efi/README.md.
@@ -31,10 +32,24 @@ import uuid
 import zipfile
 from pathlib import Path
 
+try:
+    import pwd
+except ImportError:                                     # not on Windows; build.py targets Linux and macOS
+    pwd = None
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 CACHE = Path(os.environ.get("VERMILION_EFI_CACHE", Path.home() / ".cache" / "vermilion" / "efi"))
-SECRETS = Path(os.environ.get("VERMILION_CONFIG", Path.home() / ".config" / "vermilion"))
+
+
+def user_home():
+    """The invoking user's home, also when run through sudo (so secrets and dumps stay in their config dir)."""
+    if os.environ.get("SUDO_USER") and pwd and os.geteuid() == 0:
+        return Path(pwd.getpwnam(os.environ["SUDO_USER"]).pw_dir)
+    return Path.home()
+
+
+SECRETS = Path(os.environ.get("VERMILION_CONFIG", user_home() / ".config" / "vermilion"))
 OUT = Path(os.environ.get("VERMILION_OUT", REPO / "build")) / "efi"
 APPLE_NVRAM = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
 
@@ -198,6 +213,7 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
     c = sample
     c["ACPI"]["Add"] = [{"Comment": f.replace(".aml", ""), "Enabled": True, "Path": f} for f in acpi_files]
     c["ACPI"]["Delete"], c["ACPI"]["Patch"] = [], []
+    c["ACPI"]["Quirks"].update({k: v for k, v in machine.get("acpi_quirks", {}).items() if not k.startswith("_")})
 
     c["Booter"]["MmioWhitelist"], c["Booter"]["Patch"] = [], []
     c["Booter"]["Quirks"].update({k: v for k, v in machine["booter_quirks"].items() if not k.startswith("_")})
@@ -247,8 +263,11 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
 
     u = c["UEFI"]
     u["ConnectDrivers"] = True
-    u["Drivers"] = [{"Arguments": "", "Comment": "", "Enabled": True, "HideVerbose": False, "LoadEarly": False, "Path": d}
-                    for d in machine["uefi_drivers"]]
+    u["Drivers"] = []
+    for entry in machine["uefi_drivers"]:          # "Driver.efi" or "Driver.efi --its --arguments"
+        path, _, arguments = entry.partition(" ")
+        u["Drivers"].append({"Arguments": arguments.strip(), "Comment": "", "Enabled": True, "HideVerbose": False,
+                             "LoadEarly": False, "Path": path})
     u["Quirks"].update(machine["uefi_quirks"])
     return c
 
@@ -281,7 +300,7 @@ def build(args):
             (ocd / sub).mkdir(parents=True)
         shutil.copy2(oc / "EFI" / "OC" / "OpenCore.efi", ocd / "OpenCore.efi")
 
-        for drv in machine["uefi_drivers"]:
+        for drv in (entry.partition(" ")[0] for entry in machine["uefi_drivers"]):
             src = fetch(components, "HfsPlus") if drv == "HfsPlus.efi" else oc / "EFI" / "OC" / "Drivers" / drv
             if not Path(src).is_file():
                 die(f"driver {drv} not found")
@@ -290,10 +309,12 @@ def build(args):
             shutil.copy2(oc / "EFI" / "OC" / "Tools" / tool, ocd / "Tools" / tool)
 
         acpi_files = []
+        if not shutil.which("iasl"):
+            die("iasl not found (Arch: pacman -S acpica; macOS: brew install acpica)")
+        if machine.get("dsdt_fix"):
+            acpi_files.append(fixed_dsdt(args.machine, tmp, ocd / "ACPI"))
         for dsl in machine["acpi"]:
             aml = Path(dsl).with_suffix(".aml").name
-            if not shutil.which("iasl"):
-                die("iasl not found (Arch: pacman -S acpica; macOS: brew install acpica)")
             subprocess.run(["iasl", "-p", str(tmp / Path(aml).stem), str(HERE / "acpi" / dsl)],
                            check=True, capture_output=True)
             shutil.copy2(tmp / aml, ocd / "ACPI" / aml)
@@ -330,6 +351,79 @@ def build(args):
         print(f"  kexts: {', '.join(stage['kexts'])}")
         print(f"  boot-args: {' '.join(stage['boot_args'])}   csr-active-config: {stage['csr_active_config']}")
         print(f"  -> {efi}")
+
+
+def acpi_dir(machine_id):
+    return SECRETS / "acpi" / machine_id
+
+
+def dmi(field):
+    try:
+        return Path(f"/sys/class/dmi/id/{field}").read_text().strip()
+    except OSError:
+        return None
+
+
+def booted_through_opencore():
+    """OpenCore rewrites SMBIOS (and may replace ACPI tables) for every OS it starts, Linux included."""
+    return dmi("bios_vendor") == "Acidanthera"
+
+
+def bios_version():
+    """The firmware's BIOS version, or None when unknown (not Linux, or OpenCore's SMBIOS hides it)."""
+    return None if booted_through_opencore() else dmi("bios_version")
+
+
+def acpi_dump(args):
+    """Copy this machine's firmware DSDT (Linux, root) to ~/.config/vermilion/acpi/<machine>/, outside git."""
+    src = Path("/sys/firmware/acpi/tables/DSDT")
+    if os.geteuid() != 0:
+        die("acpi-dump reads /sys/firmware/acpi/tables and needs root (sudo efi/build.py acpi-dump)")
+    if not src.exists():
+        die("no /sys/firmware/acpi/tables/DSDT (run it on the target machine under Linux)")
+    version = bios_version()
+    if booted_through_opencore():
+        # The DSDT seen now may be OpenCore's replacement, and the BIOS version is OpenCore's SMBIOS.
+        if not args.bios_version or not args.opencore_without_dsdt:
+            die("this Linux was booted through OpenCore: its DSDT may be OpenCore's and the BIOS version is fake. "
+                "Boot Linux directly (firmware boot menu) and dump again, or, if the running OpenCore replaces "
+                "no DSDT, pass --opencore-without-dsdt --bios-version <the real version>")
+        version = args.bios_version
+    d = acpi_dir(args.machine)
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, d / "DSDT.aml")
+    (d / "bios-version").write_text((version or "unknown") + "\n")
+    if os.environ.get("SUDO_USER") and pwd:
+        u = pwd.getpwnam(os.environ["SUDO_USER"])
+        for p in (SECRETS, SECRETS / "acpi", d, d / "DSDT.aml", d / "bios-version"):
+            os.chown(p, u.pw_uid, u.pw_gid)
+    print(f"  wrote {d / 'DSDT.aml'} (BIOS {version}); dump it again after every BIOS update")
+
+
+def fixed_dsdt(machine_id, tmp, acpi_out):
+    """The machine's own DSDT, made loadable by macOS with acpi/fix_dsdt.py, as ACPI/DSDT.aml."""
+    d = acpi_dir(machine_id)
+    if not (d / "DSDT.aml").is_file():
+        die(f"no DSDT dump for {machine_id}: run `sudo efi/build.py acpi-dump --machine {machine_id}` on that machine")
+    dumped = (d / "bios-version").read_text().strip() if (d / "bios-version").is_file() else "unknown"
+    now = bios_version()
+    if now and dumped != now and Path("/sys/firmware/acpi/tables/DSDT").exists():
+        die(f"the DSDT dump is from BIOS {dumped}, this machine runs {now}: run acpi-dump again")
+    sys.path.insert(0, str(HERE / "acpi"))
+    import fix_dsdt
+    shutil.copyfile(d / "DSDT.aml", tmp / "DSDT-firmware.aml")
+    subprocess.run(["iasl", "-d", str(tmp / "DSDT-firmware.aml")], check=True, capture_output=True)
+    fixed, changes = fix_dsdt.fix((tmp / "DSDT-firmware.dsl").read_text())
+    for path, cond, line in changes:
+        print(f"  DSDT: Scope (\\{path}) at line {line} wrapped in {cond}")
+    if not changes:
+        print("  DSDT: nothing needed fixing (the firmware DSDT is used as dumped)")
+    (tmp / "DSDT.dsl").write_text(fixed)
+    r = subprocess.run(["iasl", "-p", str(tmp / "DSDT"), str(tmp / "DSDT.dsl")], capture_output=True, text=True)
+    if r.returncode != 0:
+        die("the fixed DSDT does not compile:\n" + r.stdout[-2000:] + r.stderr[-2000:])
+    shutil.copy2(tmp / "DSDT.aml", acpi_out / "DSDT.aml")
+    return "DSDT.aml"
 
 
 def install(args):
@@ -369,7 +463,7 @@ def show_stages(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("build", "smbios", "install", "stages"):
+    for name in ("build", "smbios", "install", "stages", "acpi-dump"):
         p = sub.add_parser(name)
         p.add_argument("--machine", default="b650e-i-xtx")
         if name in ("build", "install"):
@@ -377,6 +471,10 @@ def main():
         if name == "build":
             p.add_argument("--placeholder-smbios", action="store_true",
                            help="use Sample.plist's dummy serials (for tests; never boot this)")
+        if name == "acpi-dump":
+            p.add_argument("--bios-version", help="the real BIOS version, when Linux was booted through OpenCore")
+            p.add_argument("--opencore-without-dsdt", action="store_true",
+                           help="the OpenCore that booted this Linux replaces no DSDT (so the DSDT seen is the firmware's)")
         if name == "install":
             p.add_argument("--esp", required=True, help="mount point of the EFI partition, e.g. /boot")
             p.add_argument("--with-fallback", action="store_true",
@@ -388,6 +486,8 @@ def main():
         install(args)
     elif args.cmd == "stages":
         show_stages(args)
+    elif args.cmd == "acpi-dump":
+        acpi_dump(args)
     else:
         components = load_json(HERE / "components.json")
         machine = load_json(HERE / "machines" / f"{args.machine}.json")

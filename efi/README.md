@@ -9,6 +9,7 @@ the XTX machine from [docs/REFERENCE-MACHINES.md](../docs/REFERENCE-MACHINES.md)
 | [`components.json`](components.json) | Every downloaded input (OpenCore, kexts, drivers, AMD patches), pinned by URL and SHA-256 |
 | [`machines/<id>.json`](machines/) | One machine: CPU cores, SMBIOS model, ACPI tables, the settings that differ from OpenCore's `Sample.plist`, and the **stages** |
 | [`acpi/`](acpi/) | SSDT sources (`.dsl`), compiled with `iasl` at build time. Each one says which DSDT it was written against |
+| [`acpi/fix_dsdt.py`](acpi/fix_dsdt.py) | Makes a firmware DSDT loadable by macOS (top-level Scopes into devices defined in module-level `If` blocks) |
 | [`kexts/`](kexts/) | Codeless kexts kept as source (plists) |
 | [`build.py`](build.py) | Fetches, verifies, assembles `EFI/`, generates `config.plist` from `Sample.plist` + the machine file, runs `ocvalidate` |
 
@@ -23,6 +24,7 @@ macOS.
 
 ```sh
 efi/build.py smbios                      # once per machine: ~/.config/vermilion/smbios-b650e-i-xtx.json
+sudo efi/build.py acpi-dump              # once per BIOS version, on the machine, Linux booted directly (not via OpenCore)
 efi/build.py stages                      # what each stage contains
 efi/build.py build --stage install       # -> build/efi/b650e-i-xtx-install/EFI/{BOOT,OC}
 efi/build.py build --stage install --placeholder-smbios   # test build with dummy serials (never boot it)
@@ -79,13 +81,19 @@ map), and the writer streams it over SSH and compares SHA-256 on both sides. Ope
   `DevirtualiseMmio`.
 - **`ResizeAppleGpuBars = 0`:** Resizable BAR stays on for Linux. macOS sees the default BAR sizes (BAR0 256 MiB),
   which is what Vermilion was validated with.
-- **ACPI:** only `SSDT-EC-USBX-B650EI` (hide the desktop EC from macOS, add the fake `EC` and USB power properties).
-  Newer AM5 firmware (9000-series AGESA) has been reported to hang macOS without a DSDT fix (B650E-F, BIOS > 2613).
-  The board here runs BIOS 4005, so watch for that on the first boot.
+- **ACPI:**
+  - **A fixed DSDT.** BIOS 4005 defines the Wi-Fi's PCIe path inside a module-level `If` and refers to it from the
+    top level. macOS's 2016 ACPICA then rejects the whole DSDT (first boot, 2026-11-18). `fix_dsdt.py` wraps that
+    reference in the same `If`. `RebaseRegions` keeps the table's RAM regions where the firmware puts them on each
+    boot.
+  - **`SSDT-EC-USBX-B650EI`:** hides the desktop EC from macOS, adds the fake `EC` and the USB power properties.
 - **SMBIOS `MacPro7,1`:** upstream's choice for Vermilion. RestrictEvents silences its memory-slot warnings, and
   AppleMCEReporterDisabler stops its MCE reporter from panicking on AMD.
 - **`SecureBootModel = Disabled`:** Vermilion's injected kexts are unsigned.
 - **Debug:** verbose boot and an OpenCore log file on the EFI partition (`Target = 67`) during bring-up.
+- **`ResetNvramEntry.efi --preserve-boot`:** the picker's Reset NVRAM keeps the firmware boot entries.
+- **Don't boot Linux through OpenCore.** It would get OpenCore's SMBIOS and ACPI tables, and `efibootmgr` would see
+  OpenCore's private boot variables instead of the firmware's. Start Linux from the firmware (Limine is the default).
 
 ## Updating a pin
 

@@ -64,3 +64,12 @@ their own JSON.
 **Decision:** keep ReBAR on in the BIOS (Linux uses the 32 GB BAR). OpenCore makes macOS see the default BAR sizes.
 **Why:** Vermilion maps BAR0 as its VRAM window and was validated with 256 MiB. OpenCore 1.0.8 accepts only -1 or 0.
 **Revisit:** if macOS hangs at PCI configuration, turn ReBAR off as a test.
+
+## 2026-11-18: Fix the DSDT from the machine's own dump, at build time
+
+**Decision:** replace the firmware DSDT with a fixed copy that `efi/build.py` makes from the machine's own dump
+(`acpi-dump`) using `efi/acpi/fix_dsdt.py`, with `RebaseRegions` on. The dump stays in `~/.config/vermilion`.
+**Why:** an SSDT can't help when macOS rejects the DSDT itself. A DSDT is ASUS's copyrighted table and is tied to one BIOS
+version, so the repo keeps the generic fixer, not the table. The fixer is generic, so other AM5 boards with the same
+firmware pattern can use it.
+**Revisit:** after a BIOS update (dump again), or if OpenCore gains a quirk for deferred module-level code.

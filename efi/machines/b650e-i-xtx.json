@@ -5,6 +5,12 @@
   "smbios_model": "MacPro7,1",
   "rom_from_interface": "eno1",
   "acpi": ["SSDT-EC-USBX-B650EI.dsl"],
+  "dsdt_fix": true,
+  "_dsdt_fix": "BIOS 4005 defines GPP7.UP00.DP58 inside a module-level If and opens Scope(DP58) at the top level; macOS's 2016 ACPICA then rejects the whole DSDT (first boot, 2026-11-18). build.py fixes the machine's own dump (acpi-dump) with acpi/fix_dsdt.py.",
+  "acpi_quirks": {
+    "RebaseRegions": true,
+    "_RebaseRegions": "the replaced DSDT has RAM regions (CPVS 0x733D9000, WPBR 0x733F0000) the firmware may move between boots; OpenCore relocates them by name (both unique)."
+  },
 
   "booter_quirks": {
     "AvoidRuntimeDefrag": true,
@@ -34,7 +40,8 @@
     "ReleaseUsbOwnership": false,
     "ResizeGpuBars": -1
   },
-  "uefi_drivers": ["HfsPlus.efi", "OpenRuntime.efi", "ResetNvramEntry.efi"],
+  "uefi_drivers": ["HfsPlus.efi", "OpenRuntime.efi", "ResetNvramEntry.efi --preserve-boot"],
+  "_uefi_drivers": "--preserve-boot: the picker's Reset NVRAM keeps the firmware boot entries (Limine, OpenCore). Without it a reset wiped them all on 2026-11-18.",
   "misc": {
     "Boot": {"ShowPicker": true, "Timeout": 10, "PickerMode": "Builtin", "HideAuxiliary": false, "PollAppleHotKeys": true},
     "Debug": {"AppleDebug": true, "ApplePanic": true, "DisableWatchDog": true, "Target": 67},
