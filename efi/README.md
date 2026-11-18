@@ -24,7 +24,8 @@ macOS.
 
 ```sh
 efi/build.py smbios                      # once per machine: ~/.config/vermilion/smbios-b650e-i-xtx.json
-sudo efi/build.py acpi-dump              # once per BIOS version, on the machine, Linux booted directly (not via OpenCore)
+sudo efi/build.py acpi-dump              # once per BIOS version, on the machine, Linux booted directly (not via OpenCore):
+                                         #   DSDT + the live ACPI namespace, in ~/.config/vermilion/acpi/<machine>/
 efi/build.py stages                      # what each stage contains
 efi/build.py build --stage install       # -> build/efi/b650e-i-xtx-install/EFI/{BOOT,OC}
 efi/build.py build --stage install --placeholder-smbios   # test build with dummy serials (never boot it)
@@ -82,10 +83,12 @@ map), and the writer streams it over SSH and compares SHA-256 on both sides. Ope
 - **`ResizeAppleGpuBars = 0`:** Resizable BAR stays on for Linux. macOS sees the default BAR sizes (BAR0 256 MiB),
   which is what Vermilion was validated with.
 - **ACPI:**
-  - **A fixed DSDT.** BIOS 4005 defines the Wi-Fi's PCIe path inside a module-level `If` and refers to it from the
-    top level. macOS's 2016 ACPICA then rejects the whole DSDT (first boot, 2026-11-18). `fix_dsdt.py` wraps that
-    reference in the same `If`. `RebaseRegions` keeps the table's RAM regions where the firmware puts them on each
-    boot.
+  - **A fixed DSDT.** BIOS 4005 creates the whole chipset (`GPP7.UP00`: its USB, SATA, LAN, Wi-Fi) inside
+    module-level `If (G002 ... G000 ...)` blocks. macOS's 2016 ACPICA first rejected the DSDT, and once it loaded,
+    still hung after `CoreAnalyticsHub` (same as ASUS AM5 boards in nullmoth/1401 issue 21). `fix_dsdt.py resolve`
+    reads the machine's Linux ACPI namespace (`acpi-dump`): blocks whose devices all exist become unconditional,
+    and blocks with none are removed. `RebaseRegions` keeps the table's RAM regions where the firmware puts them
+    on each boot.
   - **`SSDT-EC-USBX-B650EI`:** hides the desktop EC from macOS, adds the fake `EC` and the USB power properties.
 - **SMBIOS `MacPro7,1`:** upstream's choice for Vermilion. RestrictEvents silences its memory-slot warnings, and
   AppleMCEReporterDisabler stops its MCE reporter from panicking on AMD.

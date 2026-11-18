@@ -45,8 +45,11 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
   - [x] 2026-11-18 First boot of the `install` stage: the installer kernel started, then macOS rejected the DSDT
         (`GPP7.UP00.DP58` defined in a module-level `If`) ([findings](findings/2026-11-18-first-boot-acpi.md))
   - [x] 2026-11-18 DSDT fix: `efi/acpi/fix_dsdt.py` + `acpi-dump` + `RebaseRegions`; verified with `acpiexec`
-  - [ ] Second boot with the fixed DSDT (installed on `/boot` 2026-11-18). Fallbacks if it still hangs: the
-        `IOPCIIsHotplugPort` patch, `npci=0x3000`, Resizable BAR off as a test
+  - [x] 2026-11-18 Second boot: the DSDT loaded (no ACPI errors) but it hung at the same line. Cause: the chipset
+        devices are still conditional (nullmoth/1401 issue 21, same symptom on ASUS AM5)
+  - [x] 2026-11-18 Fix v2: `fix_dsdt.py resolve` with the Linux namespace (unwrap active blocks, remove inactive ones)
+  - [ ] Third boot with fix v2. Next suspects if it still hangs: `DisableVariableWrite` (1401 #21, installer stage),
+        Reset NVRAM, the `IOPCIIsHotplugPort` patch, `npci=0x3000`, Resizable BAR off as a test
   - [ ] USB map: the chipset controller `0c:00.0` has 17 ports (12 USB 2 + 5 USB 3), over macOS's 15 per controller.
         Map after the install (USBToolBox), or generate from Linux sysfs
 - [x] 2026-11-18 `install` stage on the EFI partition (`/boot/EFI/OC`), firmware entry Boot0006 "OpenCore",

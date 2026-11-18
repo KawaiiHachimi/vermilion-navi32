@@ -393,9 +393,12 @@ def acpi_dump(args):
     d.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, d / "DSDT.aml")
     (d / "bios-version").write_text((version or "unknown") + "\n")
+    # The live ACPI namespace says which of the DSDT's conditional blocks are really active (fix_dsdt.py resolve).
+    paths = sorted(p.read_text().strip() for p in Path("/sys/bus/acpi/devices").glob("*/path"))
+    (d / "namespace.txt").write_text("\n".join(paths) + "\n")
     if os.environ.get("SUDO_USER") and pwd:
         u = pwd.getpwnam(os.environ["SUDO_USER"])
-        for p in (SECRETS, SECRETS / "acpi", d, d / "DSDT.aml", d / "bios-version"):
+        for p in (SECRETS, SECRETS / "acpi", d, d / "DSDT.aml", d / "bios-version", d / "namespace.txt"):
             os.chown(p, u.pw_uid, u.pw_gid)
     print(f"  wrote {d / 'DSDT.aml'} (BIOS {version}); dump it again after every BIOS update")
 
@@ -413,11 +416,19 @@ def fixed_dsdt(machine_id, tmp, acpi_out):
     import fix_dsdt
     shutil.copyfile(d / "DSDT.aml", tmp / "DSDT-firmware.aml")
     subprocess.run(["iasl", "-d", str(tmp / "DSDT-firmware.aml")], check=True, capture_output=True)
-    fixed, changes = fix_dsdt.fix((tmp / "DSDT-firmware.dsl").read_text())
+    text = (tmp / "DSDT-firmware.dsl").read_text()
+    if (d / "namespace.txt").is_file():
+        namespace = {fix_dsdt.norm(p) for p in (d / "namespace.txt").read_text().split()}
+        text, plan = fix_dsdt.resolve(text, namespace)
+        for action, cond, line, why in plan:
+            print(f"  DSDT: line {line}: {action:6} {cond[:70]}  ({why})")
+    else:
+        print("  DSDT: no namespace.txt (old dump): only the Scope wrap is applied; run acpi-dump again")
+    fixed, changes = fix_dsdt.fix(text)
     for path, cond, line in changes:
         print(f"  DSDT: Scope (\\{path}) at line {line} wrapped in {cond}")
     if not changes:
-        print("  DSDT: nothing needed fixing (the firmware DSDT is used as dumped)")
+        print("  DSDT: no top-level Scope needed wrapping")
     (tmp / "DSDT.dsl").write_text(fixed)
     r = subprocess.run(["iasl", "-p", str(tmp / "DSDT"), str(tmp / "DSDT.dsl")], capture_output=True, text=True)
     if r.returncode != 0:
