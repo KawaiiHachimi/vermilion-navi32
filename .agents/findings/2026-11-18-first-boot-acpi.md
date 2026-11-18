@@ -102,3 +102,22 @@ RebaseRegions. Fix v3 does what they do, limited to the 5 blocks Linux proves ac
 - Check: the firmware DSDT, patched byte for byte as OpenCore does it (checksum fixed), loads in `acpiexec` with all
   SSDTs, no errors, and `GPP7.UP00`, `DP58.WIFI`, `XH00`, `RHUB.POTI` exist. The unpatched one still shows the DP58
   error and no chipset devices.
+
+## Fourth boot (2026-11-19): same hang; the missing piece was the CPUs
+
+The owner also ran Reset NVRAM; no change. Auditing against Dortania's AMD checklist instead of the last log:
+
+- **The firmware declares the 24 threads only as `ACPI0007` Processor Devices** (`\_SB.PLTF.C000..C017`, SSDT
+  "CPUSSDT", under an `ACPI0010` container) and has **no `Processor ()` objects**. macOS brings CPUs up through
+  `Processor ()` objects (AppleACPICPU). Dortania requires SSDT-CPUR for exactly this firmware style on B550/A520. An
+  AMD-OSX thread says AM5 needs it too, and that wrong core counts are a common mistake
+  ([forum.amd-osx.com SSDT-CPUR](https://forum.amd-osx.com/threads/ssdt-cpur-aml.4595/)). A Ryzen 7000 user on
+  InsanelyMac got past "CoreAnalyticsHub start completed" (to AHCI) only with a Processor SSDT included.
+- MADT: 32 Local APIC entries, enabled ProcessorIDs 0..23 (cores 0,2,..,22, then SMT siblings 1,3,..,23), and
+  disabled 24..31.
+- `efi/acpi/SSDT-CPUR-B650EI.dsl`: 24 `Processor (PRxx, <MADT id>, 0x810, 6)` in MADT order, macOS only, no phantom
+  CPUs. Check: the patched DSDT, all firmware SSDTs and both of ours load in `acpiexec` (18 tables, no errors) with
+  `\_SB.PR00..PR17` present.
+
+All ACPI tables of BIOS 4005 are now kept in `~/.config/vermilion/acpi/b650e-i-xtx/tables/` (they survive reboots;
+not in git).

@@ -4,7 +4,8 @@
   "cpu_physical_cores": 12,
   "smbios_model": "MacPro7,1",
   "rom_from_interface": "eno1",
-  "acpi": ["SSDT-EC-USBX-B650EI.dsl"],
+  "acpi": ["SSDT-CPUR-B650EI.dsl", "SSDT-EC-USBX-B650EI.dsl"],
+  "_acpi": "SSDT-CPUR: the firmware declares CPUs only as ACPI0007 devices; macOS needs Processor () objects (24, matching the MADT's enabled IDs). See the table's header.",
   "dsdt_fix": false,
   "_dsdt_fix": "Replacing the DSDT with a recompiled, resolved copy (fix_dsdt.py resolve) loaded cleanly but did not get past the CoreAnalyticsHub hang (third boot, 2026-11-18). Replaced by in-place NOP patches below, the method proven on other ASUS AM5 boards (nullmoth/1401 issue 21).",
   "acpi_patches": [
