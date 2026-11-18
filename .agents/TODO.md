@@ -31,9 +31,10 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
       menu paths in [runbooks.md](runbooks.md)
 - [x] 2026-11-18 Which macOS: Apple still serves the full 26.7.1 installer (build 25G241, catalog product
       `142-28081`); recovery would give the newest, 26.7.3 ([findings](findings/2026-11-18-efi-and-installer.md))
-- [ ] Installer media for 26.7.1 (owner's choice pending): 20 GiB installer partition carved from the macOS partition,
-      or a USB stick of 32 GB or more. Built in the macbox VM with `createinstallmedia` onto a disk image, then written
-      from Linux
+- [x] 2026-11-18 Installer media: macOS partition split into p3 78 GiB (`MACOS`) + p4 22 GiB (`macOS Installer`,
+      HFS+ type). 26.7.1 (25G241) made in the macbox VM with `createinstallmedia` onto a bare HFS+ image, streamed onto p4
+      and SHA-256 verified (`efi/installer/`)
+- [ ] After the install: delete p4, grow the APFS container back to 100 GiB
 - [x] 2026-11-18 Reproducible EFI builder: [`efi/`](../efi/README.md) (pinned + hashed inputs, config generated from
       `Sample.plist` + `efi/machines/b650e-i-xtx.json`, stages install/base/vermilion, `ocvalidate` clean)
   - [x] OpenCore 1.0.8, Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6, AppleMCEReporterDisabler
@@ -45,10 +46,10 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
         a DSDT fix, the `IOPCIIsHotplugPort` patch
   - [ ] USB map: the chipset controller `0c:00.0` has 17 ports (12 USB 2 + 5 USB 3), over macOS's 15 per controller.
         Map after the install (USBToolBox), or generate from Linux sysfs
-- [ ] Boot entry: `sudo efi/build.py install --esp /boot` (writes only `EFI/OC`, keeps `EFI/OC.prev`), then an
-      `efibootmgr` entry. Leave Limine and `EFI/BOOT/BOOTX64.EFI` alone. Optional: a Limine menu entry that chainloads
-      OpenCore
-- [ ] Install macOS to the `MACOS` partition (erase it as APFS, nothing else)
+- [x] 2026-11-18 `install` stage on the EFI partition (`/boot/EFI/OC`), firmware entry Boot0006 "OpenCore",
+      boot order Limine (0000) first, OpenCore second (pick it with F8). `EFI/BOOT` untouched
+- [ ] Optional: a Limine menu entry that chainloads OpenCore
+- [ ] Install macOS to the `MACOS` partition (erase it as APFS, nothing else): steps in [runbooks.md](runbooks.md)
 - [ ] Post-install, one item at a time, each tested and logged:
   - [ ] Ethernet I225-V: try the built-in driver first. Fallback documented on Tahoe 26.7.1 with an I225-V:
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`

@@ -53,6 +53,24 @@ sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label OpenCore --loader 
 `efibootmgr --create` puts the new entry first in the boot order. To keep Limine as the default, restore the old
 order with `efibootmgr --bootorder ...`, then choose OpenCore once from the firmware boot menu (F8 on ASUS).
 
+## The macOS installer without a USB stick
+
+Recovery images always install the newest macOS, but Vermilion is pinned to 26.7.1. The full installer (18.4 GB)
+doesn't fit on a small stick, so it goes onto a partition of the internal disk instead:
+
+```sh
+efi/installer/macos_catalog.py --version 26.7.1 --url        # Apple's download URL for that version
+# on a Mac (the macbox VM): download it, then
+efi/installer/make-installer-image.sh InstallAssistant.pkg Installer-26.7.1.dmg 21g
+# on Linux: a partition with the GPT name "macOS Installer" (Apple HFS+ type, 22 GiB), then
+efi/installer/write-installer-partition.sh macbox Installer-26.7.1.dmg /dev/nvme0n1p4 --yes
+```
+
+`make-installer-image.sh` checks Apple's signature, runs `createinstallmedia` onto a bare HFS+ image (no partition
+map), and the writer streams it over SSH and compares SHA-256 on both sides. OpenCore lists the partition as
+**Install macOS Tahoe**. After the install, delete the partition and grow the APFS container into the space
+(`diskutil apfs resizeContainer disk0s3 0` from macOS).
+
 ## Why these settings (XTX machine)
 
 - **AMD CPU:** AMD_Vanilla kernel patches with the core count set to the physical cores (`0x0C`), including the

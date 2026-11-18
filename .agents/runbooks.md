@@ -14,6 +14,30 @@ with the date once a procedure has worked.
 - **One EFI change per boot.** Keep the previous EFI folder (`EFI/OC.prev`) until the new one has booted several
   times.
 
+## BIOS settings for macOS (ASUS B650E-I, BIOS 4005) *(unverified: menu names from ASUS AM5 boards)*
+
+Press F2 or Del at power-on, then F7 for Advanced Mode.
+
+| Setting | Value | Where |
+|---|---|---|
+| CSM | Disabled | Boot > CSM (Compatibility Support Module) > Launch CSM |
+| Secure Boot | off (OS Type: Other OS) | Boot > Secure Boot (already off) |
+| Above 4G Decoding | Enabled | Advanced > PCI Subsystem Settings |
+| Re-Size BAR Support | Enabled (OpenCore gives macOS 256 MiB BARs) | Advanced > PCI Subsystem Settings |
+| Primary video device | the dGPU (PCIe), so its GOP lights the monitor | Advanced > NB Configuration (name varies) |
+| Fast Boot | Disabled (reliable F8 menu and USB at boot) | Boot > Boot Configuration |
+| SVM, IOMMU | leave on (Linux VFIO later; macOS ignores AMD-Vi) | Advanced > AMD CBS |
+
+## First boot of OpenCore
+
+1. Power off fully, then power on and press **F8**: the firmware boot menu. Pick **OpenCore** (Limine stays the
+   default, so a normal boot still starts Linux).
+2. In the OpenCore picker, pick the installer volume (**Install macOS Tahoe**).
+3. Verbose boot (`-v`): if it stops, take a photo of the last lines. The OpenCore log is on the EFI partition
+   (`/boot/opencore-*.txt` under Linux).
+4. In the installer: Disk Utility > View > Show All Devices. Erase **only the `MACOS` volume** (78 GiB, exFAT) as
+   APFS, name it `Macintosh HD`, then install onto it.
+
 ## Reading the XTX from Linux (no root)
 
 [`tools/capture/gpuinfo.c`](../tools/capture/gpuinfo.c) (libdrm `AMDGPU_INFO_DEV_INFO`, `VRAM_GTT`, firmware
