@@ -27,7 +27,7 @@ Where things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 |---|---|
 | understand the stack | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/GLOSSARY.md`](docs/GLOSSARY.md) |
 | touch anything XTX-specific | [`docs/XTX.md`](docs/XTX.md), [`.agents/findings/`](.agents/findings/) |
-| install, boot or deploy | [`docs/INSTALL.md`](docs/INSTALL.md), [`.agents/runbooks.md`](.agents/runbooks.md) |
+| install, boot or deploy | [`docs/INSTALL.md`](docs/INSTALL.md), [`efi/README.md`](efi/README.md), [`.agents/runbooks.md`](.agents/runbooks.md) |
 | build | [`docs/BUILD.md`](docs/BUILD.md) |
 | rename anything with `phx`, `nv` or `nmx` in it | [`docs/NAMING.md`](docs/NAMING.md) (mostly: don't) |
 | make a design choice | [`.agents/decisions.md`](.agents/decisions.md) |
@@ -46,6 +46,7 @@ Where things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 | `tools/firmware/` | pinned linux-firmware fetcher (`fw.lock`) | MIT |
 | `tools/capture/` | Linux-side tools that read the GPU for reference data (`gpuinfo.c`) | MIT |
 | `scripts/build/` | one build script per component | MIT |
+| `efi/` | reproducible OpenCore EFI builder: pinned components, machine profiles, stages ([`efi/README.md`](efi/README.md)) | MIT |
 | `tests/mock/` | hardware-free tests of the daemon and scripts | MIT |
 | `docs/` | documentation for humans and LLMs | |
 | `.agents/` | agent workspace: TODO, findings, decisions, runbooks | |
@@ -75,7 +76,8 @@ Where things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
    hardware reports: PCI revision, a register read, VBIOS tables, EDID. Never replace an XT value with an XTX value;
    add the XTX case next to it.
 3. **No AMD firmware, VBIOS dumps, register captures with serials, monitor EDIDs with serials, or OpenCore
-   `config.plist` with SMBIOS data in git.** `.gitignore` covers most of these; check `git status` before committing.
+   `config.plist` with SMBIOS data in git.** A built EFI (`build/efi/`) contains the machine's serials: never commit
+   or publish it. `.gitignore` covers most of these; check `git status` before committing.
 4. **No personal data in commits, docs or logs:** serials, MLB, ROM, UUIDs, MAC addresses, e-mail, disk or partition
    UUIDs.
 5. **Respect the license boundaries.**

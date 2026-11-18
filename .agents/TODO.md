@@ -27,28 +27,37 @@ progress, `[x]` done, `[-]` dropped (say why).
 
 Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except GPU acceleration works.
 
-- [ ] BIOS checklist for macOS (dGPU as boot display, Above 4G + ReBAR, CSM off, Secure Boot off, IOMMU on or off as
-      macOS needs (`DisableIoMapper`), SVM). Record the ASUS menu paths in [runbooks.md](runbooks.md)
-- [ ] Get macOS 26.7.1 exactly. `macrecovery` may serve a newer recovery, so check what it offers; alternatively a full
-      InstallAssistant for 26.7.1. Decide and record in [decisions.md](decisions.md)
-- [ ] A USB stick for the installer (the 8 GB SanDisk holds BIOS files, so keep those or use another stick)
-- [ ] OpenCore 1.0.8 EFI, built by the Dortania AMD (Zen) guide:
-  - [ ] ACPI: SSDT-EC-USBX (desktop), plus whatever the B650E-I DSDT needs (the B650E-F needed a DSDT fix, see the
-        [kext findings](findings/2026-11-18-macos-hardware-kexts.md))
-  - [ ] Kernel: AMD_Vanilla patches with core count `0x0C`, the Zen 4 IOPCIFamily patch, `ProvideCurrentCpuInfo`
-  - [ ] Kexts: Lilu, VirtualSMC, AMDRyzenCPUPowerManagement + SMCAMDProcessor, AppleMCEReporterDisabler, NVMeFix,
-        RestrictEvents, USB map (USBToolBox + UTBMap), AMFIPass (needed later by Vermilion)
-  - [ ] SMBIOS MacPro7,1, generated locally, kept out of git
-  - [ ] `config.plist` validated with `ocvalidate`
-- [ ] Boot entry: OpenCore in `EFI/OC` with its own `efibootmgr` entry. Leave Limine and `EFI/BOOT/BOOTX64.EFI`
-      alone. Optional: a Limine menu entry that chainloads OpenCore
+- [ ] BIOS checklist for macOS (dGPU as boot display, Above 4G + ReBAR on, CSM off, Secure Boot off). Record the ASUS
+      menu paths in [runbooks.md](runbooks.md)
+- [x] 2026-11-18 Which macOS: Apple still serves the full 26.7.1 installer (build 25G241, catalog product
+      `142-28081`); recovery would give the newest, 26.7.3 ([findings](findings/2026-11-18-efi-and-installer.md))
+- [ ] Installer media for 26.7.1 (owner's choice pending): 20 GiB installer partition carved from the macOS partition,
+      or a USB stick of 32 GB or more. Built in the macbox VM with `createinstallmedia` onto a disk image, then written
+      from Linux
+- [x] 2026-11-18 Reproducible EFI builder: [`efi/`](../efi/README.md) (pinned + hashed inputs, config generated from
+      `Sample.plist` + `efi/machines/b650e-i-xtx.json`, stages install/base/vermilion, `ocvalidate` clean)
+  - [x] OpenCore 1.0.8, Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6, AppleMCEReporterDisabler
+        (codeless, in repo), AMFIPass 1.4.1, AirportMtkWlan 2.1.6 (Tahoe), USBToolBox 1.2.0 (unused until a map exists)
+  - [x] AMD_Vanilla `eaf52ef2` with core count `0x0C` and the Zen 4 IOPCIFamily patch
+  - [x] `SSDT-EC-USBX-B650EI` written against this board's DSDT (EC0 at `\_SB.PCI0.SBRG.EC0`, no `_STA`)
+  - [x] SMBIOS MacPro7,1 generated locally (`~/.config/vermilion/`, not in git)
+  - [ ] First boot of the `install` stage. Watch for the AM5 new-firmware hang (BIOS 4005); fallbacks: RebaseRegions,
+        a DSDT fix, the `IOPCIIsHotplugPort` patch
+  - [ ] USB map: the chipset controller `0c:00.0` has 17 ports (12 USB 2 + 5 USB 3), over macOS's 15 per controller.
+        Map after the install (USBToolBox), or generate from Linux sysfs
+- [ ] Boot entry: `sudo efi/build.py install --esp /boot` (writes only `EFI/OC`, keeps `EFI/OC.prev`), then an
+      `efibootmgr` entry. Leave Limine and `EFI/BOOT/BOOTX64.EFI` alone. Optional: a Limine menu entry that chainloads
+      OpenCore
 - [ ] Install macOS to the `MACOS` partition (erase it as APFS, nothing else)
 - [ ] Post-install, one item at a time, each tested and logged:
-  - [ ] Ethernet I225-V (built-in driver, boot-arg or SSDT only if needed)
+  - [ ] Ethernet I225-V: try the built-in driver first. Fallback documented on Tahoe 26.7.1 with an I225-V:
+        AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
+        ([GeekAudio/intel-i225-tahoe-fix](https://github.com/GeekAudio/intel-i225-tahoe-fix)); the B650E-F config
+        uses the same kext + `e1000=0`
   - [ ] Wi-Fi MT7922: Arxusion/AirportMtkWlan (Tahoe build). Fallbacks: qiqco/MT7922-macOS-Driver,
         GeekAudio/MtkWireless
-  - [ ] Bluetooth MT7922 (USB `0e8d:0616`): AirportMtkWlan's BT companion or SimpleMtkBtFw (add the USB ID if
-        missing; only one loader)
+  - [ ] Bluetooth MT7922 (USB `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)
+        or SimpleMtkBtFw (add the USB ID if missing; only one loader)
   - [ ] USB audio (ASUS `0b05:1a5c`), front and rear USB ports (USB map), NVMe, CPU power management, shutdown/restart
   - [ ] Disable sleep for now (`pmset`, as in INSTALL.md section 10)
   - [ ] Back up the working EFI (outside git, without SMBIOS in any public place)
@@ -134,5 +143,5 @@ When the VM shuts down, the dGPU goes back to Linux.
 - Is the XFX VBIOS's DMCUB `0x07008742`? (first macOS boot)
 - Which link rate does the GOP train for 1440p60? (first macOS boot)
 - Does CoreDisplay accept the truncated 256-byte EDID?
-- Does macrecovery still serve 26.7.1?
+- Does the AM5 new-firmware hang hit BIOS 4005?
 - Is the I225-V stable on Tahoe without a boot-arg?

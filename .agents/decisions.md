@@ -21,7 +21,8 @@ metal, and a VM adds reset and OVMF problems on top of driver problems.
 
 ## 2026-11-18: macOS Tahoe 26.7.1, pinned
 
-**Decision:** install exactly 26.7.1 and block updates.
+**Decision:** install exactly 26.7.1 and block updates. Get it as Apple's full installer (build 25G241, still served on
+2026-11-18), not through recovery, which installs the newest version (26.7.3).
 **Why:** the Metal plugin uses private interfaces of that build (upstream).
 **Revisit:** when the plugin is verified on a newer build.
 
@@ -49,3 +50,17 @@ paths stay untouched but unused.
 
 **Decision:** `docs/` is for humans and LLMs (public, stable). `.agents/` is the agents' working area (TODO,
 findings, decisions, runbooks). `CLAUDE.md` holds the rules, and `AGENTS.md` is a symlink to it for other agents.
+
+## 2026-11-18: The EFI is generated, not hand-edited
+
+**Decision:** `efi/build.py` builds the EFI from pinned, hashed downloads, OpenCore's own `Sample.plist` and a
+machine JSON with stages (`install` -> `base` -> `vermilion`). SMBIOS serials live in `~/.config/vermilion` only.
+Codeless kexts are kept as plist source in the repo.
+**Why:** reviewable diffs, reproducible builds, one-change-per-boot stages, and no secrets in git. Other machines get
+their own JSON.
+
+## 2026-11-18: `ResizeAppleGpuBars = 0`, Resizable BAR stays on
+
+**Decision:** keep ReBAR on in the BIOS (Linux uses the 32 GB BAR). OpenCore makes macOS see the default BAR sizes.
+**Why:** Vermilion maps BAR0 as its VRAM window and was validated with 256 MiB. OpenCore 1.0.8 accepts only -1 or 0.
+**Revisit:** if macOS hangs at PCI configuration, turn ReBAR off as a test.

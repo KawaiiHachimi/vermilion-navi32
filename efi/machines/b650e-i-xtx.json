@@ -1,0 +1,66 @@
+{
+  "_comment": "The XTX machine (docs/REFERENCE-MACHINES.md). Values that differ from OpenCore's Sample.plist, by stage. Each stage starts from the one named in 'inherits' and adds to it. SMBIOS serials are NOT here: build.py reads them from ~/.config/vermilion/smbios-<machine>.json.",
+  "name": "ASUS ROG STRIX B650E-I + Ryzen 9 7900X3D + RX 7900 XTX",
+  "cpu_physical_cores": 12,
+  "smbios_model": "MacPro7,1",
+  "rom_from_interface": "eno1",
+  "acpi": ["SSDT-EC-USBX-B650EI.dsl"],
+
+  "booter_quirks": {
+    "AvoidRuntimeDefrag": true,
+    "DevirtualiseMmio": true,
+    "EnableSafeModeSlide": true,
+    "EnableWriteUnprotector": false,
+    "ProvideCustomSlide": true,
+    "RebuildAppleMemoryMap": true,
+    "SetupVirtualMap": true,
+    "SyncRuntimePermissions": true,
+    "ResizeAppleGpuBars": 0,
+    "_ResizeAppleGpuBars": "0 = macOS sees the GPU BARs at their default sizes (BAR0 256 MiB) while Resizable BAR stays on in the BIOS for Linux. Vermilion maps BAR0 as a VRAM window and was validated with 256 MiB (src/vermilion-boot/phx_core.cpp). OpenCore 1.0.8 accepts only -1 or 0 here."
+  },
+  "kernel_quirks": {
+    "DisableIoMapper": true,
+    "DisableLinkeditJettison": true,
+    "PanicNoKextDump": true,
+    "PowerTimeoutKernelPanic": true,
+    "ProvideCurrentCpuInfo": true,
+    "XhciPortLimit": false
+  },
+  "kernel_emulate": {
+    "DummyPowerManagement": true
+  },
+  "uefi_quirks": {
+    "RequestBootVarRouting": true,
+    "ReleaseUsbOwnership": false,
+    "ResizeGpuBars": -1
+  },
+  "uefi_drivers": ["HfsPlus.efi", "OpenRuntime.efi", "ResetNvramEntry.efi"],
+  "misc": {
+    "Boot": {"ShowPicker": true, "Timeout": 10, "PickerMode": "Builtin", "HideAuxiliary": false, "PollAppleHotKeys": true},
+    "Debug": {"AppleDebug": true, "ApplePanic": true, "DisableWatchDog": true, "Target": 67},
+    "Security": {"AllowSetDefault": true, "BlacklistAppleUpdate": true, "DmgLoading": "Signed", "ExposeSensitiveData": 6,
+                 "ScanPolicy": 0, "SecureBootModel": "Disabled", "Vault": "Optional"}
+  },
+  "tools": ["OpenShell.efi"],
+
+  "stages": {
+    "install": {
+      "_comment": "Phase 1 first boot and the macOS install: the fewest kexts that boot, SIP on, verbose.",
+      "kexts": ["Lilu", "VirtualSMC", "NVMeFix", "RestrictEvents", "AppleMCEReporterDisabler"],
+      "boot_args": ["-v", "keepsyms=1", "debug=0x100"],
+      "csr_active_config": "00000000"
+    },
+    "base": {
+      "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot.",
+      "inherits": "install",
+      "kexts_add": ["AirportMtkWlan"]
+    },
+    "vermilion": {
+      "_comment": "Phase 2: Vermilion (docs/INSTALL.md section 1). Needs build/VermilionBoot.kext from the macOS build host.",
+      "inherits": "base",
+      "kexts_add": ["AMFIPass", "VermilionBoot"],
+      "boot_args_add": ["amfi=0x80", "ipc_control_port_options=0", "phxdebug=1"],
+      "csr_active_config": "030A0000"
+    }
+  }
+}
