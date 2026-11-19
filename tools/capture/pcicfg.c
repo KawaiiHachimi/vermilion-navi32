@@ -4,7 +4,7 @@
 // PE_i_can_has_debugger). Only the client's Read method (selector 0) is ever called; this tool cannot write.
 //
 //   cc -Wall -O2 -o pcicfg tools/capture/pcicfg.c -framework IOKit -framework CoreFoundation
-//   sudo ./pcicfg 11:0.0 [bytes]        # bus:dev.fn in hex, default 256 bytes (up to 4096)
+//   sudo ./pcicfg 06:0b.0 [bytes]       # bus:dev.fn in HEX (a bridge!), default 256 bytes (up to 4096)
 //
 // The read goes through the bridge's configRead (ECAM), not IOPCIDevice::configAccess(), so it shows what the
 // device itself answers. Struct layout from IOPCIFamily-726.100.6 IOKit/pci/IOPCIPrivate.h.
