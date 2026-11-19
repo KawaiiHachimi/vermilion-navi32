@@ -168,7 +168,10 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 Linux-side capture ([handoff](HANDOFF-LINUX-CAPTURE.md)): under Linux every link on the path has
           Common Clock set on both ends (Link Control `0x0c42` on DP58, `0x0042` on the card); in macOS DP58 read
           `0x0002` (Common Clock clear) with retrain status bits set ([findings](findings/2026-11-19-wifi-mt7922.md))
-    - [~] Decide the cause: who clears DP58's Common Clock in macOS (IOPCIFamily, DSDT, GPU bring-up window)
+    - [x] 2026-11-19 Nobody clears it in macOS: Common Clock was already clear at the 0.47 s scan on the whole chipset
+          tree and no ACPI code writes link control; Linux sets CCC itself. Hypothesis: BIOS-enabled ASPM L1 with CCC
+          clear, the endpoints never leave L1 in macOS ([findings](findings/2026-11-19-wifi-mt7922.md))
+    - [~] Test: BIOS PCIe ASPM / power saving off (no code change)
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
