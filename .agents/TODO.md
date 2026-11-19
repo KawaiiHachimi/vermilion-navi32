@@ -7,7 +7,20 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (handoff, 2026-11-19, night)
+## Current state (handoff, 2026-11-19, late night)
+
+**Graphics is paused here; the next thread works on everything else (Phase 1 rest: sleep, USB, Ethernet, Wi-Fi,
+Bluetooth, AirDrop, audio), from a Claude Code / T3 Code install on the Mac itself.** Graphics state to come back to:
+GPU present at 1440p60 works (b126; no CPU copy, median 40 frames/s) but flickers, shows occasional artifacts and the
+CPU runs hotter ([findings](findings/2026-11-19-1440p-gpu-present.md), boot 2). Then 144/240 Hz (Phase 3).
+
+Working on the Mac itself: the hard rules still hold (cold power-off from Linux, one EFI change per boot with a
+rollback copy, no SMBIOS/serials in git). **Sleep:** Vermilion has no resume path (Phase 4); a real S3 sleep with the
+driver up will most likely lose the GPU (unverified), so keep `pmset` sleep off and test ACPI sleep/wake only on a boot
+with the driver off (`-phxbringupoff`, one boot). Builds on the Mac need the build-host setup of
+[runbooks.md](runbooks.md) (Command Line Tools, MacKernelSDK, ...); installing a kext on the live system still goes
+through the EFI (VermilionBoot) or the AuxKC (VermilionAccel), one change per boot.
+
 
 - **The accelerated desktop runs on the XTX** (Vermilion, Metal compositor, one display at 2560x1440) on macOS 26.7.1
   bare metal. Every OpenCore boot is a squat boot and arms the desktop by itself
@@ -20,8 +33,8 @@ progress, `[x]` done, `[-]` dropped (say why).
   - EFI: `vermilion` stage with **VermilionBoot b126** on `/boot/EFI/OC` (2026-11-19 05:30; `OC.prev` = the same stage
     with b125, the last booted one; the `install` stage is backed up in `~/.cache/vermilion/efi-backup/`);
     `DisableVariableWrite` on, so macOS can't write firmware NVRAM.
-  - Staged for the next boot: `/boot/vermilion/run-once.sh` + `perf/` (boot 2 of the GPU-present test: creates
-    `/Library/GPUBundles/nvmtl/ws-gpu-present` and starts the counter logger).
+  - GPU present is on (`/Library/GPUBundles/nvmtl/ws-gpu-present`, created by boot 2's run-once). Nothing is staged
+    on the EFI partition (`/boot/vermilion/perf/` holds the logger for a later run-once).
   - `phxfb-squat` is set as an EFI variable from Linux
     (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`, value "1").
   - `~/gpu` flags: `sdma`, `cg`, `uclk=456`.
@@ -145,7 +158,10 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
   - [x] 2026-11-19 `tools/phxctl/perflog.sh` + `perflog_install.sh`: the display counters to a log, one boot only
   - [x] 2026-11-19 Boot 1: b126 + GPU present off: no regression; layout `large`, DCN window = all VRAM; baseline
         copy 10-12.6 ms/frame + 15-20 ms flip wait, ~20-33 frames/s (two refreshes per frame)
-  - [ ] Boot 2: GPU present on (`ws-gpu-present`): `scanout acquired (... large ...)`, `skipped_foreign` ~ frames, lag
+  - [x] 2026-11-19 Boot 2: GPU present on: large slots acquired, no CPU copy, median 40 / max 59.5 frames/s; owner:
+        "way better" but flicker, occasional artifacts, CPU hotter
+  - [ ] Flicker/artifacts with GPU present at 1440p (try `debug.phxscan_latchfix=1`, capture `phxscan_race_stat`)
+  - [ ] CPU heat with GPU present (measure: `powermetrics`, WindowServer CPU; the plugin's per-present fence wait)
   - [ ] If it holds: make GPU present the default at 1440p (daemon or install), docs; consider `debug.phxscan_latchfix=1`
         (b74 UI-shake fix, default 0)
 - [~] Refresh rate / input lag at 1440p: the GOP mode is 2560x1440 at 60 Hz (2026-11-19, OTG0 totals 2720x1481);
