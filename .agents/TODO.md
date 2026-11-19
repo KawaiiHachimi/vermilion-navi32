@@ -7,12 +7,35 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, morning: Wi-Fi test boot staged)
+## Current state (2026-11-19, morning): work moves to macOS itself
 
-**Wi-Fi boot staged** ([findings](findings/2026-11-19-wifi-mt7922.md)): `/boot/EFI/OC` = the `vermilion` stage +
-AirportMtkWlan 2.1.6 (06:14; `OC.prev` = b126 without Wi-Fi), `run-once.sh` starts `wifilog.sh` for 20 min. After the
-boot read `/var/log/vermilion-wifi-*.log`, the OpenCore log and the unified log. The machine-state lines below
-predate this.
+**From here on the owner works in macOS on the XTX machine** (Claude Code + T3 Code installed there over Wi-Fi), not
+from Linux. If you are that macOS session, start here:
+
+1. **This boot** (the first one after this handoff): EFI = the `vermilion` stage + **AirportMtkWlan 2.1.6**, the only
+   change (`OC.prev` = b126 without Wi-Fi). Its `run-once.sh` turned **sleep off** (`pmset -a sleep 0 displaysleep 0
+   disksleep 0 hibernatemode 0 standby 0 powernap 0 tcpkeepalive 0 womp 0`; result lines in `/var/log/phxboot.log`
+   under `run-once:`) and logged Wi-Fi for 20 min to `/var/log/vermilion-wifi-*.log`. Read both, plus
+   `log show --last boot --predicate 'sender == "AirportMtkWlan"'`, and fill in boot 1 of the
+   [Wi-Fi findings](findings/2026-11-19-wifi-mt7922.md). Wi-Fi is unverified until then.
+2. **The EFI partition from macOS:** `diskutil list` (the NVMe's EFI partition, under Recovery it was `disk2s1`),
+   `sudo mkdir -p /tmp/efi && sudo diskutil mount -mountPoint /tmp/efi <diskXs1>`. On it: `EFI/OC` (live),
+   `EFI/OC.prev` (rollback), `opencore-*.txt` (OpenCore log of every boot), `vermilion/` (payload, flags, run-once).
+3. **EFI builds on the Mac** need what Linux kept outside git, now in `<EFI>/vermilion/handoff/config-vermilion/`:
+   copy it to `~/.config/vermilion/` (mode 0700; the SMBIOS serials and the ACPI dump, which includes `VFCT.aml` =
+   the VBIOS: **never commit or publish any of it**). `build/VermilionBoot.kext` (b126) = `<EFI>/EFI/OC/Kexts/
+   VermilionBoot.kext`. `build.py` needs `python3` and `iasl` (Command Line Tools; acpica). Install with
+   `sudo efi/build.py install --esp /tmp/efi --stage vermilion`; one EFI change per boot still.
+4. **NVRAM:** `DisableVariableWrite` is on, so macOS can't change NVRAM or the startup disk. The default OpenCore
+   entry is set in the picker (Ctrl+Enter on Macintosh HD, 2026-11-19, unverified that it sticks).
+5. **Boot path:** firmware boot order is OpenCore first (`0006,0000,...`), so power-on boots macOS after the picker's
+   10 s. A Linux **reboot** goes back to Linux (`tools/linux/vermilion-reboot-to-linux.service` sets BootNext=Limine
+   on reboot only; tested by a real run and cleared, the reboot path itself unverified). Linux -> macOS is still a full
+   power-off. macOS restarts are fine. Linux is still reachable with F8 > Limine.
+6. **Next, in order:** Wi-Fi verified -> Bluetooth (`0489:e0e2`) -> Ethernet -> USB map -> audio -> AirDrop/Continuity
+   -> sleep/wake (only with the driver off, `-phxbringupoff`, one boot, after asking the owner). Graphics stays paused.
+
+The lines below predate this and describe the machine from Linux.
 
 ## Handoff (2026-11-19, late night)
 

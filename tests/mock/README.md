@@ -37,6 +37,7 @@ bash espflags_test.sh          # esp_flags.sh, the daemon pre-hook that takes fl
 bash recovery_install_test.sh  # recovery_install.sh against a fake Data volume, no root (6/6, 11-19)
 bash perflog_test.sh           # perflog.sh / perflog_install.sh, fake sysctl, fake root, fake launchctl (10/10, 11-19; portable)
 bash wifilog_test.sh           # wifilog.sh / perflog_install.sh PERF_NAME=wifi, stub macOS tools, fake root (6/6, 11-19; portable)
+bash reboot_to_linux_test.sh   # tools/linux/reboot_to_linux.sh (Linux reboot guard), fake efibootmgr (6/6, 11-19; portable)
 bash phxctl_serve_test.sh      # host test of `phxctl serve` (the read server; no kext needed: register items answer empty, sysctl items real) (9/9)
 ./run.sh -k                    # keep the work dirs (to debug a FAIL)
 ./run.sh happy user_logged     # only the named scenarios

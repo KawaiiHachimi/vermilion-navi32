@@ -126,3 +126,13 @@ boot rule visible in the diff. 2.2.x was pulled by its maintainer after panics; 
 other kernels.
 **Revisit:** if Wi-Fi destabilises the GPU path (then `vermilion` back onto `install`), or when a newer release is
 recommended.
+
+## 2026-11-19: Work moves to macOS; boot straight into it, with a Linux reboot guard
+
+**Decision:** the owner works in macOS from now on. Firmware boot order OpenCore first, default OpenCore entry
+Macintosh HD, auto-login and T3 Code at login (set by the owner in macOS). A systemd unit on Linux sets
+BootNext=Limine on every Linux reboot. Sleep is turned off by `pmset` from a run-once.
+**Why:** faster iteration without the Linux round trip. With OpenCore first, a warm Linux reboot would otherwise
+start macOS on a GPU amdgpu left initialised (hard rule 1); the guard keeps a reboot in Linux and leaves a power-off
+alone. No GPU resume path, so no sleep.
+**Revisit:** when the VFIO phase starts (the iGPU becomes the host display), or if the firmware ignores BootOrder.

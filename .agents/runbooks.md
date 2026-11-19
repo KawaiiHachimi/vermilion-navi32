@@ -201,3 +201,18 @@ sudo mkdir -p /boot/vermilion/wifi && sudo cp tools/phxctl/wifilog.sh tools/phxc
 
 Read `/mnt/mac/root/private/var/log/vermilion-wifi-*.log` with apfs-fuse. The driver's ring may name networks:
 quote it redacted.
+
+## Booting straight into macOS (2026-11-19)
+
+Firmware boot order: OpenCore first. OpenCore's default entry: in the picker, select Macintosh HD and press
+Ctrl+Enter (`AllowSetDefault`; OpenCore writes it before macOS starts, so `DisableVariableWrite` doesn't block it;
+unverified that it sticks). The Linux side keeps the cold-GPU rule with a reboot guard: a Linux reboot sets
+BootNext=Limine, a power-off doesn't. Install on Linux (root):
+
+```sh
+install -m 755 tools/linux/reboot_to_linux.sh /usr/local/sbin/vermilion-reboot-to-linux
+install -m 644 tools/linux/vermilion-reboot-to-linux.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable vermilion-reboot-to-linux.service
+```
+
+To make Limine the default again: `efibootmgr --bootorder 0000,0006,0001,0002`.
