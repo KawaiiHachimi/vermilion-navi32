@@ -28,7 +28,8 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Rollback:** nothing to undo on disk (EFI/OC unchanged; the env var lasts one boot; run-once is moved off the ESP
       before it runs). Black screen: hold power, power on, OpenCore > Macintosh HD = the boot before. From Linux (Limine,
       default): not needed; the same power cycle is enough
-- [~] Flicker step 3, make E3 permanent (**staged 2026-11-19 21:58, takes effect at the next restart, whenever**):
+- [~] Flicker step 3, make E3 permanent: **restart 1 done 22:00** (daemon installed, `.prev` kept, flag set, E3 on, no
+      flicker); **restart 2 still to verify** the daemon's own `wscdcopy:` line. Staged 2026-11-19 21:58:
       daemon flag `phxboot-wscdcopy` (commit 6ba5f6e, mock 175/175) + `tools/phxctl/daemon_install.sh` (f7a7d4a).
       On the EFI partition: `vermilion/flags/phxboot-wscdcopy`, `vermilion/daemon/` (daemon sha256 36dc5db5...),
       `vermilion/run-once.sh` (installs the daemon into ~/gpu with `~/gpu/phxboot-navi31.sh.prev`, and sets the variable
@@ -40,7 +41,8 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       switch, pending mark, GOP revert). Old daemon back: a `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev
       /Users/<user>/gpu/phxboot-navi31.sh`; flag off: `<EFI>/vermilion/flags/phxboot-wscdcopy.rm`. EFI/OC unchanged
 - [ ] Plugin: fix the schedule-time copy of the non-async GPU present (present only after completion)
-- [ ] Heat: re-measure after the flicker fix; then at most one present per vblank, and less polling in fence waits
+- [~] Heat: re-measured with E3 (22:03): WindowServer wakeups 700-1050/s (was 1300-1400), CPU about the same. Next:
+      `debug.phxwait_step_us` 50 -> 200 live; then at most one present per vblank, and less polling in fence waits
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
 
 ## Earlier (2026-11-19, 10:05): Wi-Fi works; next Bluetooth

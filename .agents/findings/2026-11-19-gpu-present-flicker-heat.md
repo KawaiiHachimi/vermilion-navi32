@@ -97,6 +97,24 @@ surface`, and the regions being redrawn no longer flicker. If pane switches show
   wakeups not measured yet. Race counters: `accepted flips forgotten 1, on-screen slot reported reusable 0`.
 - The variable lasts one boot: the next boot without the run-once is back to the default mode and the flicker.
 
+## Heat, measured again with E3 (2026-11-19 22:03, restart 1 of the permanent flag, uptime ~3 min)
+
+Same `powermetrics --samplers tasks,interrupts` (6 x 10 s), owner using the desktop:
+
+| | default mode (10:11) | E3 (22:03) |
+|---|---|---|
+| WindowServer CPU | 129-139 ms/s | 106-163 ms/s |
+| WindowServer wakeups | 1300-1400 /s | **700-1050 /s** |
+| GPU presents | ~31 /s | ~16 /s (1007 in 62 s) |
+| all tasks CPU | 400-455 ms/s | 370-720 ms/s (the boot daemon's watch and late steps still ran) |
+
+- WindowServer wakes ~45 % less, about in step with the presents (~42-45 wakeups per present in both runs): the fence
+  waits' 50 us timed steps still dominate. CPU time is about the same.
+- Not a clean comparison: less desktop activity, and 3 minutes after boot the daemon was still busy (kernel_task
+  600-1165 wakeups/s against ~260 this morning).
+- Race counters 0/0/0. Next heat step (live, a sysctl, owner's OK): `debug.phxwait_step_us` 50 -> 200 and measure
+  again; costs at most ~150 us more latency per fence wait.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every
