@@ -238,7 +238,8 @@ echo "GRBM_STATUS 0x02004: 0xa0003028 (mock)"; exit 0
 EOF
   cat >"$BIN/launchctl" <<'EOF'
 #!/bin/bash
-st="${SIM_STATE:-/tmp}"; echo "launchctl $*" >>"$st/launchctl.log"; exit 0
+st="${SIM_STATE:-/tmp}"; echo "launchctl $*" >>"$st/launchctl.log"
+[ "${SIM_LAUNCHCTL_FAIL:-0}" = 1 ] && [ "$1" = setenv ] && exit 1; exit 0
 EOF
   cat >"$BIN/shutdown" <<'EOF'
 #!/bin/bash
@@ -312,6 +313,7 @@ world() {   # world: a fresh fake root + default-healthy SIM_* config
   SIM_DPW_NOOID=0 SIM_DPW_L2_EINVAL=0   # 11-03 S3 dpwatch
   SIM_HP0_NOOID=0   # 11-04 hotplug0
   SIM_LW_BROKEN_AT_TERM=0 SIM_LW_FAIL=""   # 11-04 login-window guard
+  SIM_LAUNCHCTL_FAIL=0   # 11-19 wscdcopy
   SIM_TERM_LATE="" SIM_SHUTDOWN_TERM=0
   # 11-03 first-WindowServer fix: its model off, no silent crashes, the watch after `done` off
   SIM_WSMODEL=0 SIM_WS_SILENT="" SIM_WS_LATE_SILENT="" SIM_WS_LATE_LOGOUT="" SIM_DEFAULTS_FAIL="" SIM_WS_REWRITE=0 SIM_SHUTDOWN_W15=0 SIM_RESAVE="" SIM_OFFER_GATE=0 SIM_OFFER_LATE="" SIM_HEAD0_SINGLE=0 SIM_NO_SOLO=0 SIM_AOCBOOT1_RC=0; NOWATCH=1; WATCHMAX=""
@@ -362,13 +364,14 @@ boot() {
            SIM_BRINGUP SIM_CLAIM SIM_NMXACCEL SIM_PHXFB SIM_FB SIM_METAL SIM_AGDC SIM_USERS SIM_CRASH_PER_STEP SIM_TERM_IN_WATCH SIM_WS_NORESTART SIM_SQUAT SIM_SQUAT_LATE SIM_AGDC_LATE \
            SIM_BOOTARGS SIM_SYSCTL_FAIL SIM_GAMMA_BUSY SIM_CDPREF SIM_NO_RESYNC SIM_RESYNC_ID SIM_NMODES SIM_AOCBOOT_RC \
            SIM_TERM_LATE SIM_SHUTDOWN_TERM SIM_MARK="$FR/var/db/phxboot.pending" \
-           SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL
+           SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL SIM_LAUNCHCTL_FAIL
     export PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin"
     env PHXBOOT_G="$FR/gpu" PHXBOOT_HOME="$FR" PHXBOOT_LOG="$LOGF" PHXBOOT_MARK="$FR/var/db/phxboot.pending" \
         PHXBOOT_OFF="$FR/gpu/phxboot-off" PHXBOOT_DESKTOP="$FR/gpu/phxboot-desktop" \
         PHXBOOT_ALLOW="$FR/Library/GPUBundles/nvmtl-allow.txt" PHXBOOT_DR="$FR/Library/Logs/DiagnosticReports" \
         PHXBOOT_MB="$FR/usr/local/sbin/mesboot" PHXBOOT_NO_WATCH=$NOWATCH PHXBOOT_WATCH_MAX="$WATCHMAX" PHXBOOT_RUNAS="" \
         PHXBOOT_WSPTMP="$W" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" \
+        PHXBOOT_GPUPRESENT="$FR/Library/GPUBundles/nvmtl/ws-gpu-present" PHXBOOT_WSASYNC="$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async" \
         bash "$DAEMON" )
 }
 # reboot_world: the state a reboot resets (the WindowServer and kernel state), keeping the fake root (prefs, stash, flags)
@@ -760,7 +763,23 @@ sc_prehook_fail() {     world; DESK=0; prehook 'echo "pre: broken"; exit 3'
                         expect_log 'pre-hook: .*phxboot-pre.sh exit 3'; expect_log 'no desktop arm: GOP'; expect_no_killall; expect_no_reboot; go prehook_fail; }
 sc_prehook_hang() {     world; DESK=0; prehook 'exec /bin/sleep 30'; export PHXBOOT_PRE_WAIT=2
                         expect_log 'pre-hook: .* still running after 2s: killed'; expect_log 'no desktop arm: GOP'; expect_no_reboot; go prehook_hang; unset PHXBOOT_PRE_WAIT; }
-ALL="squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails prehook_desktop prehook_fail prehook_hang"
+# 11-19 wscdcopy (GPU present E3): launchd's environment for the restarted WindowServer, only with both GPU present switches
+gp_world(){ world; mkdir -p "$FR/Library/GPUBundles/nvmtl"; touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present"; [ "${1:-}" = async ] && touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async"; true; }
+lc_has(){ X_CMDS="${X_CMDS:-}
+grep -q 'launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1' '$ST/launchctl.log'"; }
+lc_hasnt(){ X_CMDS="${X_CMDS:-}
+! grep -q 'NVMTL_WS_PRESENT_CDCOPY' '$ST/launchctl.log'"; }
+sc_cdcopy_off() {       gp_world async; expect_nolog 'wscdcopy'; expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_off; }
+sc_cdcopy_on() {        gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1'; expect_log 'gpu present allowed'
+                        expect_order 'wscdcopy: NVMTL' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_killall; lc_has; go cdcopy_on; }
+sc_cdcopy_noasync() {   gp_world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs .*ws-gpu-present-async: NVMTL_WS_PRESENT_CDCOPY not set'
+                        expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_noasync; }
+sc_cdcopy_nogp() {      world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs .*ws-gpu-present and'; expect_nolog 'gpu present allowed'
+                        expect_log 'flip on'; expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_nogp; }
+sc_cdcopy_lcfail() {    gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; SIM_LAUNCHCTL_FAIL=1; expect_log 'wscdcopy: launchctl setenv failed'
+                        expect_log 'SUCCESS'; expect_killall; go cdcopy_lcfail; }
+sc_cdcopy_nodesk() {    gp_world async; DESK=0; touch "$FR/gpu/phxboot-wscdcopy"; expect_nolog 'wscdcopy'; expect_log 'no desktop arm: GOP'; expect_no_killall; lc_hasnt; go cdcopy_nodesk; }
+ALL="squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails prehook_desktop prehook_fail prehook_hang cdcopy_off cdcopy_on cdcopy_noasync cdcopy_nogp cdcopy_lcfail cdcopy_nodesk"
 make_fakes; make_world_tpl
 TORUN="${*:-$ALL}"
 echo "== phxboot mock harness :: daemon=$DAEMON"

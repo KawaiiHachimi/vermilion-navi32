@@ -231,6 +231,19 @@ UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); echo "$UPOUT" | tail -4
 # light (pipe 1 stream) before the AGDC arm, bind (head 1 + plane + flip) after it, so the ONE WindowServer restart
 # below already sees both displays. Any M7 failure is logged and undone; the boot goes on with one monitor.
 M7LIT=0; M7PHASE=0; M7BOUND=0
+# GPU present E3 (2026-11-19, the XTX machine): with $G/phxboot-wscdcopy, the restarted WindowServer gets
+# NVMTL_WS_PRESENT_CDCOPY=1 from launchd (as CI_USE_MTL_DAG_FOR_CIKL_SRC), so the plugin presents CoreDisplay's display
+# surfaces (every region current) instead of SkyLight's composite targets, which only have the changed regions redrawn:
+# those regions flickered between new and old (findings 2026-11-19-gpu-present-flicker-heat.md; verified on the XTX
+# machine at 1440p60). E3 presents at GPU completion, so it needs both GPU present switches; without them nothing is set.
+# launchctl setenv lasts until the next reboot.
+WSASYNC=${PHXBOOT_WSASYNC:-/Library/GPUBundles/nvmtl/ws-gpu-present-async}
+ws_cdcopy(){ [ -e "$G/phxboot-wscdcopy" ] || return 0
+  if [ ! -e "$GPUPRESENT" ] || [ ! -e "$WSASYNC" ]; then
+    echo "wscdcopy: needs $GPUPRESENT and $WSASYNC: NVMTL_WS_PRESENT_CDCOPY not set"; return 0; fi
+  if launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1 2>/dev/null; then
+    echo "wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted WindowServer (CoreDisplay's display surfaces are presented)"
+  else echo "wscdcopy: launchctl setenv failed: SkyLight's targets are presented"; fi; }
 m7_light(){ [ -e "$G/phxboot-m7" ] || return 0
   [ -e "$G/m7_boot.sh" ] || { echo "m7: $G/m7_boot.sh missing"; return 0; }
   sh "$G/m7_boot.sh" light; r=$?
@@ -454,6 +467,7 @@ if [ $DESK = 1 ]; then
   #     comes back, and phxfb's own flip left off (both would program HUBP0)
   GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}
   [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
+  ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
   WS1=$(wspid)
   if [ -n "$WS0" ] && [ "$WS1" != "$WS0" ]; then echo "first WindowServer died before the restart (pid $WS0 -> ${WS1:-none}; usually no .ips)"
   else echo "first WindowServer survived to the restart (pid ${WS0:-none})"; fi

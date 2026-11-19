@@ -157,3 +157,15 @@ same thing is enabled but didn't keep the bit off on 26.7.1. A boot-arg that use
 fixing a byte pattern. Verified: Wi-Fi at 802.11ax, Vermilion unaffected.
 **Revisit:** if a future IOPCIFamily drops the flag, or if the GPU path turns out to want 10-bit tags (then a
 per-device fix instead). Other AM5 boards with these two chips likely need the same; worth upstreaming as a note.
+
+## 2026-11-19: GPU present uses E3 (CoreDisplay's display surfaces) on this machine, behind a daemon flag
+
+**Decision:** the XTX machine runs GPU present with `ws-gpu-present-async` and `NVMTL_WS_PRESENT_CDCOPY=1`. The boot
+daemon sets the variable from the flag `~/gpu/phxboot-wscdcopy` before its WindowServer restart. The plugin default
+stays as it is, so the upstream XT keeps its behaviour.
+**Why:** the default mode presents SkyLight's composite targets, which only have the changed regions redrawn: those
+regions flickered (verified, 1440p60). E3 fixed it on the first boot it ran
+([findings](findings/2026-11-19-gpu-present-flicker-heat.md)). A flag was the smallest change that survives reboots:
+`launchctl setenv` is how the daemon already passes `CI_USE_MTL_DAG_FOR_CIKL_SRC`, and the plugin needs no rebuild.
+**Revisit:** when the plugin is rebuilt: a file switch next to the other `ws-*` switches would replace the variable,
+and E3 may deserve to be the default for GPU present on every card (needs a test on the XT).

@@ -460,6 +460,7 @@ stated.
 | `phxboot-dispovr` | right before the restart | `dispovr.sh`: a CoreDisplay override per connected display so a new display set defaults to its highest refresh rate. It writes only files it created (key `phx-override`) under `/Library/Displays/Contents/Resources/Overrides` |
 | `phxboot-noflip` | after the restart | keeps the copy into the scanned surface instead of the DCN A/B flip (ignored when GPU present is on) |
 | `/Library/GPUBundles/nvmtl/ws-gpu-present` | before and after the restart | GPU present: the plugin flips the display itself (`debug.phxscan=1`) and the display pipe's copy is skipped |
+| `phxboot-wscdcopy` | before the restart | GPU present E3: `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1`, so the restarted WindowServer presents CoreDisplay's display surfaces instead of SkyLight's composite targets (fixes the flicker of redrawn regions; verified on the XTX machine at 1440p60). Needs `ws-gpu-present` and `/Library/GPUBundles/nvmtl/ws-gpu-present-async`, otherwise only logged |
 | `phxboot-vcn` | after `done` | VCN 0 up (`vcnup/vcn_up.sh --run`, log `~/gpu/vcnup/boot.log`), then `debug.phxvcn=1` and `debug.phxmmvm=1`; needed for hardware video decode. Skipped on a boot whose second monitor came up out of phase |
 | `phxboot-hotplug` | after `done`, two monitors bound | `debug.phxhotplug=2`: the HDMI monitor's unplug / plug takes head 1 offline / online |
 | `phxboot-hotplug0` (value `1` observe or `2` act; empty = `1`) | after `done`, desktop boot | `debug.phxhotplug0`: the same for the DisplayPort monitor on head 0 |
