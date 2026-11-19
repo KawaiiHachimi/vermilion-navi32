@@ -216,3 +216,20 @@ systemctl daemon-reload && systemctl enable vermilion-reboot-to-linux.service
 ```
 
 To make Limine the default again: `efibootmgr --bootorder 0000,0006,0001,0002`.
+
+## Building and installing the EFI on the Mac itself (2026-11-19, works)
+
+```sh
+sudo mkdir -p /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1   # the NVMe's EFI partition
+# once: the machine config (serials, ACPI dump; never into git) and iasl 20251212 (same as Linux: identical AML)
+sudo cp -R /private/tmp/efi/vermilion/handoff/config-vermilion/ ~/.config/vermilion/ && sudo chown -R "$USER" ~/.config/vermilion && chmod 700 ~/.config/vermilion
+git clone https://github.com/acpica/acpica.git ~/.local/src/acpica && git -C ~/.local/src/acpica checkout 446be4382 \
+  && make -C ~/.local/src/acpica -j8 iasl && cp ~/.local/src/acpica/generate/unix/bin/iasl ~/.local/bin/
+sudo cp -R /private/tmp/efi/EFI/OC/Kexts/VermilionBoot.kext build/                          # or a fresh kext build
+PATH=$HOME/.local/bin:$PATH python3 efi/build.py build --stage vermilion
+sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion/EFI/OC                  # only the intended files
+sudo python3 efi/build.py install --esp /private/tmp/efi --stage vermilion                    # keeps EFI/OC.prev
+```
+
+Rollback from the Mac: `sudo mv /private/tmp/efi/EFI/OC /private/tmp/efi/EFI/OC.bad && sudo mv /private/tmp/efi/EFI/OC.prev /private/tmp/efi/EFI/OC`.
+In zsh, use `/usr/bin/log` (zsh has its own `log` builtin).

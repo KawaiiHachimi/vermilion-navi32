@@ -7,7 +7,13 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, morning): work moves to macOS itself
+## Current state (2026-11-19, 09:00): on the Mac; Wi-Fi blocked by an empty PCI capability list
+
+Wi-Fi: both MediaTek drivers fail because macOS gives the card (and the I225-V) an empty PCI capability list
+([findings](findings/2026-11-19-wifi-mt7922.md), boot 2). Boot 3 (`vermilion-pcilog`, logging only) is installed.
+EFI builds now work on the Mac (`iasl` 20251212 in `~/.local/bin`, config in `~/.config/vermilion`).
+
+## Earlier: work moves to macOS itself
 
 **From here on the owner works in macOS on the XTX machine** (Claude Code + T3 Code installed there over Wi-Fi), not
 from Linux. If you are that macOS session, start here:
@@ -148,11 +154,11 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
         uses the same kext + `e1000=0`
   - [~] Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`) ([findings](findings/2026-11-19-wifi-mt7922.md)):
     - [x] 2026-11-19 Boot 1: AirportMtkWlan 2.1.6 loaded but never attached (no driver object, no Wi-Fi port)
-    - [~] Boot 2 staged: Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1, `wifilog.sh` deep snapshots (IORegistry of
-          `DP58`, dmesg, SPPCIDataType)
-    - [ ] If it doesn't attach either: act on the IORegistry (hotplug/tunnelled flags, who owns `EP00`); candidates
-          AMD_Vanilla `IOPCIIsHotplugPort` (touches every PCI device, the GPU too: one boot, rollback ready),
-          qiqco/MT7922-macOS-Driver
+    - [x] 2026-11-19 Boot 2: MtkWirelessWifi 1.1.1 loaded, not attached either. Cause: the card's IOPCIDevice has
+          an empty capability list (no MSI) because its config space didn't answer when IOPCIFamily published it;
+          the I225-V has the same symptom. Hotplug ruled out
+    - [~] Boot 3 staged (from the Mac): stage `vermilion-pcilog` (IOPCIFamily logging) to see why config reads fail
+    - [ ] Fix the empty capability list (then Wi-Fi and probably Ethernet work), from boot 3's log
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
   - [ ] Bluetooth MT7922 (USB **`0489:e0e2`** on this board, read 2026-11-19; not `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)

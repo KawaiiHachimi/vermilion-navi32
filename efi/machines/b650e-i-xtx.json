@@ -86,6 +86,11 @@
       "kexts_add": ["AMFIPass", "VermilionBoot"],
       "boot_args_add": ["amfi=0x80", "ipc_control_port_options=0", "phxdebug=1"],
       "csr_active_config": "030A0000"
+    },
+    "vermilion-pcilog": {
+      "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
+      "inherits": "vermilion",
+      "boot_args_add": ["pci_log_mode=0x6", "pci_log=0x677"]
     }
   }
 }
