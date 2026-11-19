@@ -207,6 +207,14 @@ unwaited presents, 11 superseded by a later commit** (1.1 %). Owner: "still the 
 asked to set it back. So the incomplete-frame case is rare and not what the owner sees as tearing. Still open: what
 the owner calls tearing (where on screen, which motion). Next: ask for a short phone video of it.
 
+## Snapshot 2026-11-19 23:00: desktop idle, wait step 50 us (this boot), E3 on
+
+- CPU (`top`): 98 % idle over 24 threads; WindowServer ~14 % of one thread. CPU temperature and power: not readable.
+- GPU (`~/gpu/smumetrics.py 5 2`, root, owner's OK: SMU message 0x12 TransferTableSmu2Dram table 5, as Linux reads
+  metrics): GFX activity 8-9 %, gfxclk average 161-188 MHz, **socket 53-54 W, board 66-67 W**, edge 41-46 C,
+  hotspot 51-56 C, memory 66-70 C, fan 0-10 %. Not compared with Linux idle on this machine yet (unverified whether
+  66 W is high for this card at 1440p60; the daemon's UCLK hard-min 456 MHz is a candidate).
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every

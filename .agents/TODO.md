@@ -40,6 +40,8 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Rollback:** black screen: hold power, power on, OpenCore > Macintosh HD (the daemon has its own fallbacks: kill
       switch, pending mark, GOP revert). Old daemon back: a `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev
       /Users/<user>/gpu/phxboot-navi31.sh`; flag off: `<EFI>/vermilion/flags/phxboot-wscdcopy.rm`. EFI/OC unchanged
+- [ ] GPU idle power: 66-67 W board / 53 W socket at the 1440p60 desktop (2026-11-19 23:00, smumetrics). Compare with
+      Linux amdgpu idle on this machine (sysfs power1_average, read-only) before changing anything
 - [ ] Plugin: fix the schedule-time copy of the non-async GPU present (present only after completion)
 - [~] Heat: re-measured with E3 (22:03): WindowServer wakeups 700-1050/s (was 1300-1400), CPU about the same.
       2026-11-19 22:07 `debug.phxwait_step_us` 50 -> 200 live: WindowServer wakeups ~255/s (from 640-950), CPU the same,
