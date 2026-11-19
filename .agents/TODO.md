@@ -7,7 +7,23 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 10:05): Wi-Fi works; next Bluetooth
+## Current state (2026-11-19, 10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
+
+GPU present flicker and heat measured read-only on the XTX machine ([findings](findings/2026-11-19-gpu-present-flicker-heat.md)).
+The flicker most likely comes from an ordering bug: with the kernel's GPU marks on (`debug.nvaccel_surface_gpu_on 1`)
+and `ws-gpu-present-async` absent, the plugin copies WindowServer's frame at *schedule* time, not after the composite
+finished. Ruled out: plane loss, the b74 latch race (0 on-screen slots reused), display underflow. Heat: WindowServer
+wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come faster than the 60 Hz refresh.
+
+- [ ] Flicker step 1 (live, needs the owner's OK + root): create `/Library/GPUBundles/nvmtl/ws-gpu-present-async`,
+      owner watches. Rollback: delete it (the plugin re-reads it every second). If the file is left in place and a
+      later boot misbehaves, Linux can't delete it (apfs-fuse is read-only): use `<EFI>/vermilion/run-once.sh` with
+      `rm -f /Library/GPUBundles/nvmtl/ws-gpu-present-async`
+- [ ] Flicker step 2: lasting fix in the plugin (present only after completion when not async), through the EFI
+- [ ] Heat: re-measure after the flicker fix; then at most one present per vblank, and less polling in fence waits
+- [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
+
+## Earlier (2026-11-19, 10:05): Wi-Fi works; next Bluetooth
 
 **Wi-Fi works on macOS** (MtkWirelessWifi 1.1.1 + boot-arg `pci=0x8000000`, [findings](findings/2026-11-19-wifi-mt7922.md)).
 The cause was macOS setting 10-Bit Tag Requester Enable on the chipset root port, which the MT7922 and the I225-V
