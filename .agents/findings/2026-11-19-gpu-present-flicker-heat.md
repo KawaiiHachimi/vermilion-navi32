@@ -144,6 +144,30 @@ debug.phxwait_step_us=200` at 22:07:41 and the same measurement. Set back to 50 
   set it back at once". Not a clear regression either: the window was 2 minutes, and the owner knew which value was on.
 - Whether fewer wakeups means less heat: unverified. There is still no CPU temperature or package-power reading.
 
+## Live test 4 (2026-11-19 22:16-22:28): blind A/B of `debug.phxwait_step_us` 50 vs 200
+
+A root script set the step for 4 stretches of 3 min, two at 50 and two at 200, in an order it picked at random and
+kept root-only until the end (neither the owner nor the agent knew it). Then back to 50 by itself, with a stop file for
+an early rollback. `powermetrics --samplers tasks -i 10000` ran throughout. Owner using the desktop normally, noting
+each stretch. Order: **AABB** (1, 2 = 50 us; 3, 4 = 200 us).
+
+| stretch | step | owner (verbatim, shortened) | WindowServer wakeups/s, median (range) | WindowServer CPU ms/s, median (range) |
+|---|---|---|---|---|
+| 1 | 50 | "pretty smooth ... my reference"; input lag, a bit of tearing | 1673 (293-3893) | 241 (53-439) |
+| 2 | 50 | "can't tell any difference, maybe a bit more laggy" | 2458 (303-5589) | 309 (61-562) |
+| 3 | 200 | "more fluent ... the input delay is reduced", the smoothest of the four; guessed it was 50 | 352 (99-1075) | 141 (54-443) |
+| 4 | 200 | "bit more screen tearing, bit more laggy" | 137 (53-986) | 71 (24-453) |
+
+- Owner's summary: "the difference between all of these 4 tests is minuscule and I'm sure mostly placebo". The
+  stretch they found smoothest ran at 200. So 200 is **not worse** in a blind test (verified on the XTX machine, 12 min).
+- WindowServer wakes 5-15x less at 200 in this run. The desktop was busier than in live test 3: up to 5589
+  wakeups/s at 50. CPU time was lower too, but activity differed per stretch (no present count per stretch), so the
+  CPU difference is not a clean result.
+- Input lag and tearing were noted at both values: they aren't caused by the wait step. The owner suspects part of
+  the input lag is macOS pointer acceleration ("Pointer precision" off felt "very fluent"). Tearing is a separate open
+  item (GPU present has no vsync'd flip yet; unverified).
+- Fan noise during stretch 3 (200 us) was attributed by the owner to 50: there is no sensor to check it.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every
