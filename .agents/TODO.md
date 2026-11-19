@@ -90,7 +90,8 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         **Rollback:** nothing runs unless root reads the sysctl; a bad boot = OpenCore `OC.prev` (from the Mac:
         `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or `-phxbringupoff` for one boot
   - [x] 2026-11-20 Step 2 done: Linux capture read ([findings](findings/2026-11-19-refresh-and-hdr.md), "Capture read on macOS")
-  - [~] **b128 = b127 + 1440p 60/120/144 Hz on pipe 0** (plans from the capture, DET 4/0/0/0 step, DAL DISPCLK/DPPCLK hard
+  - [x] 2026-11-20 **b128 works on hardware: 60 -> 120 -> 144 -> 60 from a shell, OSD 120/144 Hz, picture normal** ([findings](findings/2026-11-19-refresh-and-hdr.md)). Details:
+        **b128 = b127 + 1440p 60/120/144 Hz on pipe 0** (plans from the capture, DET 4/0/0/0 step, DAL DISPCLK/DPPCLK hard
         mins 505/614 MHz with the owner's OK, depth 12 -> 10/8 bpc). Host tests: pipe0_1440 45/45 (4 mutations caught),
         edid_full 27/27, scan_layout 43/43; mock 189/159. Built on the Mac (VermilionBoot sha256 `bf4c3edd...`). EFI built
         from this branch: only `Kexts/VermilionBoot.kext/Contents/MacOS/VermilionBoot` differs from the installed EFI.

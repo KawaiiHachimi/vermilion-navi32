@@ -209,3 +209,20 @@ read of 87 registers on macOS, same boot). Register names from Linux v6.8 `dcn_3
   UCLK p-state 0x51e4 vs 0x4ee8). Upstream ran 1080p144 on the firmware's watermarks; the first 1440p attempt does too,
   with the engine's underflow check (100 samples over 1 s, else automatic fall-back to 60).
 - `DP_VID_M` on HBR2: 0x395e at 241.5 MHz (firmware), so 0x7c74 / 0x9466 expected at 497.75 / 593.75 MHz (unverified).
+
+## b128 on hardware (2026-11-20 ~00:55, XTX machine, LG ULTRAGEAR+ on DP B): 120 and 144 Hz work
+
+Boot with VermilionBoot b128 (b126 EFI as `OC.prev`); desktop armed normally (daemon SUCCESS 00:50:01). From a root shell,
+with WindowServer running (macOS still believes 60 Hz: no PhxAccel change yet):
+
+| Step | Result | Read after |
+|---|---|---|
+| `debug.phxpipe0_enable=1`, surveys (reads only) | 60: refused on the stale OPTC0 sticky only (1440p60 plan matched, HBR2 M check passed); 120: refused on DENTIST (expected) | 0 writes |
+| `mode=120`, `debug.phxpipe0=4` | **done**: sticky cleared, DET 4/0/0/0 (4 writes), 2 DAL hard mins (505 MHz), round trip at 60, set; 126 frames in the ~1.05 s window; stream up after 8.5 ms; 1.06 s shell | V_TOTAL 0x5f4, DENTIST 0x221f2222 (= Linux), DP_VID_M 0x763e (= Linux), depth 10 bpc, no underflow |
+| `mode=144` | **done**: 2 DAL hard mins (614 MHz); 152 frames / ~1.05 s | V_TOTAL 0x5eb, DENTIST 0x1c191c1c (= Linux), DP_VID_M 0x8d0b (= Linux), 8 bpc dithered, no underflow |
+| `mode=60` | **done**: back to the GOP's plan (every plan register read back), 62 frames / ~1.05 s | DP_VID_M 0x395f |
+
+Owner, at each step: the monitor's OSD showed **120 Hz** and **144 Hz**, the picture looked normal. The power firmware moved
+DENTIST by itself after the hard minimums (no DENTIST write needed, as upstream's pipe-1 switch). The firmware's watermarks
+were enough at 144 (no underflow in the verify window; longer runs unverified). Not tested yet: macOS rendering at the new
+rate (needs the head-0 mode list), sleep/wake, a cold boot after a switch (the GOP relights 1440p60 each boot).
