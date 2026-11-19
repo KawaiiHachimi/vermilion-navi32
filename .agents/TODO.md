@@ -7,36 +7,41 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (handoff, 2026-11-19)
+## Current state (handoff, 2026-11-19, evening)
 
-- **macOS 26.7.1 is installed** on p3 (`Macintosh HD`, APFS, 78 GiB) with the `install` stage EFI (`/boot/EFI/OC`,
-  firmware entry "OpenCore", Limine first in the boot order; the owner picks OpenCore with F8). The install finished
-  all its phases: the restart after a short Apple logo was the installer's own "Triggering reboot" after "Boot 1"
-  ([findings](findings/2026-11-19-install-phases.md)). The first normal boot reached Setup Assistant and the desktop
-  (2026-11-19): slow, as expected without GPU acceleration. (For the record: nullmoth/1401 documents a black screen with only a cursor where
-  Setup should start on macOS 26 without a GPU driver; their fix creates the account from Recovery's Terminal and skips
-  Setup (docs/TROUBLESHOOTING.md, `finish-setup.sh`). It did not happen here.)
-- **What it took** ([findings](findings/2026-11-18-first-boot-acpi.md)):
-  1. 5 in-place DSDT NOP patches (AM5 chipset `If (G002 ...)` blocks);
-  2. SSDT-CPUR (the CPUs exist only as ACPI0007 devices);
-  3. iGPU disabled in the BIOS;
-  4. the AGDP pikera kernel patch (Navi);
-  5. `DisableVariableWrite`.
-- **BIOS now:** iGPU disabled (re-enable for Phase 5), CSM off, Above 4G + ReBAR on.
-- **Observability:** photos of the verbose screen; the OpenCore logs on `/boot`; and since 2026-11-19 the macOS disk
-  itself via `apfs-fuse` from Linux (`install.log`, panic reports; [runbooks](runbooks.md)). `log show` once the
-  desktop works.
+- **The accelerated desktop runs on the XTX** (Vermilion, Metal compositor, one display at 2560x1440) on macOS 26.7.1
+  bare metal. Every OpenCore boot is a squat boot and arms the desktop by itself
+  ([findings](findings/2026-11-19-first-vermilion-boot.md)). The GPU bring-up needed no XTX change.
+- **Boot routine:** Linux via Limine (default). macOS: full power-off, F8 > OpenCore > Macintosh HD. **No Reset
+  NVRAM** any more: it deletes `phxfb-squat` (then the next boot is a non-squat boot with a phantom "UNKNOWN" IONDRV
+  display). Reset NVRAM is the escape hatch back to the plain firmware display. A failed desktop attempt reboots, and
+  the default entry is Limine, so it lands in Linux. Warm macOS restarts are fine on this card.
+- **Machine state:**
+  - EFI: `vermilion` stage on `/boot/EFI/OC` (`OC.prev` = `install`); `DisableVariableWrite` on, so macOS can't
+    write firmware NVRAM.
+  - `phxfb-squat` is set as an EFI variable from Linux
+    (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`, value "1").
+  - `~/gpu` flags: `sdma`, `cg`, `uclk=456`.
+  - `~/gpu/phxboot-pre.sh` = `tools/phxctl/esp_flags.sh` (takes `<EFI>/vermilion/flags/phxboot-*` and runs
+    `<EFI>/vermilion/run-once.sh` once as root): **this is how files and flags reach macOS without a desktop**.
+  - The AIR bitcode reader (`air-runtime/libLLVM.dylib`, from NullMoth 3.0) is installed.
+- **Observability from Linux (no macOS shell needed):** `apfs-fuse` read-only mount of the Data volume
+  (`~/.local/src/apfs-fuse`), `/var/log/phxboot.log`, crash reports, the unified log decoded with
+  `~/.local/src/macos-UnifiedLogs` ([runbooks](runbooks.md)). Build host: macbox ([runbooks](runbooks.md)).
 - **Next steps, in order:**
-  1. ~~First boot of Macintosh HD to the desktop~~ done 2026-11-19. Too slow to use: WindowServer runs its CPU
-     "Software compositor" at 30 Hz, no IOGPU device ([findings](findings/2026-11-19-first-desktop-logs.md)).
-  2. **Phase 2 first (owner's decision, 2026-11-19):** built and staged
-     ([findings](findings/2026-11-19-phase2-build-and-stage.md)). `vermilion` EFI stage on `/boot/EFI/OC`
-     (`OC.prev` = `install`), payload in `/boot/vermilion`. **Next boot:** Reset NVRAM > Recovery > Terminal >
-     `mkdir -p /tmp/efi && diskutil mount -mountPoint /tmp/efi disk2s1 && sh /tmp/efi/vermilion/install.sh` > restart into Macintosh HD, wait ~3 min
-     (no desktop arm: bring-up + Metal for apps), shut down, then read `/var/log/phxboot.log` from Linux. Then stage
-     `phxboot-desktop` from Linux for the accelerated-desktop boot ([runbooks](runbooks.md)).
-  3. Then Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (Apple's E1000 dext
-     fails its entitlement check, so the I210 + `e1000=0` fallback), Bluetooth, USB map.
+  1. **Input lag at 1440p:** every frame (14.7 MB) is CPU-copied through the BAR
+     (`PhxFB: alias: ... copying through the BAR`, iop plane `scanout 0`). phxfb's flip buffer B and the three
+     GPU-present slots are 8 MiB regions (`src/vermilion-accel/accel/phxhead.h`, `src/vermilion-boot/PhxNativeABI.h`:
+     slots at 24/32/40 MiB, PSP ring at 48 MiB, BAR0 window `kFbAperMapMax` 160 MiB). Make them fit a 1440p (or
+     mode-sized) frame: research the VRAM layout first, keep the XT's 1080p layout working, bump `PHX_KEXT_BUILD`,
+     mock tests on macbox, deliver through `run-once.sh` / the EFI, one change per boot.
+  2. The monitor's refresh: unknown (the owner will read the monitor OSD). 144/240 Hz needs mode switching + DP link
+     training (Phase 3).
+  3. Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (E1000 dext fails its
+     entitlement check: I210 + `e1000=0` fallback), Bluetooth, USB map.
+  4. Small fixes: `recovery_install.sh`'s Data-volume search (found 3 in Recovery), the reader in
+     `esp_stage.sh`/`recovery_install.sh`, the canned profile still says "RX 7900 XT" / 84 CU (docs/XTX.md item 1).
+- **Root:** never guess the password; T3's `request_secret` with file delivery.
 
 ## Phase 0: Housekeeping
 
