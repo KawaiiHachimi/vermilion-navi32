@@ -15,11 +15,19 @@ and `ws-gpu-present-async` absent, the plugin copies WindowServer's frame at *sc
 finished. Ruled out: plane loss, the b74 latch race (0 on-screen slots reused), display underflow. Heat: WindowServer
 wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come faster than the 60 Hz refresh.
 
-- [ ] Flicker step 1 (live, needs the owner's OK + root): create `/Library/GPUBundles/nvmtl/ws-gpu-present-async`,
-      owner watches. Rollback: delete it (the plugin re-reads it every second). If the file is left in place and a
-      later boot misbehaves, Linux can't delete it (apfs-fuse is read-only): use `<EFI>/vermilion/run-once.sh` with
-      `rm -f /Library/GPUBundles/nvmtl/ws-gpu-present-async`
-- [ ] Flicker step 2: lasting fix in the plugin (present only after completion when not async), through the EFI
+- [x] 2026-11-19 10:17 Flicker step 1: `/Library/GPUBundles/nvmtl/ws-gpu-present-async` created live: no change
+      to the flicker (owner); it stays on (correct ordering, needed by E3). If a later boot misbehaves, Linux can't
+      delete it (apfs-fuse is read-only): `<EFI>/vermilion/run-once.sh` with `rm -f /Library/GPUBundles/nvmtl/ws-gpu-present-async`
+- [~] Flicker step 2 (**staged 10:25, next boot**): `<EFI>/vermilion/run-once.sh` sets `NVMTL_WS_PRESENT_CDCOPY=1`
+      for one boot (E3: present CoreDisplay's display surfaces). Boot: Apple menu > Restart (macOS -> macOS, no power-off
+      needed); in the OpenCore picker Macintosh HD; **no Reset NVRAM**. After the boot, check: `grep run-once
+      /var/log/phxboot.log` shows `NVMTL_WS_PRESENT_CDCOPY=1`; the unified log (WindowServer, NVMTL) shows
+      `presenting CoreDisplay's display surfaces` and `is a display surface`; the owner checks the flicker.
+      **Rollback:** nothing to undo on disk (EFI/OC unchanged; the env var lasts one boot; run-once is moved off the ESP
+      before it runs). Black screen: hold power, power on, OpenCore > Macintosh HD = the boot before. From Linux (Limine,
+      default): not needed; the same power cycle is enough
+- [ ] Flicker step 3: if E3 fixes it, make it permanent (a daemon flag that sets the env before the WindowServer restart),
+      and fix the schedule-time copy for the non-async path in the plugin
 - [ ] Heat: re-measure after the flicker fix; then at most one present per vblank, and less polling in fence waits
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
 

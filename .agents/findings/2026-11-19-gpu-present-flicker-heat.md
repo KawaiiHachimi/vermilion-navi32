@@ -59,6 +59,32 @@ display underflow (HUBP0 clean, ODM0 current bit never set).
   work per frame than GPU present. So the heat is more likely wakeups x frame rate than CPU work (unverified; boot 1 had
   no `powermetrics`).
 
+## Live test 1 (10:17:35): `ws-gpu-present-async` on: no change to the flicker
+
+Created `/Library/GPUBundles/nvmtl/ws-gpu-present-async` with the owner's OK. The plugin logged `async ON` within 1 s,
+the plane stayed acquired, presents kept flowing (331 in 10 s, no plane loss). Owner: **no change**. The flicker
+affects only what they interact with (typing, Dock magnification, moving or resizing windows), never the whole desktop,
+and comes in cycles: it flickers for a while, stops for a few seconds, starts again. So the schedule-time copy is a
+real ordering bug, but not what the owner sees. The switch stays on: it is correct, and E3 below needs it.
+
+That pattern matches upstream's E3 note in `NVMTLWSPresent.m`: SkyLight composes each frame into one of two targets
+and draws only what changed, so the regions being redrawn alternate between new and a frame or more old ("Dock band
+ping-pong between the two SkyLight targets", E0 traces 2026-10-25). The default mode presents those targets.
+`NVMTL_WS_PRESENT_CDCOPY=1` presents CoreDisplay's display surfaces instead (written by unwaited CoreDisplay commits,
+every region current), at GPU completion (async only). The cycles of a few seconds fit a beat between WindowServer's
+frame timing and the vblank. A half-drawn target is visible only when a flip latches before the next present
+replaces it (unverified).
+
+## Boot test 2 (staged 10:25): E3 for one boot
+
+`<EFI>/vermilion/run-once.sh` runs `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1` in the boot daemon's pre hook, only
+if the async switch exists. WindowServer restarted by the daemon after arming inherits it (the same mechanism as the
+daemon's `CI_USE_MTL_DAG_FOR_CIKL_SRC`). `launchctl setenv` does not survive a reboot, so the boot after reverts by
+itself. Tested as root with a fake `launchctl` (sets it with the switch, does nothing without). No EFI/OC change.
+Expected (unverified): the plugin logs `presenting CoreDisplay's display surfaces` and `surface N is a display
+surface`, and the regions being redrawn no longer flicker. If pane switches show incomplete frames, tune the live switch
+`ws-cdcopy-hold` (microseconds, upstream's fix for that).
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every
