@@ -180,3 +180,32 @@ Capture files: EFI partition `/boot/vermilion/capture/display-20261120-{001650,0
 - **Tooling bug fixed:** Hyprland 0.56 uses Lua config; `hyprctl keyword monitor` no longer works, so the script now sends
   `hyprctl eval 'hl.monitor{...}'`. The first run of all steps (every step captured 240 Hz) was deleted.
 - The optional draft pipe-0 plans (hbr2-120/144 traces into `phx_p0_plan` form) are not done.
+
+## Capture read on macOS (2026-11-20): what a 1440p pipe-0 plan needs
+
+Read from the EFI partition copy (scratchpad only) and compared with the firmware's live 1440p60 state (one `phxctl regs`
+read of 87 registers on macOS, same boot). Register names from Linux v6.8 `dcn_3_2_0_offset.h` (DCN bases 0x12 / 0xC0 /
+0x34C0 / 0x9000; the `0x90xx` block is MPCC0/OGAM0, `0x1627x/0x1628a` the DAL mailbox).
+
+- **Same pipe as macOS:** Linux drives the LG from OTG0 / HUBP0 / DIG1 / DP1 at every step, so captured values map onto
+  the pipe-0 engine's registers one to one. The EDID block 2 is a DisplayID 1.x block (the 240 Hz timing).
+- **Convention:** Linux runs DP at 2 pixels per cycle (DTO phase = pclk / 2, `DP_PIXEL_FORMAT` bit 30, `DP_VID_TIMING`
+  N_MUL 1); the firmware at 1 (phase = pclk, modulo 716,666,667). Upstream's 1080p plans keep the firmware convention with
+  Linux's other values (their `REF_FREQ_TO_PIX_FREQ` = 50 MHz reference, as Linux's 1440p values: 0xcdb9 at 497.75 MHz,
+  0xac76 at 593.75 MHz). The 1440p plans do the same.
+- **Plan values (Linux, HBR2 x4):** OTG timing (only V_TOTAL / V_BLANK change: 0x5f4 at 120, 0x5eb at 144), frame position
+  (VSTARTUP 0x54/0x4b, VUPDATE 0xf702a8/0xf602a8, VREADY 0x148), HUBP DLG/TTU (13 registers), MSA timing. 10 bpc changes
+  none of them. DSCL0 OTG H/V blank were not written by Linux; they equal the OTG H/V blank values (as in upstream's plans).
+- **Depth (new for the engine):** the firmware sends 12 bpc (`DP_PIXEL_FORMAT` depth 3, MISC0 0x60, `FMT_BIT_DEPTH_CONTROL` 0).
+  Linux: 8 bpc = depth 1, MISC0 0x20, FMT 0xc900 (spatial dither to 8); 10 bpc = depth 2, MISC0 0x40, FMT 0xd100.
+- **Clocks:** Linux sends DAL `SetHardMinByFreq` (msg 0x09) DISPCLK + DPPCLK 245 MHz at 60, **505 MHz at 120, 614 MHz at
+  144** (DENTIST divider IDs 0x43 / 0x22 / 0x1c); the firmware left 0x40. Linux also sends DCFCLK 199 MHz, UCLK 96 MHz (the
+  daemon pins UCLK 456 instead), deep-sleep DCFCLK (0x0d), display count (0x0e), 0x10, and **0x14 = SetAlwaysWaitDmcubResp**
+  (hung the PMFW with the VBIOS DMCUB in upstream's work: never sent) and 0x15. Upstream's pipe-1 switch already sends only
+  the two DISPCLK/DPPCLK hard minimums and lets the PMFW move DENTIST; the same for pipe 0.
+- **DET:** Linux 4/0/0/0 segments at 60/120/144 (9 at 240), COMPBUF 16; firmware 3/3/3/3, COMPBUF 2. The engine's "DET0 >= 9
+  above 60 Hz" rule is the XT's two-pipe 1080p value; the 1440p plans carry Linux's 4.
+- **Watermarks:** Linux's sets A-D are the same at 60/120/144 and about twice the firmware's (urgency 0x3c4 vs 0x1fe,
+  UCLK p-state 0x51e4 vs 0x4ee8). Upstream ran 1080p144 on the firmware's watermarks; the first 1440p attempt does too,
+  with the engine's underflow check (100 samples over 1 s, else automatic fall-back to 60).
+- `DP_VID_M` on HBR2: 0x395e at 241.5 MHz (firmware), so 0x7c74 / 0x9466 expected at 497.75 / 593.75 MHz (unverified).

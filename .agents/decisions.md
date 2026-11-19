@@ -192,3 +192,13 @@ fence. A flag is the smallest change that survives reboots, with no kext rebuild
 so both kexts would have to change in the same boot (EFI and AuxKC: two changes in one boot). The first goal is only
 to see the LG's block 2 (the 240 Hz timing), and a sysctl does that with one kext and no change at boot.
 **Revisit:** once the segment read works on hardware and the 240 Hz work starts (macOS then needs block 2 to list the mode).
+
+## 2026-11-20: 1440p high refresh on the XTX: 120/144 Hz first on the firmware's HBR2 link, then 240 Hz
+
+**Decision:** b128 adds 1440p 60/120/144 pipe-0 plans (firmware DTO convention, Linux's timing / DLG values from the
+2026-11-20 capture, depth 12 -> 10 / 8 bpc), and the pipe-0 engine sends the two DAL hard minimums Linux sends for them
+(DISPCLK and DPPCLK `SetHardMinByFreq`, 505 / 614 MHz; owner's OK 2026-11-20), never lowered, nothing else from Linux's DAL
+list (0x14 stays blocked). 240 Hz (HBR3 retraining of DP B + DSC) is the next, separate step on top.
+**Why:** 120/144 fit the HBR2 x4 link the firmware trains, so they need no link training, the riskiest part. Every piece
+(plans, clock step, DET step, mode list) is also needed at 240 Hz.
+**Revisit:** if the engine's underflow check fails at 144 with the firmware's watermarks (then Linux's watermark sets A-D).

@@ -89,6 +89,22 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         After boot: `sudo sysctl -w debug.phxedid_src=0x22; sudo sysctl -b debug.phxedid_full > edid.bin`.
         **Rollback:** nothing runs unless root reads the sysctl; a bad boot = OpenCore `OC.prev` (from the Mac:
         `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or `-phxbringupoff` for one boot
+  - [x] 2026-11-20 Step 2 done: Linux capture read ([findings](findings/2026-11-19-refresh-and-hdr.md), "Capture read on macOS")
+  - [~] **b128 = b127 + 1440p 60/120/144 Hz on pipe 0** (plans from the capture, DET 4/0/0/0 step, DAL DISPCLK/DPPCLK hard
+        mins 505/614 MHz with the owner's OK, depth 12 -> 10/8 bpc). Host tests: pipe0_1440 45/45 (4 mutations caught),
+        edid_full 27/27, scan_layout 43/43; mock 189/159. Built on the Mac (VermilionBoot sha256 `bf4c3edd...`). EFI built
+        from this branch: only `Kexts/VermilionBoot.kext/Contents/MacOS/VermilionBoot` differs from the installed EFI.
+        **Installed 2026-11-20 with `efi/build.py install --stage vermilion`; `OC.prev` = the EFI of 2026-11-19 09:57 (b126,
+        booted many times).** Nothing new runs at boot (the pipe-0 engine stays off until root sets `debug.phxpipe0_enable=1`).
+        **Test after the boot (shell, no PhxAccel change yet; macOS still thinks 60 Hz):**
+        `sudo sysctl debug.phxpipe0_enable=1 debug.phxpipe0_mode=120 debug.phxpipe0=4`, then `sysctl -n debug.phxpipe0_stat`
+        (`last=done`, `frames=` ~120), the monitor's OSD shows 120 Hz; back: `sudo sysctl debug.phxpipe0_mode=60 debug.phxpipe0=4`.
+        Then 144 the same way. A failed set falls back to 60 by itself; dark = reboot (the GOP relights 1440p60).
+        **Rollback:** bad boot (no desktop, panic): power off, power on, OpenCore picker > (Space) > the previous entries are
+        not separate, so: boot with `-phxbringupoff` once, or from Linux: `sudo mv /boot/EFI/OC /boot/EFI/OC.bad &&
+        sudo mv /boot/EFI/OC.prev /boot/EFI/OC`; from macOS: `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`
+  - [ ] Next after b128 passes: PhxAccel head-0 mode list for 1440p (LG DTDs 60/120/144, target_hz rounded from milliHz:
+        59951 -> 60) + a daemon flag that sets `debug.phxpipe0_enable=1 debug.phxpipe0_modes=1` before the claim (one boot)
   - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
         `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
   - [~] Step 2: Linux capture. Tool `tools/capture/linux_display_capture.py` (test
