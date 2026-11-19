@@ -7,7 +7,7 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 19:35): flicker fixed by E3 for one boot; next: make it permanent
+## Current state (2026-11-19, 22:00): flicker fixed (E3); the permanent daemon flag is staged; next: heat
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
@@ -28,8 +28,18 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Rollback:** nothing to undo on disk (EFI/OC unchanged; the env var lasts one boot; run-once is moved off the ESP
       before it runs). Black screen: hold power, power on, OpenCore > Macintosh HD = the boot before. From Linux (Limine,
       default): not needed; the same power cycle is enough
-- [ ] Flicker step 3: if E3 fixes it, make it permanent (a daemon flag that sets the env before the WindowServer restart),
-      and fix the schedule-time copy for the non-async path in the plugin
+- [~] Flicker step 3, make E3 permanent (**staged 2026-11-19 21:58, takes effect at the next restart, whenever**):
+      daemon flag `phxboot-wscdcopy` (commit 6ba5f6e, mock 175/175) + `tools/phxctl/daemon_install.sh` (f7a7d4a).
+      On the EFI partition: `vermilion/flags/phxboot-wscdcopy`, `vermilion/daemon/` (daemon sha256 36dc5db5...),
+      `vermilion/run-once.sh` (installs the daemon into ~/gpu with `~/gpu/phxboot-navi31.sh.prev`, and sets the variable
+      for that boot itself, because that boot still runs the old daemon). Tested as root end to end through the real
+      `esp_flags.sh` against a fake root (9/9). **Restart 1** (any normal Apple menu > Restart): check `grep -E
+      'wscdcopy|daemon-install|run-once' /var/log/phxboot.log` and no flicker. **Restart 2**: the daemon's own line
+      `wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted WindowServer` = verified.
+      **Rollback:** black screen: hold power, power on, OpenCore > Macintosh HD (the daemon has its own fallbacks: kill
+      switch, pending mark, GOP revert). Old daemon back: a `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev
+      /Users/<user>/gpu/phxboot-navi31.sh`; flag off: `<EFI>/vermilion/flags/phxboot-wscdcopy.rm`. EFI/OC unchanged
+- [ ] Plugin: fix the schedule-time copy of the non-async GPU present (present only after completion)
 - [ ] Heat: re-measure after the flicker fix; then at most one present per vblank, and less polling in fence waits
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
 
