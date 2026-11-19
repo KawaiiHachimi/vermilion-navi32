@@ -121,3 +121,13 @@ The owner also ran Reset NVRAM; no change. Auditing against Dortania's AMD check
 
 All ACPI tables of BIOS 4005 are now kept in `~/.config/vermilion/acpi/b650e-i-xtx/tables/` (they survive reboots;
 not in git).
+
+## Fifth boot (2026-11-19): past the kernel, stuck at "IOG flags 0x3 (0x51)"
+
+With SSDT-CPUR the boot reached userspace (launchd, KextLog, secd), then stopped after `deferred rematching count 1`
+/ `IOG flags 0x3 (0x51)`, where the installer GUI should appear. This exact line is a known stall point on AMD builds,
+caused by graphics: WhateverGreen (not used here) or a GPU macOS can't drive being present
+([forum.amd-osx.com: IOG Flags 0x3 (0x51)](https://forum.amd-osx.com/threads/iog-flags-0x3-0x51.6177/),
+[WhateverGreen problem](https://forum.amd-osx.com/threads/whatevergreen-problem.5975/), where one user got past it by
+leaving only one GPU). This machine has two: the RX 7900 XTX (no macOS driver, GOP console) and the Radeon 610M iGPU
+(no macOS driver either). Next step, one change: iGPU disabled in the BIOS for the install.
