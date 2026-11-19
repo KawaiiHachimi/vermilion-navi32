@@ -127,9 +127,12 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
       Metal for apps ([findings](findings/2026-11-19-first-vermilion-boot.md))
 - [x] 2026-11-19 First desktop-arm boot: arm path OK at 1440p, WindowServer aborted (no AIR bitcode reader)
 - [x] 2026-11-19 **Accelerated desktop on the XTX: SUCCESS** (reader installed through run-once; Metal compositor)
-- [~] Phantom "UNKNOWN" display (IONDRV beside PhxAMDFB on a non-squat boot): squat via `phxfb-squat` written as an
-      EFI variable from Linux (macOS can't write NVRAM here). Delete it with Reset NVRAM or from Linux
-      (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`)
+- [x] 2026-11-19 Phantom "UNKNOWN" display fixed by squat boots: `phxfb-squat` written as an EFI variable from Linux
+      (macOS can't write NVRAM here); it stays set, so every OpenCore boot is a squat boot. Delete it with Reset NVRAM
+      or from Linux (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`)
+- [ ] **Input lag at 1440p: frames are CPU-copied through the BAR** (flip buffer B and GPU-present slots are 8 MiB,
+      a 1440p frame is 14.7 MB). Next code work: 16 MiB (or mode-sized) scan-out regions; needs a VRAM layout change
+      (`phxhead.h`, `PhxNativeABI.h`; the PSP ring sits at 48 MiB, BAR0 window 160 MiB)
 - [ ] Refresh rate / input lag at 1440p: measure what the GOP mode and DP link are, and whether frames go through the
       CPU copy (no GPU present at 1440p: 8 MiB scan slots, docs/XTX.md)
 - [ ] `recovery_install.sh` and `esp_stage.sh`: include the air-runtime reader (from NullMoth's package, md5-pinned)

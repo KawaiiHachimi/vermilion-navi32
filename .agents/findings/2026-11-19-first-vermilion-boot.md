@@ -107,3 +107,17 @@ reader and sets `phxboot-desktop`. Tests: `espflags_test.sh` 10/10, daemon scena
   (unverified): every OpenCore boot is a squat boot until the variable is deleted from Linux or by the picker's Reset
   NVRAM, because the kext's removal at probe can't reach the firmware. A failed squat boot reboots, and the default
   boot entry is Limine, so it lands in Linux. Recovery would have no display while the variable is set.
+
+## Seventh boot (2026-11-19): squat boot works; one display; the input lag is the CPU copy through the BAR
+
+- `phxfb-squat` written from Linux worked: `squat boot ...: 1 (decided by PhxFBSquatter after 0s)`, the desktop
+  armed, one display only (the owner confirmed "UNKNOWN" is gone). The owner shut down cleanly during the 120 s
+  watch (`clean shutdown (TERM) ... in-progress mark cleared`), so no SUCCESS line, as designed. The EFI variable is
+  still set after the boot (macOS can't delete it here), so every OpenCore boot is now a squat boot.
+- Input lag and the low refresh feel: the kernel log says
+  `PhxFB: alias: carve-out 0x0, scan-out BAR offset 0x0: no system-RAM view, copying through the BAR` and the
+  iop plane is `2560x1440 ... vidmem 14745600 bytes ... scanout 0`: every frame (14.7 MB) is copied by the CPU over
+  PCIe into the scanned buffer. The two direct paths don't fit at 1440p: phxfb's flip buffer B and the three
+  GPU-present slots are 8 MiB regions (`phxhead.h` `kErrTooBig`; `PhxNativeABI.h`: slots at 24/32/40 MiB, the PSP ring
+  at 48 MiB). This is docs/XTX.md's "16 MiB scan slots" item.
+- Not measured yet: the monitor's actual refresh (the GOP's mode). The owner can read it on the monitor's OSD.
