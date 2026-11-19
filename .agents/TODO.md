@@ -7,7 +7,7 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; wait step 200 passed a blind A/B (live, back to 50)
+## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; wait step 200 passed a blind A/B, live now, permanent flag staged for the next restart
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
@@ -46,7 +46,21 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       each fence wait +~240 us; owner "can't tell or it's worse": **set back to 50** at 22:09:58
       ([findings](findings/2026-11-19-gpu-present-flicker-heat.md), live test 3). 22:16-22:28 blind A/B (AABB):
       200 **not worse** (the owner's smoothest stretch was a 200 one), WindowServer wakeups 137-352/s median vs
-      1673-2458/s at 50 (live test 4). Next (proposed): a daemon flag that sets 200 at every boot
+      1673-2458/s at 50 (live test 4). Live at 200 since 22:29:47 (this boot only).
+- [~] Heat: make 200 permanent: daemon flag `phxboot-waitstep` (commit 8e3718b, daemon sha256 5c2c1513..., mock 189/189,
+      b15test 159/159). **Staged 2026-11-19 22:38** on the EFI partition: `vermilion/flags/phxboot-waitstep` (200),
+      `vermilion/daemon/` (new daemon; the E3 bundle kept as `vermilion/daemon.prev`), `vermilion/run-once.sh` (installs
+      the daemon into ~/gpu with `~/gpu/phxboot-navi31.sh.prev` = the E3 daemon 36dc5db5, and sets the sysctl for that
+      boot itself, because that boot still runs the old daemon). Tested as root end to end through the real
+      `esp_flags.sh` against a fake root (12/12). **Next restart** (Apple menu > Restart, OpenCore > Macintosh HD, no
+      Reset NVRAM) is also restart 2 of the E3 flag: check `grep -E 'wscdcopy|waitstep|daemon-install|run-once'
+      /var/log/phxboot.log` = the old daemon's own `wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 ...` line, `daemon-install:
+      installed ... 5c2c1513...` and `run-once: debug.phxwait_step_us=200 for this boot rc 0, reads 200`; `sysctl
+      debug.phxwait_step_us` = 200. **The restart after** shows the daemon's own `waitstep: debug.phxwait_step_us=200 rc 0`.
+      **Rollback:** the value: `rm ~/gpu/phxboot-waitstep` (a user file; next boot = 50), or live `sudo sysctl -w
+      debug.phxwait_step_us=50`, or from Linux `<EFI>/vermilion/flags/phxboot-waitstep.rm`. The E3 daemon back: a
+      `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev /Users/<user>/gpu/phxboot-navi31.sh`. Black screen:
+      hold power, power on, OpenCore > Macintosh HD (the daemon's fallbacks are unchanged). EFI/OC unchanged
 - [ ] Screen tearing at 1440p60 with GPU present (owner, live test 4, both wait steps): research first
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write

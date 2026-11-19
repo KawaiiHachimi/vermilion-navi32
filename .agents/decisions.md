@@ -169,3 +169,17 @@ regions flickered (verified, 1440p60). E3 fixed it on the first boot it ran
 `launchctl setenv` is how the daemon already passes `CI_USE_MTL_DAG_FOR_CIKL_SRC`, and the plugin needs no rebuild.
 **Revisit:** when the plugin is rebuilt: a file switch next to the other `ws-*` switches would replace the variable,
 and E3 may deserve to be the default for GPU present on every card (needs a test on the XT).
+
+## 2026-11-19: the fence wait's timed step is 200 us on the XTX machine, behind a daemon flag
+
+**Decision:** the boot daemon sets `debug.phxwait_step_us` from the flag `~/gpu/phxboot-waitstep` (its content, empty
+= 200, 20-1000 accepted) before its WindowServer restart. The XTX machine uses 200. The kext's default stays 50, so
+the upstream XT keeps its behaviour.
+**Why:** with IRQ waits off, every fence wait longer than 20 us sleeps in timed steps; at 50 us WindowServer woke
+640-2500 times/s. 200 cut that 5-15x and was not worse than 50 in a blind A/B on the XTX machine
+([findings](findings/2026-11-19-gpu-present-flicker-heat.md), live tests 3-4). It costs ~240 us more per waited
+fence. A flag is the smallest change that survives reboots, with no kext rebuild. Its effect on heat is unverified
+(no CPU temperature reading yet).
+**Revisit:** once CPU temperature or package power is readable, or if the IRQ wait path is verified on the XTX
+(then the step only matters as its fallback); growing steps in the kext (50, 100, 200) if a lower latency is wanted.
+
