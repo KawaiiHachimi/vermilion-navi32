@@ -32,12 +32,24 @@ take() {   # take <flags dir>
   done
 }
 
+# At boot diskarbitrationd may not answer yet: retry the listing and the mount for up to ESPF_TRIES seconds (default 15,
+# inside the daemon's 30 s budget for the hook).
+TRIES=${ESPF_TRIES:-15}
+ids=""; n=0
+while [ -z "$ids" ] && [ $n -lt "$TRIES" ]; do
+  ids=$("$DISKUTIL" list 2>/dev/null | awk '$2 == "EFI" { print $NF }'); [ -n "$ids" ] || { n=$((n+1)); sleep 1; }
+done
+[ -n "$ids" ] || echo "esp-flags: no EFI partition listed after ${TRIES}s"
 found=0
-for id in $("$DISKUTIL" list 2>/dev/null | awk '$2 == "EFI" { print $NF }'); do
+for id in $ids; do
   mp=$("$DISKUTIL" info "$id" 2>/dev/null | awk -F': *' '/^ *Mount Point:/ { print $2 }')
+  [ -n "$mp" ] && [ -d "$mp" ] || mp=""      # "Not mounted" style values count as unmounted
   ours=0
   if [ -z "$mp" ]; then
-    mkdir -p "$MNT" && "$DISKUTIL" mount -mountPoint "$MNT" "$id" >/dev/null 2>&1 || { echo "esp-flags: could not mount $id"; continue; }
+    mkdir -p "$MNT"; n=0
+    until "$DISKUTIL" mount -mountPoint "$MNT" "$id" >/dev/null 2>&1; do
+      n=$((n+1)); [ $n -lt "$TRIES" ] || break; sleep 1; done
+    [ $n -lt "$TRIES" ] || { echo "esp-flags: could not mount $id"; rmdir "$MNT" 2>/dev/null; continue; }
     mp=$MNT; ours=1
   fi
   if [ -d "$mp/vermilion/flags" ]; then found=1; take "$mp/vermilion/flags"; sync; fi

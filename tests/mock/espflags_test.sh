@@ -6,19 +6,20 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd); S=$HERE/../../tools/phxctl/esp_flags.sh
 T=$(mktemp -d "${TMPDIR:-/tmp}/espflags.XXXXXX"); PASSN=0; FAILN=0
 fake() {   # fake <mounted 0|1>: one EFI partition disk9s1, its contents in $T/esp; mount = a symlink
-  mkdir -p "$T/bin" "$T/esp/vermilion/flags" "$T/gpu"; rm -f "$T/mounted" "$T/calls"; [ "$1" = 1 ] && echo "$T/esp" >"$T/mounted"
+  mkdir -p "$T/bin" "$T/esp/vermilion/flags" "$T/gpu"; rm -f "$T/mounted" "$T/calls" "$T/mc" "$T/mfail"; [ "$1" = 1 ] && echo "$T/esp" >"$T/mounted"
   cat >"$T/bin/diskutil" <<EOF
 #!/bin/bash
 echo "\$*" >>"$T/calls"
 case "\$1" in
   list) printf '   0:      GUID_partition_scheme                        *1.0 TB     disk9\n   1:                        EFI NO NAME                 2.1 GB     disk9s1\n   2:                 Apple_APFS Container disk10        83.8 GB    disk9s3\n';;
   info) [ -e "$T/mounted" ] && echo "   Mount Point:               \$(cat "$T/mounted")" || echo "   Mount Point:               "; ;;
-  mount) [ "\$2" = -mountPoint ] && { rmdir "\$3" 2>/dev/null; ln -s "$T/esp" "\$3"; echo "\$3" >"$T/mounted"; };;
+  mount) echo x >>"$T/mc"; if [ -s "$T/mfail" ]; then m=\$(cat "$T/mfail"); echo \$((m-1)) >"$T/mfail"; [ \$m -le 0 ] || exit 1; fi
+         [ "\$2" = -mountPoint ] && { rmdir "\$3" 2>/dev/null; ln -s "$T/esp" "\$3"; echo "\$3" >"$T/mounted"; };;
   unmount) rm -f "\$2" "$T/mounted";;
 esac
 EOF
   chmod +x "$T/bin/diskutil"; }
-run() { ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
+run() { ESPF_TRIES=${ESPF_TRIES:-3} ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
 check() {   # check <name> <cond> ...: every cond (a shell test) must hold
   local name=$1 ok=1 c; shift
   for c in "$@"; do eval "$c" || { ok=0; echo "    failed: $c"; }; done
@@ -37,5 +38,17 @@ check ignore_other '[ ! -e "$T/gpu/evil" ]' '[ -e "$T/esp/vermilion/flags/evil" 
 
 fake 0; rmdir "$T/esp/vermilion/flags"; run
 check no_flags_dir 'grep -q "no vermilion/flags" "$T/out"' 'grep -q "^unmount" "$T/calls"' '[ -z "$(ls -A "$T/gpu")" ]'
+
+# info prints a non-path Mount Point value for an unmounted partition: treated as unmounted
+fake 0; sed -i '' 's|echo "   Mount Point:               "; ;;|echo "   Mount Point:               Not mounted"; ;;|' "$T/bin/diskutil"; : >"$T/esp/vermilion/flags/phxboot-desktop"; run
+check notmounted_text '[ -e "$T/gpu/phxboot-desktop" ]' 'grep -q "^mount" "$T/calls"'
+
+# the first two mounts fail (diskarbitrationd not up yet): retried
+fake 0; echo 2 >"$T/mfail"; rm -f "$T/mc"; : >"$T/esp/vermilion/flags/phxboot-desktop"; run
+check mount_retry '[ -e "$T/gpu/phxboot-desktop" ]' '[ "$(wc -l <"$T/mc" | tr -d " ")" = 3 ]'; rm -f "$T/mc" "$T/mfail"
+
+# no EFI partition ever listed: gives up after ESPF_TRIES
+fake 0; sed -i '' 's|  list) printf|  list) exit 0; printf|' "$T/bin/diskutil"; ESPF_TRIES=2 run
+check no_efi_listed 'grep -q "no EFI partition listed after 2s" "$T/out"'
 
 echo "RESULT: $PASSN passed, $FAILN failed"; rm -rf "$T"; [ $FAILN = 0 ]

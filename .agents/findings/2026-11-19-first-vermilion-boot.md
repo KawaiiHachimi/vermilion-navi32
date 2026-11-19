@@ -39,3 +39,22 @@ From the unified log (kernelmanagerd, kernelmanager_helper, syspolicyd):
 Next: one boot with a login, so syspolicyd can finish the AuxKC rebuild (then shut down). Check from Linux that
 `/Library/KernelCollections/AuxiliaryKernelExtensions.kc` changed and contains `org.vermilion.accel` before the
 next boot.
+
+## Second and third boot (2026-11-19): VermilionAccel loads, NMXAccel up, Metal for apps
+
+- Boot with a login (18:47 Pacific): syspolicyd rebuilt the AuxKC (`/Library/KernelCollections/AuxiliaryKernelExtensions.kc`
+  03:48 local, 1.29 MB, contains `org.vermilion.accel`); that boot still logged "not approved" (the new AuxKC applies
+  from the next boot). The bring-up ran again unchanged.
+- Next boot (18:49, 49 s after `SHUTDOWN_TIME`, probably a restart, so the GPU may have been warm; unverified):
+  bring-up OK, `NMXAccel up`, `no desktop arm: GOP + Metal for apps`, `done 18:50:08`, 5 s after the daemon started.
+  No crash reports, no `phxhang-*` dump. The owner reports the desktop is faster (apps get Metal; WindowServer still
+  composites on the CPU). A `shutdown_stall` report at 19:01 lists only slow userspace daemons (softwareupdated, akd).
+- The hook `esp_flags.sh` was hardened (retries for listing and mounting while diskarbitrationd starts; a non-path
+  `Mount Point` counts as unmounted), 7/7 in its test. Run as root on macbox against its real EFI partition: an
+  unmounted partition has no `Mount Point` line, gets mounted, the flags are taken and deleted, the partition is
+  unmounted (0.9 s). The hook copies every `phxboot-*` file, including `phxboot-pre.sh` itself, so the new hook was
+  staged that way, together with `phxboot-desktop` for the first desktop-arm boot.
+
+Security note: the EFI partition is a write path into `~/gpu`, which root runs at boot. That is no new exposure
+on this machine (writing the EFI partition already needs root, and `~/gpu` is user-writable by design,
+INSTALL.md 6), but it belongs in the docs before the hook is offered upstream.

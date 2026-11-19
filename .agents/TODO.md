@@ -123,8 +123,9 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
 - [x] 2026-11-19 Install with flags `sdma`, `cg`, `uclk=456` only (Recovery, `VERMILION_DATA` override)
 - [x] 2026-11-19 **First boot: the bring-up works on the XTX unchanged** (queues ready, SDMA idle, CG, UCLK pin)
       ([findings](findings/2026-11-19-first-vermilion-boot.md))
-- [ ] VermilionAccel into the AuxKC: syspolicyd allowed it but holds the rebuild until a user is logged in. One boot
-      with a login, then check the AuxKC from Linux
+- [x] 2026-11-19 VermilionAccel into the AuxKC (one boot with a login; syspolicyd rebuilt it), `NMXAccel up`,
+      Metal for apps ([findings](findings/2026-11-19-first-vermilion-boot.md))
+- [~] First desktop-arm boot (`phxboot-desktop` + the hardened hook staged through the EFI partition)
 - [ ] `recovery_install.sh`: its Data-volume search found 3 candidates in Recovery (the system volume shows the
       Data volume's folders through firmlinks); pick the APFS Data role (`diskutil apfs list`) or the volume whose
       users directory is on its own device; test on macbox
