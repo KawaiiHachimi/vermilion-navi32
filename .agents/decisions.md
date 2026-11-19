@@ -183,3 +183,12 @@ fence. A flag is the smallest change that survives reboots, with no kext rebuild
 **Revisit:** once CPU temperature or package power is readable, or if the IRQ wait path is verified on the XTX
 (then the step only matters as its fallback); growing steps in the kext (50, 100, 200) if a lower latency is wanted.
 
+
+## 2026-11-19: the full EDID read is a separate sysctl first (b127), the served EDID stays 256 bytes
+
+**Decision:** VermilionBoot b127 reads EDID blocks 2-3 only in a new root sysctl `debug.phxedid_full`. `readEdid`,
+`debug.phxedid` and the 256-byte EDID PhxAMDFB serves (`phxEdidRead`) are unchanged.
+**Why:** serving 384 bytes changes the PhxBringup/PhxAccel interface (`phx_head1_hotplug.edid[256]`, PhxAMDFB's buffer),
+so both kexts would have to change in the same boot (EFI and AuxKC: two changes in one boot). The first goal is only
+to see the LG's block 2 (the 240 Hz timing), and a sysctl does that with one kext and no change at boot.
+**Revisit:** once the segment read works on hardware and the 240 Hz work starts (macOS then needs block 2 to list the mode).

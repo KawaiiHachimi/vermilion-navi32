@@ -110,6 +110,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxedid_auto_src);
         sysctl_register_oid(&sysctl__debug_phxedid_other_src);   // b81
         sysctl_register_oid(&sysctl__debug_phxedid_other_info);
+        sysctl_register_oid(&sysctl__debug_phxedid_full);   // b127
         sysctl_register_oid(&sysctl__debug_phxkey);
         sysctl_register_oid(&sysctl__debug_phxcalls);
         sysctl_register_oid(&sysctl__debug_phxscan);

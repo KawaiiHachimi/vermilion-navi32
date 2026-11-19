@@ -191,9 +191,34 @@ public:
     // 0x10 + n = DC_I2C DDC line n, 0x10 = DDC1; 0x20 + n = DP AUX engine n). A 32-byte header ('PEDI', source, rc,
     // length, SW_STATUS, ARB, DC_GPIO_HPD_Y, HPD0-4 sense bits | AUX defers << 8) then 256 bytes. Every read is one fresh
     // transfer; nothing is cached or published yet (step 2). Writes only the engine's own registers.
+    // b127 debug.phxedid_full (full = true): the same header with 'PEDF', word 3 = length | (1 + the extension count) << 16,
+    // then 512 bytes (up to 4 blocks; AUX sources read blocks 2-3 through the E-DDC segment pointer, PhxDdc.h readEdidFull).
     volatile UInt32 edidBusy{0};
-    int edidRead(struct sysctl_req *req, unsigned src) {
-        enum { kHdr = 32, kOut = kHdr + 256 };
+    int edidRead(struct sysctl_req *req, unsigned src, bool full = false) {
+        enum { kHdr = 32, kOut = kHdr + 256, kOutFull = kHdr + phxddc::kEdidMaxBlocks * 128 };
+        if (full) {
+            if (!req->oldptr) return SYSCTL_OUT(req, nullptr, kOutFull);    // size query: no hardware access
+            if (!mmio) return ENXIO;
+            if (!OSCompareAndSwap(0, 1, &edidBusy)) return EBUSY;
+            phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                          [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                          [](void *, uint32_t us) { IODelay(us); }};
+            uint8_t *buf = static_cast<uint8_t *>(IOMalloc(kOutFull));
+            if (!buf) { OSCompareAndSwap(1, 0, &edidBusy); return ENOMEM; }
+            bzero(buf, kOutFull);
+            phxddc::Diag d{};
+            unsigned len = 0, ann = 0;
+            const int rc = phxddc::readEdidFull(io, src, buf + kHdr, &len, &ann, &d);
+            uint32_t hpd = 0;
+            for (unsigned n = 0; n < 5; n++) if (phxddc::hpdSensed(io, n)) hpd |= 1u << n;
+            const uint32_t hdr[8] = {0x46444550u, src, static_cast<uint32_t>(rc), len | ann << 16, d.status, d.arb,
+                                     rreg(phxddc::kGpioHpdY), hpd | (d.retries << 8)};
+            memcpy(buf, hdr, sizeof hdr);
+            OSCompareAndSwap(1, 0, &edidBusy);
+            const int err = SYSCTL_OUT(req, buf, kOutFull);
+            IOFree(buf, kOutFull);
+            return err;
+        }
         if (!req->oldptr) return SYSCTL_OUT(req, nullptr, kOut);            // size query: no hardware access
         if (!mmio) return ENXIO;
         if (!OSCompareAndSwap(0, 1, &edidBusy)) return EBUSY;

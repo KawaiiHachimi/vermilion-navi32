@@ -408,4 +408,12 @@ static int phxedid_sysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxedid, CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxedid_sysctl, "S",
             "live EDID read: 'PEDI', source, rc, length, SW_STATUS, ARB, HPD_Y, HPD sense, then 256 bytes");
+static int phxedid_full_sysctl SYSCTL_HANDLER_ARGS {   // b127
+    (void)oidp; (void)arg1; (void)arg2;
+    if (proc_suser(req->p)) return EPERM;                                  // it drives the I2C/AUX engine: root only
+    return gPhx ? gPhx->edidRead(req, static_cast<unsigned>(gEdidSrc), true) : ENXIO;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxedid_full, CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxedid_full_sysctl, "S",
+            "b127 whole EDID: 'PEDF', source, rc, length | blocks announced << 16, SW_STATUS, ARB, HPD_Y, HPD sense, then 512 "
+            "bytes (AUX: blocks 2-3 via the E-DDC segment pointer)");
 

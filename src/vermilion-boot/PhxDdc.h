@@ -357,10 +357,17 @@ inline int dpcdRead(const Io &io, unsigned eng, uint32_t addr, uint8_t *buf, uin
     return rc == kOk && got == n ? kOk : (rc == kOk ? kErrNack : rc);
 }
 
-// One 128-byte EDID block over I2C-over-AUX.
-inline int auxEdidBlock(const Io &io, unsigned eng, uint8_t offset, uint8_t *buf, Diag *d) {
+// One 128-byte EDID block over I2C-over-AUX. b127: segment != 0 first writes the E-DDC segment pointer (I2C 0x30, MOT),
+// as Linux's drm_do_probe_ddc_edid does for blocks 2 and up (3 messages, MOT on all but the last); segment 0 sends
+// exactly the b78..b126 sequence. A sink without E-DDC NACKs the 0x30 write: that error is returned, nothing read.
+inline int auxEdidBlock(const Io &io, unsigned eng, uint8_t offset, uint8_t *buf, Diag *d, uint8_t segment = 0) {
     uint8_t got = 0;
-    int rc = aux(io, eng, 0x40, 0x50, &offset, 1, nullptr, 0, &got, d);
+    int rc = kOk;
+    if (segment) {
+        rc = aux(io, eng, 0x40, 0x30, &segment, 1, nullptr, 0, &got, d);
+        if (rc != kOk) { aux(io, eng, 0x10, 0x50, nullptr, 0, nullptr, 0, &got, nullptr); return rc; }   // I2C stop
+    }
+    rc = aux(io, eng, 0x40, 0x50, &offset, 1, nullptr, 0, &got, d);
     if (rc != kOk) return rc;
     for (unsigned pos = 0; pos < 128;) {
         if (d) d->step = pos;
@@ -395,6 +402,47 @@ inline int readEdid(const Io &io, unsigned source, uint8_t out[256], unsigned *l
         if (!blk && out[126] == 0) break;
     }
     return kOk;
+}
+
+// b127: the whole EDID for debug.phxedid_full (the 384-byte LG on the XTX machine has its DisplayID block, with the
+// 240 Hz timing, in block 2). readEdid above, the 256-byte path PhxAMDFB serves, is unchanged.
+// readBlock(blk, buf) reads block blk (0..maxBlocks-1) into buf and returns a PhxDdc.h result. Block 0 must read, carry
+// the header and sum to 0; then 1 + its extension count blocks are read, at most maxBlocks. A later block that fails to
+// read or to sum keeps the blocks before it (kOk, shorter *len). *announced = 1 + the extension count (0 = block 0 bad).
+constexpr unsigned kEdidMaxBlocks = 4;
+template <class ReadBlock>
+inline int readEdidBlocks(ReadBlock readBlock, unsigned maxBlocks, uint8_t *out, unsigned *len, unsigned *announced) {
+    *len = 0;
+    if (announced) *announced = 0;
+    if (!maxBlocks) return kErrArg;
+    int rc = readBlock(0u, out);
+    if (rc != kOk) return rc;
+    static const uint8_t kHdr[8] = {0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0};
+    for (int i = 0; i < 8; i++) if (out[i] != kHdr[i]) return kErrHeader;
+    if (!blockOk(out)) return kErrChecksum;
+    *len = 128;
+    const unsigned want = 1u + out[126];
+    if (announced) *announced = want;
+    for (unsigned blk = 1; blk < want && blk < maxBlocks; blk++) {
+        if (readBlock(blk, out + blk * 128) != kOk || !blockOk(out + blk * 128)) break;
+        *len = (blk + 1) * 128;
+    }
+    return kOk;
+}
+// source as readEdid. AUX: blocks 2 and 3 through the segment pointer (segment = block / 2, offset 0 / 128). DC_I2C
+// (HDMI): blocks 0 and 1 only (no segment write on that engine here). out holds kEdidMaxBlocks * 128 bytes.
+inline int readEdidFull(const Io &io, unsigned source, uint8_t *out, unsigned *len, unsigned *announced, Diag *d) {
+    const bool viaAux = (source & 0xF0) == 0x20;
+    const unsigned n = source & 0xF;
+    *len = 0;
+    if (announced) *announced = 0;
+    if (!viaAux && (source & 0xF0) != 0x10) return kErrArg;
+    auto blk = [&](unsigned b, uint8_t *buf) -> int {
+        if (d) d->step = b << 8;
+        const uint8_t off = static_cast<uint8_t>((b & 1u) * 128);
+        return viaAux ? auxEdidBlock(io, n, off, buf, d, static_cast<uint8_t>(b >> 1)) : ddcRead(io, n, off, buf, 128, d);
+    };
+    return readEdidBlocks(blk, viaAux ? kEdidMaxBlocks : 2u, out, len, announced);
 }
 
 // M7 / M6: the EDID source of the connector the GOP lit on pipe 0 (OTG0). The enabled DIG back end (DIGn_DIG_BE_EN_CNTL
