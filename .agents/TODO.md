@@ -157,8 +157,11 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 Boot 2: MtkWirelessWifi 1.1.1 loaded, not attached either. Cause: the card's IOPCIDevice has
           an empty capability list (no MSI) because its config space didn't answer when IOPCIFamily published it;
           the I225-V has the same symptom. Hotplug ruled out
-    - [~] Boot 3 staged (from the Mac): stage `vermilion-pcilog` (IOPCIFamily logging) to see why config reads fail
-    - [ ] Fix the empty capability list (then Wi-Fi and probably Ethernet work), from boot 3's log
+    - [x] 2026-11-19 Boot 3 (`vermilion-pcilog`) + live reads: the Wi-Fi and Ethernet endpoints stop answering
+          config requests after the 0.5 s scan (reading them froze the machine); L1.2, default ASPM, BAR moves,
+          ACPI power ruled out
+    - [ ] Decide the cause: Linux-side `lspci -vvv` of the same path, or one `-phxbringupoff` boot
+    - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
   - [ ] Bluetooth MT7922 (USB **`0489:e0e2`** on this board, read 2026-11-19; not `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)
