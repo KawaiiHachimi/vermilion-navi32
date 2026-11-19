@@ -7,7 +7,7 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 22:00): flicker fixed (E3); the permanent daemon flag is staged; next: heat
+## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; heat step 1 measured (reverted)
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
@@ -41,8 +41,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       switch, pending mark, GOP revert). Old daemon back: a `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev
       /Users/<user>/gpu/phxboot-navi31.sh`; flag off: `<EFI>/vermilion/flags/phxboot-wscdcopy.rm`. EFI/OC unchanged
 - [ ] Plugin: fix the schedule-time copy of the non-async GPU present (present only after completion)
-- [~] Heat: re-measured with E3 (22:03): WindowServer wakeups 700-1050/s (was 1300-1400), CPU about the same. Next:
-      `debug.phxwait_step_us` 50 -> 200 live; then at most one present per vblank, and less polling in fence waits
+- [~] Heat: re-measured with E3 (22:03): WindowServer wakeups 700-1050/s (was 1300-1400), CPU about the same.
+      2026-11-19 22:07 `debug.phxwait_step_us` 50 -> 200 live: WindowServer wakeups ~255/s (from 640-950), CPU the same,
+      each fence wait +~240 us; owner "can't tell or it's worse": **set back to 50** at 22:09:58
+      ([findings](findings/2026-11-19-gpu-present-flicker-heat.md), live test 3). Next (proposed, not done): a blind
+      A/B of 50 vs 200; then either a daemon flag for the value or growing wait steps in the kext
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
 
 ## Earlier (2026-11-19, 10:05): Wi-Fi works; next Bluetooth

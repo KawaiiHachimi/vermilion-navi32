@@ -115,6 +115,35 @@ Same `powermetrics --samplers tasks,interrupts` (6 x 10 s), owner using the desk
 - Race counters 0/0/0. Next heat step (live, a sysctl, owner's OK): `debug.phxwait_step_us` 50 -> 200 and measure
   again; costs at most ~150 us more latency per fence wait.
 
+## Live test 3 (2026-11-19 22:07): `debug.phxwait_step_us` 50 -> 200: fewer wakeups, owner unsure, reverted
+
+Restart 1 of the permanent flag (E3 on, boot daemon done 22:03). Owner using the desktop normally. Measured with a
+read-only script: snapshots of `debug.phxcalls`, `debug.phxfb_vbl_n`, `debug.phxscan_race_stat`, `debug.phxwait_lat`
+around `powermetrics --samplers tasks,interrupts --show-process-energy -i 10000 -n 6` (root). Then `sysctl -w
+debug.phxwait_step_us=200` at 22:07:41 and the same measurement. Set back to 50 at 22:09:58.
+
+| 60 s window | step 50 us (22:06) | step 200 us (22:07) |
+|---|---|---|
+| GPU presents (sel 12) | 15.4 /s | 19.8 /s |
+| vblanks | 60.1 /s | 60.1 /s |
+| WAITSEQ calls, all clients (sel 64) | 124 /s, 107 of them slept | 145 /s, 135 slept |
+| average WAITSEQ time (sel 66) | 479 us | 721 us |
+| WindowServer wakeups (6 x 10 s) | 173-950 /s, mostly 640-950 | **254-737 /s, mostly ~255** |
+| WindowServer wakeups per present | ~51 | ~18 |
+| WindowServer CPU | 32-159 ms/s | 112-253 ms/s |
+| all tasks CPU | 390-1063 ms/s | 320-911 ms/s |
+| race counters | 0 / 0 / 0 | 0 / 0 / 0 |
+
+- The model holds: a wait that sleeps takes (480 - 20 spin) / ~60 us = ~7-8 timed steps at 50 us. That times ~107
+  sleeping waits/s gives ~800 wakeups/s, close to WindowServer's "<2 ms deadline" count. At 200 us each step costs
+  ~240 us more per wait (480 -> 720 us), as expected.
+- WindowServer wakes ~65 % less at 200 us. CPU time didn't drop: waits are sleeps, not CPU work.
+- `debug.phxwait_lat` doesn't count timed sleeps while the IH is off (`gIhOn && gEopIrq` guards the count), so
+  "slept" here is WAITSEQ calls minus "waits done in spin".
+- Owner: **"I either can't tell or it's worse, I don't know."** Set back to 50 us, following the rule "if anything gets worse,
+  set it back at once". Not a clear regression either: the window was 2 minutes, and the owner knew which value was on.
+- Whether fewer wakeups means less heat: unverified. There is still no CPU temperature or package-power reading.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every
