@@ -20,8 +20,8 @@ progress, `[x]` done, `[-]` dropped (say why).
   - EFI: `vermilion` stage with **VermilionBoot b126** on `/boot/EFI/OC` (2026-11-19 05:30; `OC.prev` = the same stage
     with b125, the last booted one; the `install` stage is backed up in `~/.cache/vermilion/efi-backup/`);
     `DisableVariableWrite` on, so macOS can't write firmware NVRAM.
-  - Staged for the next boot: `/boot/vermilion/run-once.sh` + `perf/` (boot 1 of the GPU-present test: starts the
-    counter logger only).
+  - Staged for the next boot: `/boot/vermilion/run-once.sh` + `perf/` (boot 2 of the GPU-present test: creates
+    `/Library/GPUBundles/nvmtl/ws-gpu-present` and starts the counter logger).
   - `phxfb-squat` is set as an EFI variable from Linux
     (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`, value "1").
   - `~/gpu` flags: `sdma`, `cg`, `uclk=456`.
@@ -34,9 +34,10 @@ progress, `[x]` done, `[-]` dropped (say why).
 - **Next steps, in order:**
   1. **Input lag at 1440p** ([findings](findings/2026-11-19-1440p-gpu-present.md)): every frame (14.7 MB) is CPU-copied
      into phxfb's flip buffer B (B fits at 1440p; only the GPU-present slots were 8 MiB). b126 gives frames over 8 MiB
-     three GPU-present slots at 256/288/320 MiB (past BAR0, GPU only), the XT's 1080p slots unchanged. Boot 1 (staged):
-     b126 with GPU present off + `perflog.sh`; read `/var/log/vermilion-perf-*.log`, `debug.phxscan_layout` and the
-     kernel log. Boot 2: `run-once.sh` creates `/Library/GPUBundles/nvmtl/ws-gpu-present`, same logger.
+     three GPU-present slots at 256/288/320 MiB (past BAR0, GPU only), the XT's 1080p slots unchanged. Boot 1 done: no
+     regression, layout `large`, baseline 10-12 ms copy + 15-20 ms flip wait per frame, ~30 frames/s cap. Boot 2
+     (staged): `run-once.sh` creates `/Library/GPUBundles/nvmtl/ws-gpu-present`, same logger; read
+     `/var/log/vermilion-perf-*.log` and the kernel's `scanout acquired` line.
   2. The monitor's refresh: **60 Hz** at 2560x1440 (OTG0 totals 2720x1481 in the kernel log, boot 7). 144/240 Hz
      needs mode switching + DP link training (Phase 3).
   3. Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (E1000 dext fails its
@@ -142,7 +143,8 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
   - [x] 2026-11-19 VermilionBoot b126: GPU-present slots by frame size (large: 256/288/320 MiB), `debug.phxscan_layout`;
         host test 43/43, mock suites green on macbox, installed on the EFI (unverified on hardware)
   - [x] 2026-11-19 `tools/phxctl/perflog.sh` + `perflog_install.sh`: the display counters to a log, one boot only
-  - [ ] Boot 1: b126 + GPU present off: layout `large`? copy baseline (`copy_us_avg`)
+  - [x] 2026-11-19 Boot 1: b126 + GPU present off: no regression; layout `large`, DCN window = all VRAM; baseline
+        copy 10-12.6 ms/frame + 15-20 ms flip wait, ~20-33 frames/s (two refreshes per frame)
   - [ ] Boot 2: GPU present on (`ws-gpu-present`): `scanout acquired (... large ...)`, `skipped_foreign` ~ frames, lag
   - [ ] If it holds: make GPU present the default at 1440p (daemon or install), docs; consider `debug.phxscan_latchfix=1`
         (b74 UI-shake fix, default 0)
