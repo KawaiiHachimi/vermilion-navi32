@@ -50,6 +50,11 @@
       "version": "2.1.6 (Tahoe build)",
       "url": "https://github.com/Arxusion/AirportMtkWlan/releases/download/v2.1.6/AirportMtkWlan-Tahoe-v2.1.6-RELEASE.zip",
       "sha256": "971052c7c5fc3e52205eee8500835411c262afa000cce1f08b59781ca75dee2d"
+    },
+    "MtkWireless": {
+      "version": "1.1.1",
+      "url": "https://github.com/Dino-VN/MtkWireless/releases/download/v1.1.1/MtkWireless-1.1.1-RELEASE.zip",
+      "sha256": "c9bbc2ed3ad4ab55fa785e620e4b61e1ef767486e067cb5914644b94683cb2fd"
     }
   },
   "kexts": {
@@ -61,6 +66,7 @@
     "USBToolBox":               {"from": "USBToolBox",     "path": "USBToolBox.kext",            "exec": "Contents/MacOS/USBToolBox",     "min_kernel": "",       "comment": "USB map engine (needs a UTBMap.kext)"},
     "AMFIPass":                 {"from": "AMFIPass",       "path": "AMFIPass.kext",              "exec": "Contents/MacOS/AMFIPass",       "min_kernel": "",       "comment": "amfi=0x80 support, needed by Vermilion"},
     "AirportMtkWlan":           {"from": "AirportMtkWlan", "path": "AirportMtkWlan.kext",        "exec": "Contents/MacOS/AirportMtkWlan", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Tahoe build only: other macOS versions need their own build)"},
+    "MtkWirelessWifi":          {"from": "MtkWireless",    "path": "MtkWireless-1.1.1-RELEASE/Kexts/MtkWirelessWifi.kext", "exec": "Contents/MacOS/MtkWirelessWifi", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Dino-VN/MtkWireless, Tahoe only)"},
     "VermilionBoot":            {"from": "vermilion",      "path": "VermilionBoot.kext",         "exec": "Contents/MacOS/VermilionBoot",  "min_kernel": "25.0.0", "comment": "Vermilion boot kext (build/VermilionBoot.kext)"}
   }
 }

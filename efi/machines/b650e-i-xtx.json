@@ -76,9 +76,9 @@
       "csr_active_config": "00000000"
     },
     "base": {
-      "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot.",
+      "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot. Wi-Fi: AirportMtkWlan 2.1.6 loaded but never attached to the card (boot 1, 2026-11-19); MtkWirelessWifi 1.1.1 since then (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "install",
-      "kexts_add": ["AirportMtkWlan"]
+      "kexts_add": ["MtkWirelessWifi"]
     },
     "vermilion": {
       "_comment": "Phase 2: Vermilion (docs/INSTALL.md section 1). Needs build/VermilionBoot.kext from the macOS build host. Inherited install from 2026-11-19 (GPU first, Wi-Fi untested); re-parented onto base on 2026-11-19 for the Wi-Fi test, so the booted stage gets AirportMtkWlan and nothing else changes.",

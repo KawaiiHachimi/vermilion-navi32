@@ -12,12 +12,12 @@ progress, `[x]` done, `[-]` dropped (say why).
 **From here on the owner works in macOS on the XTX machine** (Claude Code + T3 Code installed there over Wi-Fi), not
 from Linux. If you are that macOS session, start here:
 
-1. **This boot** (the first one after this handoff): EFI = the `vermilion` stage + **AirportMtkWlan 2.1.6**, the only
-   change (`OC.prev` = b126 without Wi-Fi). Its `run-once.sh` turned **sleep off** (`pmset -a sleep 0 displaysleep 0
+1. **Wi-Fi boot 1 failed** (AirportMtkWlan loaded, never attached; [findings](findings/2026-11-19-wifi-mt7922.md)).
+   **Boot 2** (staged 07:15): `MtkWirelessWifi` 1.1.1 instead, `run-once.sh` = `wifilog.sh` with deep snapshots to
+   `/var/log/vermilion-wifi-*.log` and `*.log.ioreg`. Boot 1's `run-once.sh` turned **sleep off** (`pmset -a sleep 0 displaysleep 0
    disksleep 0 hibernatemode 0 standby 0 powernap 0 tcpkeepalive 0 womp 0`; result lines in `/var/log/phxboot.log`
-   under `run-once:`) and logged Wi-Fi for 20 min to `/var/log/vermilion-wifi-*.log`. Read both, plus
-   `log show --last boot --predicate 'sender == "AirportMtkWlan"'`, and fill in boot 1 of the
-   [Wi-Fi findings](findings/2026-11-19-wifi-mt7922.md). Wi-Fi is unverified until then.
+   under `run-once:`; it stays off). On the Mac itself, `ioreg -l -w0 -r -n DP58` answers directly whether a driver
+   attached to the card.
 2. **The EFI partition from macOS:** `diskutil list` (the NVMe's EFI partition, under Recovery it was `disk2s1`),
    `sudo mkdir -p /tmp/efi && sudo diskutil mount -mountPoint /tmp/efi <diskXs1>`. On it: `EFI/OC` (live),
    `EFI/OC.prev` (rollback), `opencore-*.txt` (OpenCore log of every boot), `vermilion/` (payload, flags, run-once).
@@ -146,10 +146,13 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
         ([GeekAudio/intel-i225-tahoe-fix](https://github.com/GeekAudio/intel-i225-tahoe-fix)); the B650E-F config
         uses the same kext + `e1000=0`
-  - [~] Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`): Arxusion/AirportMtkWlan 2.1.6 (Tahoe build), in the
-        `vermilion` stage (now inherits `base`) since 2026-11-19, boot 1 staged with `wifilog.sh`
-        ([findings](findings/2026-11-19-wifi-mt7922.md)). Fallbacks: qiqco/MT7922-macOS-Driver,
-        GeekAudio/MtkWireless
+  - [~] Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`) ([findings](findings/2026-11-19-wifi-mt7922.md)):
+    - [x] 2026-11-19 Boot 1: AirportMtkWlan 2.1.6 loaded but never attached (no driver object, no Wi-Fi port)
+    - [~] Boot 2 staged: Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1, `wifilog.sh` deep snapshots (IORegistry of
+          `DP58`, dmesg, SPPCIDataType)
+    - [ ] If it doesn't attach either: act on the IORegistry (hotplug/tunnelled flags, who owns `EP00`); candidates
+          AMD_Vanilla `IOPCIIsHotplugPort` (touches every PCI device, the GPU too: one boot, rollback ready),
+          qiqco/MT7922-macOS-Driver
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
   - [ ] Bluetooth MT7922 (USB **`0489:e0e2`** on this board, read 2026-11-19; not `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)

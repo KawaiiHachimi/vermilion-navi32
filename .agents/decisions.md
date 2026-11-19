@@ -136,3 +136,13 @@ BootNext=Limine on every Linux reboot. Sleep is turned off by `pmset` from a run
 start macOS on a GPU amdgpu left initialised (hard rule 1); the guard keeps a reboot in Linux and leaves a power-off
 alone. No GPU resume path, so no sleep.
 **Revisit:** when the VFIO phase starts (the iGPU becomes the host display), or if the firmware ignores BootOrder.
+
+## 2026-11-19: Wi-Fi driver: MtkWirelessWifi 1.1.1 after AirportMtkWlan 2.1.6 didn't attach
+
+**Decision:** the `base` stage adds Dino-VN/MtkWireless's `MtkWirelessWifi` 1.1.1 instead of AirportMtkWlan 2.1.6.
+The boot that tries it also captures the IORegistry of the card's port, so a second failure is diagnosable.
+**Why:** AirportMtkWlan loaded but never attached on boot 1, and an injected kext leaves no readable text in the
+unified log. MtkWireless is the only candidate tested on this exact macOS build and SMBIOS. The alternative fix on
+the table, AMD_Vanilla's `IOPCIIsHotplugPort`, changes PCI enumeration for the GPU too and needs evidence first.
+**Revisit:** if MtkWireless doesn't attach either (then the IORegistry decides), or once AirportMtkWlan reports an
+RZ616 working on 26.7.1.
