@@ -86,3 +86,24 @@ plugin looks up; loads and creates a context on macOS 26.7.3 on macbox) and `lib
 off the EFI partition, then run as root before the flags are read); the installed hook only copies flags, so the next
 boot copies the new hook (`flags/phxboot-pre.sh`), and the boot after it runs `run-once.sh`, which installs the
 reader and sets `phxboot-desktop`. Tests: `espflags_test.sh` 10/10, daemon scenarios green.
+
+## Fifth and sixth boot (2026-11-19): SUCCESS, the accelerated desktop on the XTX; a phantom "UNKNOWN" display
+
+- The new hook ran `run-once.sh`: `air-runtime: installed libLLVM.dylib libzstd.1.dylib`, `phxboot-desktop set`.
+- `PhxAMDFB on panel after 1s`, `Metal device ready after 1s`, `AGDC up after 1s`, WindowServer restart,
+  **`SUCCESS at 19:48:17: WindowServer pid 1046, frames=749 -- accelerated desktop survived`**. `Metal compositor
+  activated.` in WindowServer's log. No crash reports.
+- Owner: the screen went black ~15 s after boot and came back with the wallpaper only (no login window); a blind
+  login worked; System Settings shows two displays, the monitor and "UNKNOWN"; the mouse feels odd; the refresh rate
+  feels low, with input lag (not measured).
+- Cause of the second display: CoreDisplay sets modes on two framebuffers (`fbRegID 0x100000677`, the
+  monitor, and `displayID 0x0 fbRegID 0x1000004d7`). The firmware framebuffer (IONDRV) stays registered next to
+  PhxAMDFB on a desktop-arm boot that is not a squat boot (`fBeside` in phxfb.cpp marks exactly this case, but nothing
+  hides IONDRV). Upstream's squat boot avoids it: PhxFBSquatter takes the IOFramebuffer category so IONDRV never starts.
+  The login window most likely went to the invisible display.
+- Squat needs `phxfb-squat` in NVRAM at boot, and macOS can't write firmware NVRAM here (`DisableVariableWrite`).
+  Linux can (it doesn't boot through OpenCore): `phxfb-squat` written as an EFI variable in Apple's GUID
+  (`7C436110-...`, attributes NV+BS+RT, value "1"), where `boot-args` and `csr-active-config` already live. Expected
+  (unverified): every OpenCore boot is a squat boot until the variable is deleted from Linux or by the picker's Reset
+  NVRAM, because the kext's removal at probe can't reach the firmware. A failed squat boot reboots, and the default
+  boot entry is Limine, so it lands in Linux. Recovery would have no display while the variable is set.

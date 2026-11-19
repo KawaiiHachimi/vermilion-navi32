@@ -126,8 +126,12 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
 - [x] 2026-11-19 VermilionAccel into the AuxKC (one boot with a login; syspolicyd rebuilt it), `NMXAccel up`,
       Metal for apps ([findings](findings/2026-11-19-first-vermilion-boot.md))
 - [x] 2026-11-19 First desktop-arm boot: arm path OK at 1440p, WindowServer aborted (no AIR bitcode reader)
-- [~] Second desktop-arm boot: the reader (`air-runtime/libLLVM.dylib`) through the hook's run-once (2 boots:
-      the first copies the new hook, the second installs the reader and arms)
+- [x] 2026-11-19 **Accelerated desktop on the XTX: SUCCESS** (reader installed through run-once; Metal compositor)
+- [~] Phantom "UNKNOWN" display (IONDRV beside PhxAMDFB on a non-squat boot): squat via `phxfb-squat` written as an
+      EFI variable from Linux (macOS can't write NVRAM here). Delete it with Reset NVRAM or from Linux
+      (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`)
+- [ ] Refresh rate / input lag at 1440p: measure what the GOP mode and DP link are, and whether frames go through the
+      CPU copy (no GPU present at 1440p: 8 MiB scan slots, docs/XTX.md)
 - [ ] `recovery_install.sh` and `esp_stage.sh`: include the air-runtime reader (from NullMoth's package, md5-pinned)
 - [ ] `recovery_install.sh`: its Data-volume search found 3 candidates in Recovery (the system volume shows the
       Data volume's folders through firmlinks); pick the APFS Data role (`diskutil apfs list`) or the volume whose
