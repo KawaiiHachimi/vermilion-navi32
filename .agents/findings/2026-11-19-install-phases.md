@@ -46,3 +46,13 @@ files: Data `private/var/log/install.log`, Data `Library/Logs/DiagnosticReports/
 
 Before treating an unexpected reboot as a failure, read the OpenCore log for that boot's kernel flags, and
 `install.log`. Both are readable from Linux and cost no test boot.
+
+## First normal boot (2026-11-19): Setup Assistant and the desktop work
+
+The next boot of Macintosh HD (F8 > OpenCore > Macintosh HD, no Reset NVRAM, `install` stage EFI unchanged) started
+Setup Assistant on the firmware framebuffer. The black screen with only a cursor that nullmoth/1401 documents did not
+happen on this machine. The owner clicked through Setup and created the account. On the automatic updates page they
+picked "only download automatically". That step took a long time. Then the desktop came up: menu bar on a white
+background, very slow, as expected with no GPU acceleration (every frame is drawn by the CPU into the GOP
+framebuffer). Whether the CPU also runs slower than it should (no AMD power management, `DummyPowerManagement`)
+has not been measured.

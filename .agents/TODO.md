@@ -12,10 +12,10 @@ progress, `[x]` done, `[-]` dropped (say why).
 - **macOS 26.7.1 is installed** on p3 (`Macintosh HD`, APFS, 78 GiB) with the `install` stage EFI (`/boot/EFI/OC`,
   firmware entry "OpenCore", Limine first in the boot order; the owner picks OpenCore with F8). The install finished
   all its phases: the restart after a short Apple logo was the installer's own "Triggering reboot" after "Boot 1"
-  ([findings](findings/2026-11-19-install-phases.md)). The next boot of Macintosh HD is the first normal one. Not yet
-  checked: whether it reaches Setup Assistant / the desktop. nullmoth/1401 documents a black screen with only a cursor where
+  ([findings](findings/2026-11-19-install-phases.md)). The first normal boot reached Setup Assistant and the desktop
+  (2026-11-19): slow, as expected without GPU acceleration. (For the record: nullmoth/1401 documents a black screen with only a cursor where
   Setup should start on macOS 26 without a GPU driver; their fix creates the account from Recovery's Terminal and skips
-  Setup (docs/TROUBLESHOOTING.md, `finish-setup.sh`).
+  Setup (docs/TROUBLESHOOTING.md, `finish-setup.sh`). It did not happen here.)
 - **What it took** ([findings](findings/2026-11-18-first-boot-acpi.md)):
   1. 5 in-place DSDT NOP patches (AM5 chipset `If (G002 ...)` blocks);
   2. SSDT-CPUR (the CPUs exist only as ACPI0007 devices);
@@ -27,8 +27,8 @@ progress, `[x]` done, `[-]` dropped (say why).
   itself via `apfs-fuse` from Linux (`install.log`, panic reports; [runbooks](runbooks.md)). `log show` once the
   desktop works.
 - **Next steps, in order:**
-  1. First boot of Macintosh HD to the desktop (finish-setup route if Setup can't draw).
-  2. Delete p4 (installer), grow the APFS container to 100 GiB.
+  1. ~~First boot of Macintosh HD to the desktop~~ done 2026-11-19.
+  2. Disable sleep (`pmset`, INSTALL.md section 10). Delete p4 (installer), grow the APFS container to 100 GiB.
   3. `base` stage: Wi-Fi.
   4. Ethernet.
   5. Bluetooth.
@@ -86,7 +86,8 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
 - [x] 2026-11-19 macOS 26.7.1 installed on `Macintosh HD` (p3); all installer phases done, last one "Boot 1"
       ([findings](findings/2026-11-19-install-phases.md))
 - [x] 2026-11-19 Read the macOS disk from Linux: `apfs-fuse` build steps in [runbooks.md](runbooks.md)
-- [ ] First normal boot of Macintosh HD: Setup Assistant, or the black screen + cursor (then 1401's finish-setup route)
+- [x] 2026-11-19 First normal boot of Macintosh HD: Setup Assistant drew on the GOP framebuffer, account created, desktop
+      (slow, no acceleration) ([findings](findings/2026-11-19-install-phases.md))
 - [ ] Post-install, one item at a time, each tested and logged:
   - [ ] Ethernet I225-V: try the built-in driver first. Fallback documented on Tahoe 26.7.1 with an I225-V:
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
