@@ -168,6 +168,29 @@ each stretch. Order: **AABB** (1, 2 = 50 us; 3, 4 = 200 us).
   item (GPU present has no vsync'd flip yet; unverified).
 - Fan noise during stretch 3 (200 us) was attributed by the owner to 50: there is no sensor to check it.
 
+## Restart 2026-11-19 22:44: a kernel panic, most likely at the end of the shutdown; the waitstep run-once ran on the boot after
+
+The owner restarted (Apple menu > Restart) at ~22:44 and came back to a kernel panic screen (AFK, no photo). Then
+power-cycled; the machine booted normally at 22:46:36.
+
+- **Where it happened (inferred, unverified):** the unified log runs to 22:44:05.98 (the shutdown: utun/skywalk
+  teardown, then `IOAccelDisplayPipe::display_change_handler event 0x91`, the last kernel line) and resumes at
+  22:46:36 with the new kernel. The EFI partition has **no OpenCore log between the 22:00 boot
+  (`opencore-2026-11-19-210036.txt`, UTC) and the 22:46 boot (`...214633.txt`)**, and `phxboot.log` has no run either.
+  So no boot went through OpenCore in between: the panic was most likely at the end of the shutdown, not in a new
+  boot. Earlier restarts of this install each left a `shutdown_stall` report (slow daemons, no panic); this one left
+  none. A USB stick ("Install macOS Tahoe") was published at 22:44:05, during the shutdown.
+- **No panic report:** nothing in `/Library/Logs/DiagnosticReports`, no `aapl,panic-info` in NVRAM. So the backtrace
+  and the kext involved are unknown. If it happens again: a phone photo of the panic screen (`panicked task`,
+  "Kernel Extensions in backtrace").
+- **Not the staged change:** the run-once and the flag were still on the EFI partition and were taken at 22:46:41,
+  in the boot after. The 22:46 boot: `daemon-install: installed ... 5c2c1513...` (rollback copy kept), flag
+  `phxboot-waitstep` = 200 in ~/gpu, and the old daemon's own `wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted
+  WindowServer` line: **restart 2 of the E3 flag verified**.
+- **The run-once's own `sysctl -w debug.phxwait_step_us=200` failed: `unknown oid`.** PhxBringup registers its sysctls
+  with the first user client (`newUserClient`), after the pre-hook. The daemon's `waitstep_boot` runs after
+  "bring-up + claim", when the oid exists (it reads 50 later in the same boot). That boot stayed at 50.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every

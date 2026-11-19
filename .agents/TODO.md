@@ -7,7 +7,7 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; wait step 200 passed a blind A/B, live now, permanent flag staged for the next restart
+## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; E3 permanent (verified); wait step 200 daemon flag installed, first active next restart; one panic at a restart, cause unknown
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
@@ -28,7 +28,7 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Rollback:** nothing to undo on disk (EFI/OC unchanged; the env var lasts one boot; run-once is moved off the ESP
       before it runs). Black screen: hold power, power on, OpenCore > Macintosh HD = the boot before. From Linux (Limine,
       default): not needed; the same power cycle is enough
-- [~] Flicker step 3, make E3 permanent: **restart 1 done 22:00** (daemon installed, `.prev` kept, flag set, E3 on, no
+- [x] 2026-11-19 22:46 Flicker step 3, make E3 permanent: restart 2 showed the daemon's own `wscdcopy:` line (verified). **restart 1 done 22:00** (daemon installed, `.prev` kept, flag set, E3 on, no
       flicker); **restart 2 still to verify** the daemon's own `wscdcopy:` line. Staged 2026-11-19 21:58:
       daemon flag `phxboot-wscdcopy` (commit 6ba5f6e, mock 175/175) + `tools/phxctl/daemon_install.sh` (f7a7d4a).
       On the EFI partition: `vermilion/flags/phxboot-wscdcopy`, `vermilion/daemon/` (daemon sha256 36dc5db5...),
@@ -57,10 +57,17 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       /var/log/phxboot.log` = the old daemon's own `wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 ...` line, `daemon-install:
       installed ... 5c2c1513...` and `run-once: debug.phxwait_step_us=200 for this boot rc 0, reads 200`; `sysctl
       debug.phxwait_step_us` = 200. **The restart after** shows the daemon's own `waitstep: debug.phxwait_step_us=200 rc 0`.
+      **22:46 boot:** daemon installed (`.prev` = E3 daemon), flag = 200; the run-once's own sysctl failed (`unknown oid`:
+      PhxBringup registers its sysctls with the first user client, after the pre-hook), so that boot runs at 50. **Next
+      restart** = the first one where the daemon sets it: check `grep waitstep /var/log/phxboot.log` and `sysctl
+      debug.phxwait_step_us` = 200
       **Rollback:** the value: `rm ~/gpu/phxboot-waitstep` (a user file; next boot = 50), or live `sudo sysctl -w
       debug.phxwait_step_us=50`, or from Linux `<EFI>/vermilion/flags/phxboot-waitstep.rm`. The E3 daemon back: a
       `run-once.sh` with `mv /Users/<user>/gpu/phxboot-navi31.sh.prev /Users/<user>/gpu/phxboot-navi31.sh`. Black screen:
       hold power, power on, OpenCore > Macintosh HD (the daemon's fallbacks are unchanged). EFI/OC unchanged
+- [ ] Kernel panic at the 22:44 restart (most likely at the end of the shutdown: no OpenCore log, no phxboot run in
+      between; no panic report saved; [findings](findings/2026-11-19-gpu-present-flicker-heat.md)). If it happens again:
+      a photo of the panic screen. Then: why no panic report is saved on this install
 - [ ] Screen tearing at 1440p60 with GPU present (owner, live test 4, both wait steps): research first
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
