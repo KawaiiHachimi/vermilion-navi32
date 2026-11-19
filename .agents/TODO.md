@@ -9,6 +9,11 @@ progress, `[x]` done, `[-]` dropped (say why).
 
 ## Current state (2026-11-19, 09:00): on the Mac; Wi-Fi blocked by an empty PCI capability list
 
+**Next: one Linux capture** ([HANDOFF-LINUX-CAPTURE.md](HANDOFF-LINUX-CAPTURE.md), for the Claude on Omarchy): the
+owner boots Linux once, `tools/capture/linux_pci_capture.sh` writes `/boot/vermilion/capture/linux-pci-*.txt`,
+then back to macOS, which reads it from the EFI partition. EFI for that macOS boot: `vermilion` stage (installed
+2026-11-19 09:16 from the Mac), `OC.prev` = `vermilion-pcilog`.
+
 Wi-Fi: both MediaTek drivers fail because macOS gives the card (and the I225-V) an empty PCI capability list
 ([findings](findings/2026-11-19-wifi-mt7922.md), boot 2). Boot 3 (`vermilion-pcilog`, logging only) is installed.
 EFI builds now work on the Mac (`iasl` 20251212 in `~/.local/bin`, config in `~/.config/vermilion`).
@@ -160,7 +165,7 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 Boot 3 (`vermilion-pcilog`) + live reads: the Wi-Fi and Ethernet endpoints stop answering
           config requests after the 0.5 s scan (reading them froze the machine); L1.2, default ASPM, BAR moves,
           ACPI power ruled out
-    - [ ] Decide the cause: Linux-side `lspci -vvv` of the same path, or one `-phxbringupoff` boot
+    - [~] Decide the cause: Linux-side capture (owner chose it, 2026-11-19; [handoff](HANDOFF-LINUX-CAPTURE.md))
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
