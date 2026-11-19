@@ -30,7 +30,7 @@ static_assert(sizeof(struct phx_pipe2_setmode) == 120, "phx_pipe2_setmode is 120
 #define PHX_PIPE0_SETMODE_VERSION 1u
 struct phx_pipe0_setmode {
     uint32_t version;    // in: PHX_PIPE0_SETMODE_VERSION
-    uint32_t target_hz;  // in: 60 or 144 (1920x1080 either way)
+    uint32_t target_hz;  // in: 60 or 144 (1920x1080 either way); b128: 120 too (2560x1440, the 1440p plan family)
     int32_t result;      // out: phxp0::Res (0 done, 1 same, 2 refused, 3 fell back, 4 dark); -1 = not run (busy / not ready)
     int32_t stage;       // out: the engine stage that ended it (phxp0::kStageName)
     uint32_t cur_hz;     // out: the pipe-0 mode after the call (0 = unknown)
