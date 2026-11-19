@@ -85,6 +85,18 @@ Expected (unverified): the plugin logs `presenting CoreDisplay's display surface
 surface`, and the regions being redrawn no longer flicker. If pane switches show incomplete frames, tune the live switch
 `ws-cdcopy-hold` (microseconds, upstream's fix for that).
 
+## Boot test 2 result (2026-11-19, 10:28 Pacific boot): E3 fixes the flicker (verified on the XTX machine)
+
+- `phxboot.log`: `run-once: NVMTL_WS_PRESENT_CDCOPY=1 for this boot (async switch present)`. WindowServer (the one the
+  daemon restarted) logged `presenting CoreDisplay's display surfaces, not SkyLight's composite targets` and six
+  `surface N is a display surface (written by an unwaited CoreDisplay commit)` lines, then `ON - 2560x1440`.
+- Owner: **the flicker is gone** ("works so good now").
+- First 3000 presents: 0 dropped, copy + present **729 us** average (default mode: 1.4 ms), present gaps `<8ms 8, <16
+  397, <33 2473, <100 81, longer 40`: under 8 ms went from 37-44 % to 0.3 %, so the duplicate presents are gone and
+  most frames come one or two refreshes apart. WindowServer CPU 12-13.5 % of one thread (`top`), about as before;
+  wakeups not measured yet. Race counters: `accepted flips forgotten 1, on-screen slot reported reusable 0`.
+- The variable lasts one boot: the next boot without the run-once is back to the default mode and the flicker.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every

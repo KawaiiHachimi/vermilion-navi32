@@ -7,7 +7,9 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
+## Current state (2026-11-19, 19:35): flicker fixed by E3 for one boot; next: make it permanent
+
+## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
 GPU present flicker and heat measured read-only on the XTX machine ([findings](findings/2026-11-19-gpu-present-flicker-heat.md)).
 The flicker most likely comes from an ordering bug: with the kernel's GPU marks on (`debug.nvaccel_surface_gpu_on 1`)
@@ -18,7 +20,7 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
 - [x] 2026-11-19 10:17 Flicker step 1: `/Library/GPUBundles/nvmtl/ws-gpu-present-async` created live: no change
       to the flicker (owner); it stays on (correct ordering, needed by E3). If a later boot misbehaves, Linux can't
       delete it (apfs-fuse is read-only): `<EFI>/vermilion/run-once.sh` with `rm -f /Library/GPUBundles/nvmtl/ws-gpu-present-async`
-- [~] Flicker step 2 (**staged 10:25, next boot**): `<EFI>/vermilion/run-once.sh` sets `NVMTL_WS_PRESENT_CDCOPY=1`
+- [x] 2026-11-19 Flicker step 2, **fixed** (owner, boot 10:28): E3 for one boot: `<EFI>/vermilion/run-once.sh` sets `NVMTL_WS_PRESENT_CDCOPY=1`
       for one boot (E3: present CoreDisplay's display surfaces). Boot: Apple menu > Restart (macOS -> macOS, no power-off
       needed); in the OpenCore picker Macintosh HD; **no Reset NVRAM**. After the boot, check: `grep run-once
       /var/log/phxboot.log` shows `NVMTL_WS_PRESENT_CDCOPY=1`; the unified log (WindowServer, NVMTL) shows
