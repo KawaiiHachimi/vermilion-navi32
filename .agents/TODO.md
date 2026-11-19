@@ -32,7 +32,7 @@ progress, `[x]` done, `[-]` dropped (say why).
   2. **Phase 2 first (owner's decision, 2026-11-19):** built and staged
      ([findings](findings/2026-11-19-phase2-build-and-stage.md)). `vermilion` EFI stage on `/boot/EFI/OC`
      (`OC.prev` = `install`), payload in `/boot/vermilion`. **Next boot:** Reset NVRAM > Recovery > Terminal >
-     `diskutil mount disk0s1; sh /Volumes/EFI/vermilion/install.sh` > restart into Macintosh HD, wait ~3 min
+     `mkdir -p /tmp/efi && diskutil mount -mountPoint /tmp/efi disk2s1 && sh /tmp/efi/vermilion/install.sh` > restart into Macintosh HD, wait ~3 min
      (no desktop arm: bring-up + Metal for apps), shut down, then read `/var/log/phxboot.log` from Linux. Then stage
      `phxboot-desktop` from Linux for the accelerated-desktop boot ([runbooks](runbooks.md)).
   3. Then Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (Apple's E1000 dext

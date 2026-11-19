@@ -149,10 +149,13 @@ efi/build.py build --stage vermilion && efi/build.py install --esp /boot --stage
 Then power off, F8 > OpenCore > Reset NVRAM > OpenCore > the Recovery entry > Utilities > Terminal:
 
 ```sh
-diskutil mount disk0s1; sh /Volumes/EFI/vermilion/install.sh
+mkdir -p /tmp/efi && diskutil mount -mountPoint /tmp/efi disk2s1 && sh /tmp/efi/vermilion/install.sh
 ```
 
-(If `disk0s1` is not the EFI partition, `diskutil list` shows which one is.) Then restart into Macintosh HD.
+In Recovery, `disk0`/`disk1` are Recovery's own disk image (2026-11-19: `diskutil mount disk0s1` refused, "APFS
+Physical Store"); the NVMe was `disk2`, its EFI partition `disk2s1` (TYPE `EFI`, name `NO NAME`, so it would mount
+as `/Volumes/NO NAME`, hence the fixed mount point). Check with `diskutil list` if the numbering changes. Then
+restart into Macintosh HD.
 
 Flags for the next boot, from Linux, without macOS: `touch /boot/vermilion/flags/phxboot-desktop` (one desktop-arm
 attempt), `touch /boot/vermilion/flags/phxboot-off` (kill switch), `touch /boot/vermilion/flags/phxboot-off.rm`

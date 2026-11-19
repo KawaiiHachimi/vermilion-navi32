@@ -5,7 +5,10 @@
 # (docs/REFERENCE-MACHINES.md) gets its files this way: Linux stages this script and the payload on the EFI partition
 # (tools/phxctl/esp_stage.sh), Recovery runs it, and the next normal boot runs the boot daemon.
 #
-#   diskutil mount disk0s1; sh /Volumes/EFI/vermilion/install.sh
+#   mkdir -p /tmp/efi && diskutil mount -mountPoint /tmp/efi disk2s1 && sh /tmp/efi/vermilion/install.sh
+#
+# In Recovery disk0 and disk1 are Recovery's own disk image; the NVMe was disk2 on the XTX machine (2026-11-19).
+# `diskutil list` shows the EFI partition (TYPE EFI). It is unlabeled ("NO NAME"), so mount it at a fixed point.
 #
 # It also runs on the live system (sudo sh .../install.sh), where it installs into /.
 #
