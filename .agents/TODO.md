@@ -165,7 +165,10 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 Boot 3 (`vermilion-pcilog`) + live reads: the Wi-Fi and Ethernet endpoints stop answering
           config requests after the 0.5 s scan (reading them froze the machine); L1.2, default ASPM, BAR moves,
           ACPI power ruled out
-    - [~] Decide the cause: Linux-side capture (owner chose it, 2026-11-19; [handoff](HANDOFF-LINUX-CAPTURE.md))
+    - [x] 2026-11-19 Linux-side capture ([handoff](HANDOFF-LINUX-CAPTURE.md)): under Linux every link on the path has
+          Common Clock set on both ends (Link Control `0x0c42` on DP58, `0x0042` on the card); in macOS DP58 read
+          `0x0002` (Common Clock clear) with retrain status bits set ([findings](findings/2026-11-19-wifi-mt7922.md))
+    - [~] Decide the cause: who clears DP58's Common Clock in macOS (IOPCIFamily, DSDT, GPU bring-up window)
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
