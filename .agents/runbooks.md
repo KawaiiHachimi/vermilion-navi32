@@ -187,3 +187,17 @@ The EFI partition is shared with Limine (`/boot` on Linux). Steps:
    `sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label "OpenCore" --loader '\EFI\OC\OpenCore.efi'`.
 3. Pick OpenCore from the firmware boot menu (F8 on ASUS) until it is proven; only then consider a Limine entry or
    reordering.
+
+## Logging the Wi-Fi state of one boot (2026-11-19, tested on macbox)
+
+`tools/phxctl/wifilog.sh` writes one status line a minute (kext loaded, Wi-Fi port, power, link, IPv4 yes/no) plus
+the card's `system_profiler` fields and the driver's `MtkDebugLog` at the start and the end, MAC addresses masked.
+Stage it with the same installer as perflog, under its own name:
+
+```sh
+sudo mkdir -p /boot/vermilion/wifi && sudo cp tools/phxctl/wifilog.sh tools/phxctl/perflog_install.sh /boot/vermilion/wifi/
+# run-once.sh: PERF_NAME=wifi bash "$1/wifi/perflog_install.sh" "$1/wifi/wifilog.sh" 1200 60
+```
+
+Read `/mnt/mac/root/private/var/log/vermilion-wifi-*.log` with apfs-fuse. The driver's ring may name networks:
+quote it redacted.

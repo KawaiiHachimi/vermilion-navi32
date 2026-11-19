@@ -236,7 +236,7 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
         kx = components["kexts"][name]
         bundle = Path(kx["path"]).name
         k["Add"].append({"Arch": "x86_64", "BundlePath": bundle, "Comment": kx["comment"], "Enabled": True,
-                         "ExecutablePath": kx["exec"], "MaxKernel": "", "MinKernel": kx["min_kernel"],
+                         "ExecutablePath": kx["exec"], "MaxKernel": kx.get("max_kernel", ""), "MinKernel": kx["min_kernel"],
                          "PlistPath": "Contents/Info.plist"})
     k["Block"], k["Force"] = [], []
     k["Patch"] = patches + [{"Arch": "x86_64", "Base": "", "Comment": kp["comment"], "Count": kp.get("count", 0),

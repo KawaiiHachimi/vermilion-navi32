@@ -7,7 +7,14 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (handoff, 2026-11-19, late night)
+## Current state (2026-11-19, morning: Wi-Fi test boot staged)
+
+**Wi-Fi boot staged** ([findings](findings/2026-11-19-wifi-mt7922.md)): `/boot/EFI/OC` = the `vermilion` stage +
+AirportMtkWlan 2.1.6 (06:14; `OC.prev` = b126 without Wi-Fi), `run-once.sh` starts `wifilog.sh` for 20 min. After the
+boot read `/var/log/vermilion-wifi-*.log`, the OpenCore log and the unified log. The machine-state lines below
+predate this.
+
+## Handoff (2026-11-19, late night)
 
 **Graphics is paused here; the next thread works on everything else (Phase 1 rest: sleep, USB, Ethernet, Wi-Fi,
 Bluetooth, AirDrop, audio), from a Claude Code / T3 Code install on the Mac itself.** Graphics state to come back to:
@@ -116,10 +123,15 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
         ([GeekAudio/intel-i225-tahoe-fix](https://github.com/GeekAudio/intel-i225-tahoe-fix)); the B650E-F config
         uses the same kext + `e1000=0`
-  - [ ] Wi-Fi MT7922: Arxusion/AirportMtkWlan (Tahoe build). Fallbacks: qiqco/MT7922-macOS-Driver,
+  - [~] Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`): Arxusion/AirportMtkWlan 2.1.6 (Tahoe build), in the
+        `vermilion` stage (now inherits `base`) since 2026-11-19, boot 1 staged with `wifilog.sh`
+        ([findings](findings/2026-11-19-wifi-mt7922.md)). Fallbacks: qiqco/MT7922-macOS-Driver,
         GeekAudio/MtkWireless
-  - [ ] Bluetooth MT7922 (USB `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)
-        or SimpleMtkBtFw (add the USB ID if missing; only one loader)
+  - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
+        and were pulled); only after Wi-Fi is stable
+  - [ ] Bluetooth MT7922 (USB **`0489:e0e2`** on this board, read 2026-11-19; not `0e8d:0616`): AirportMtkWlan's BT companion (announced, not in the v2.1.6 release)
+        or SimpleMtkBtFw (add the USB ID if missing; only one loader). The companion 2.2.1 panicked or hung on Tahoe
+        (AirportMtkWlan issues #14, #16)
   - [ ] USB audio (ASUS `0b05:1a5c`), front and rear USB ports (USB map), NVMe, CPU power management, shutdown/restart
   - [ ] Disable sleep for now (`pmset`, as in INSTALL.md section 10)
   - [ ] Back up the working EFI (outside git, without SMBIOS in any public place)

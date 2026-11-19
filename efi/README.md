@@ -40,7 +40,7 @@ change that caused it:
 |---|---|---|
 | `install` | First boot and the macOS installer | Lilu, VirtualSMC, NVMeFix, RestrictEvents, AppleMCEReporterDisabler; `-v keepsyms=1 debug=0x100`; SIP on |
 | `base` | The installed system | + AirportMtkWlan (Wi-Fi). Bluetooth, the Ethernet fallback and the USB map follow as they are tested |
-| `vermilion` | GPU acceleration ([docs/INSTALL.md](../docs/INSTALL.md)) | + AMFIPass, `VermilionBoot.kext` (from `build/`); `amfi=0x80 ipc_control_port_options=0 phxdebug=1`; SIP `0x0A03` |
+| `vermilion` | GPU acceleration ([docs/INSTALL.md](../docs/INSTALL.md)); inherits `base` since 2026-11-19 | + AMFIPass, `VermilionBoot.kext` (from `build/`); `amfi=0x80 ipc_control_port_options=0 phxdebug=1`; SIP `0x0A03` |
 
 ## Install onto the EFI partition
 

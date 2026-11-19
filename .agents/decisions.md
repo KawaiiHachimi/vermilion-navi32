@@ -114,3 +114,15 @@ regions at the top. Choosing by frame size leaves the XT at 1080p exactly as bef
 **Cost:** `debug.phxshot` can't read a large slot through the BAR (it returns EINVAL while GPU present shows one).
 **Revisit:** if the GOP's DCN window turns out smaller than 352 MiB, program DCN_VM_FB_LOCATION_TOP as Linux's
 `hubbub3_init_dchub_sys_ctx` does, or fit the slots below 256 MiB by shrinking the page-table pool.
+
+## 2026-11-19: The `vermilion` stage inherits `base`; AirportMtkWlan 2.1.6 with MaxKernel 25.99.99
+
+**Decision:** re-parent the `vermilion` EFI stage from `install` onto `base`, so the booted EFI gains exactly one
+kext, AirportMtkWlan 2.1.6 (Tahoe build), pinned to kernel 25.x (`max_kernel` in `components.json`, now honoured by
+`build.py`). Use 2.1.6, not the 2.2.x that the kext's README describes. Its Bluetooth companion is a separate,
+later step.
+**Why:** the owner wants Wi-Fi first; `base` exists exactly for this, and the stage chain keeps the one-change-per-
+boot rule visible in the diff. 2.2.x was pulled by its maintainer after panics; the Tahoe build is not meant for
+other kernels.
+**Revisit:** if Wi-Fi destabilises the GPU path (then `vermilion` back onto `install`), or when a newer release is
+recommended.
