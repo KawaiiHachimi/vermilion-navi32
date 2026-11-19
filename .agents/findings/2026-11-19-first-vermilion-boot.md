@@ -58,3 +58,31 @@ next boot.
 Security note: the EFI partition is a write path into `~/gpu`, which root runs at boot. That is no new exposure
 on this machine (writing the EFI partition already needs root, and `~/gpu` is user-writable by design,
 INSTALL.md 6), but it belongs in the docs before the hook is offered upstream.
+
+## Fourth boot (2026-11-19): first desktop arm, WindowServer aborts 4x: no AIR bitcode reader
+
+`phxboot-desktop` came in through the hook (`esp-flags: set phxboot-desktop`, and the hardened hook replaced itself).
+The arm path ran to the end on the XTX at 1440p: `PhxAMDFB on panel after 1s`, `Metal device ready after 1s`,
+`AGDC up after 1s`, `armed`, `restarting WindowServer once`, then `WindowServer crashed/hung 3 times` within 33 s,
+`frames=0`, revert to GOP (warm restart; the next boot's bring-up was fine again, so a warm macOS restart is OK on
+this card). The four `WindowServer-*.ips` all abort in `CA::OGL::new_metal_context` with
+`newLibraryWithURL: translation produced nothing for /System/Library/Frameworks/QuartzCore.framework/Resources/default.metallib`.
+The plugin log in `/var/log/phxhang-20261118-191100/` says why:
+
+```
+library: in-memory bitcode reader unavailable: dlopen(.../NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib ...) (no such file)
+library: air-opt spawn failed: No such file or directory
+library: metallib 160188176 bytes, 180 bitcode blobs, 0 entries indexed, 0 visible
+```
+
+The GPU side looked healthy (GRBM idle, all VMIDs free): this is the missing runtime piece, not a GPU fault. The
+owner's "WindowServer crashed" dialog at the next login reported these same four crashes (no crash in that boot).
+Also from the log: the device reports `AMD Radeon RX 7900 XT (RADV NAVI31)` and 84 CUs, the XT canned profile
+(docs/XTX.md item 1, cosmetic for now).
+
+Fix: NullMoth 3.0's `air-runtime/libLLVM.dylib` (LLVM 21.1.8, x86_64, ad-hoc signed; exports all 13 functions the
+plugin looks up; loads and creates a context on macOS 26.7.3 on macbox) and `libzstd.1.dylib`, installed by
+`tools/phxctl/air_runtime_install.sh` (md5-checked). Delivered without Recovery: the hook gained `run-once.sh` (moved
+off the EFI partition, then run as root before the flags are read); the installed hook only copies flags, so the next
+boot copies the new hook (`flags/phxboot-pre.sh`), and the boot after it runs `run-once.sh`, which installs the
+reader and sets `phxboot-desktop`. Tests: `espflags_test.sh` 10/10, daemon scenarios green.

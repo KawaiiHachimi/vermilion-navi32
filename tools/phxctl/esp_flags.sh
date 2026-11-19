@@ -10,12 +10,21 @@
 # Only names starting with "phxboot-" are taken; anything else is logged and left alone. Every file taken is deleted
 # from the EFI partition, so each staged change applies once. The phxboot log of the run gets one line per file.
 #
+# vermilion/run-once.sh (2026-11-19), when present, runs once as root right after the flags, with the EFI
+# partition's vermilion directory as its argument (so it can install files staged there) and its output in the phxboot
+# log. It is moved off the EFI partition to $ESPF_DONE (default /var/db/vermilion) BEFORE it runs, so a script that
+# hangs or breaks the boot does not run again. It runs before the daemon reads any flag, so it can set flags in <G>.
+# It shares the daemon's time budget for the hook (PHXBOOT_PRE_WAIT, 30 s): keep it short.
+# Security: whoever can write the EFI partition can run code as root in macOS through this. On the XTX machine that
+# is root on Linux, which can already do anything; do not use this hook on a machine where the EFI partition is
+# writable by less trusted users.
+#
 # The EFI partitions are found with `diskutil list`; one that is not mounted is mounted for the run and unmounted
-# again. Tested only by the mock harness (tests/mock/espflags_test.sh) so far (unverified on hardware).
+# again (checked against a real EFI partition on macbox, 2026-11-19).
 set -u
 G=${1:?usage: esp_flags.sh <gpu dir>}
 DISKUTIL=${ESPF_DISKUTIL:-/usr/sbin/diskutil}
-MNT=${ESPF_MNT:-/private/tmp/phxesp.$$}
+MNT=${ESPF_MNT:-/private/tmp/phxesp.$$}; DONE=${ESPF_DONE:-/var/db/vermilion}
 owner=$(/usr/bin/stat -f '%u:%g' "$G" 2>/dev/null || echo "")
 
 take() {   # take <flags dir>
@@ -53,6 +62,13 @@ for id in $ids; do
     mp=$MNT; ours=1
   fi
   if [ -d "$mp/vermilion/flags" ]; then found=1; take "$mp/vermilion/flags"; sync; fi
+  if [ -f "$mp/vermilion/run-once.sh" ]; then
+    mkdir -p "$DONE"; ro="$DONE/run-once-$(date +%Y%m%d-%H%M%S).sh"
+    if mv "$mp/vermilion/run-once.sh" "$ro"; then sync
+      echo "esp-flags: run-once: running $ro"
+      bash "$ro" "$mp/vermilion" "$G" 2>&1 | sed 's/^/  run-once: /'; echo "esp-flags: run-once: exit ${PIPESTATUS[0]}"
+    else echo "esp-flags: run-once: could not move it off the EFI partition: not run"; fi
+  fi
   [ $ours = 1 ] && { "$DISKUTIL" unmount "$mp" >/dev/null 2>&1 || echo "esp-flags: could not unmount $id"; rmdir "$MNT" 2>/dev/null; }
 done
 [ $found = 1 ] || echo "esp-flags: no vermilion/flags on any EFI partition"

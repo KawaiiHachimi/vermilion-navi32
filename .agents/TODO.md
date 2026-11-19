@@ -125,7 +125,10 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
       ([findings](findings/2026-11-19-first-vermilion-boot.md))
 - [x] 2026-11-19 VermilionAccel into the AuxKC (one boot with a login; syspolicyd rebuilt it), `NMXAccel up`,
       Metal for apps ([findings](findings/2026-11-19-first-vermilion-boot.md))
-- [~] First desktop-arm boot (`phxboot-desktop` + the hardened hook staged through the EFI partition)
+- [x] 2026-11-19 First desktop-arm boot: arm path OK at 1440p, WindowServer aborted (no AIR bitcode reader)
+- [~] Second desktop-arm boot: the reader (`air-runtime/libLLVM.dylib`) through the hook's run-once (2 boots:
+      the first copies the new hook, the second installs the reader and arms)
+- [ ] `recovery_install.sh` and `esp_stage.sh`: include the air-runtime reader (from NullMoth's package, md5-pinned)
 - [ ] `recovery_install.sh`: its Data-volume search found 3 candidates in Recovery (the system volume shows the
       Data volume's folders through firmlinks); pick the APFS Data role (`diskutil apfs list`) or the volume whose
       users directory is on its own device; test on macbox

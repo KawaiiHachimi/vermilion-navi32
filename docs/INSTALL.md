@@ -216,6 +216,13 @@ device, and the boot falls back to the firmware framebuffer.**
   nullarc's install script stages is NullMoth 2.4.1), and Vermilion's executable replaced the one inside it. You need
   an existing `NVMTLDriver.bundle` in `/Library/GPUBundles` before step 5.3 (unverified: a minimal hand-written
   `Info.plist` has not been tested).
+- **The AIR bitcode reader `NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib`** (with `libzstd.1.dylib`
+  next to it). The plugin dlopens it to read every metallib in memory (`src/metal-plugin/NVMTLLibraryLoad.m`); without
+  it, and without `air-opt` below, no shader translates, and WindowServer's Metal compositor aborts in
+  `CA::OGL::new_metal_context` ("translation produced nothing for .../QuartzCore.framework/Resources/default.metallib";
+  seen on the XTX machine, 2026-11-19). NullMoth's bundle carries an LLVM 21.1.8 build of it (Apache-2.0 with LLVM
+  exception; zstd BSD) with its license files in `Contents/Resources/air-runtime`; `tools/phxctl/air_runtime_install.sh`
+  installs it. The reference machine's copy came with NullMoth's bundle.
 - **`spirv-val`** (SPIRV-Tools). The translator validates every SPIR-V module it produces by running `spirv-val`
   (`src/translator/translator/src/tools.rs`). It looks in `METAL2VULKAN_SPIRV_VAL` (an absolute path), then
   `/opt/homebrew/opt/llvm/bin`, `/usr/local/opt/llvm/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then `PATH`. From

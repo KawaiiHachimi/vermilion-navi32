@@ -19,7 +19,7 @@ case "\$1" in
 esac
 EOF
   chmod +x "$T/bin/diskutil"; }
-run() { ESPF_TRIES=${ESPF_TRIES:-3} ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
+run() { ESPF_DONE="$T/done" ESPF_TRIES=${ESPF_TRIES:-3} ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
 check() {   # check <name> <cond> ...: every cond (a shell test) must hold
   local name=$1 ok=1 c; shift
   for c in "$@"; do eval "$c" || { ok=0; echo "    failed: $c"; }; done
@@ -50,5 +50,20 @@ check mount_retry '[ -e "$T/gpu/phxboot-desktop" ]' '[ "$(wc -l <"$T/mc" | tr -d
 # no EFI partition ever listed: gives up after ESPF_TRIES
 fake 0; sed -i '' 's|  list) printf|  list) exit 0; printf|' "$T/bin/diskutil"; ESPF_TRIES=2 run
 check no_efi_listed 'grep -q "no EFI partition listed after 2s" "$T/out"'
+
+# run-once.sh: moved off the EFI partition, then run with the vermilion dir and <G>; it can set flags for this boot
+fake 0; printf 'echo "ran with $1"; touch "$2/phxboot-desktop"; exit 4\n' >"$T/esp/vermilion/run-once.sh"; rm -rf "$T/done"; run
+check run_once '[ ! -e "$T/esp/vermilion/run-once.sh" ]' 'ls "$T"/done/run-once-*.sh >/dev/null 2>&1' '[ -e "$T/gpu/phxboot-desktop" ]' \
+  'grep -q "run-once: ran with $T/mnt/vermilion" "$T/out"' 'grep -q "run-once: exit 4" "$T/out"' 'grep -q "^unmount" "$T/calls"'
+
+# air_runtime_install.sh against a fake root: md5 checked, files in place; a bad md5 installs nothing
+A=$T/air; R=$T/root; mkdir -p "$A" "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS"; echo llvm >"$A/libLLVM.dylib"; echo zstd >"$A/libzstd.1.dylib"; echo lic >"$A/LLVM-LICENSE.txt"
+( cd "$A" && md5 -r libLLVM.dylib libzstd.1.dylib | awk '{print $1"  "$2}' >MD5SUMS )
+VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "$A" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
+check air_install '[ "$(cat "$T/rc")" = 0 ]' '[ "$(cat "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib")" = llvm ]' \
+  '[ -f "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libzstd.1.dylib" ]' '[ -f "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/Resources/air-runtime/LLVM-LICENSE.txt" ]'
+rm -rf "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime"; echo tampered >"$A/libLLVM.dylib"
+VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "$A" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
+check air_badmd5 '[ "$(cat "$T/rc")" != 0 ]' 'grep -q "does not match MD5SUMS" "$T/out"' '[ ! -e "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib" ]'
 
 echo "RESULT: $PASSN passed, $FAILN failed"; rm -rf "$T"; [ $FAILN = 0 ]
