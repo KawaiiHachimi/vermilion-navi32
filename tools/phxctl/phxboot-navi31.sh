@@ -35,6 +35,17 @@ ACCEL=${PHXBOOT_ACCEL:-/Library/Extensions/VermilionAccel.kext}; RUNAS=${PHXBOOT
 LOGCMD=${PHXBOOT_LOGCMD:-/usr/bin/log}
 exec >>"$LOG" 2>&1
 echo "== $(date '+%F %T') phxboot(navi31, Option 1b)"
+# Pre-start hook (2026-11-19): $G/phxboot-pre.sh, when present, runs first, as root, with $G as its argument and its
+# output in this log, before any flag is read. The XTX machine uses it to take flag files staged on the EFI partition
+# from Linux (tools/phxctl/esp_flags.sh), because Linux cannot write APFS. It gets PHXBOOT_PRE_WAIT seconds (default
+# 30); a hook still running then is killed and the boot goes on. A failing hook is logged and changes nothing else.
+PRE=${PHXBOOT_PRE:-$G/phxboot-pre.sh}
+if [ -f "$PRE" ]; then
+  bash "$PRE" "$G" & prep=$!; prend=$(( $(date +%s) + ${PHXBOOT_PRE_WAIT:-30} ))
+  while kill -0 $prep 2>/dev/null && [ "$(date +%s)" -lt $prend ]; do sleep 1; done
+  if kill -0 $prep 2>/dev/null; then kill -9 $prep 2>/dev/null; wait $prep 2>/dev/null; echo "pre-hook: $PRE still running after ${PHXBOOT_PRE_WAIT:-30}s: killed"
+  else wait $prep; prerc=$?; [ $prerc = 0 ] || echo "pre-hook: $PRE exit $prerc"; fi
+fi
 # First-WindowServer crash fix (11-03).
 # The first WindowServer (up since boot, started before any display pipe existed) restores the stored one-display set as
 # soon as the arm below publishes the display pipe (debug.nvaccel_iop/nvaccelfb=1). Since 11-01 that set is "AOC alone"
