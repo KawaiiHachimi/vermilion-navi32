@@ -145,3 +145,38 @@ LG's 384 bytes, segment-0 sequence identical to b126's `readEdid`, no-E-DDC sink
 After the boot: `sudo sysctl -w debug.phxedid_src=0x22` (a kext variable, no register), then
 `sudo sysctl -b debug.phxedid_full > edid.bin`; strip the serial before quoting it. The segment write itself is
 unverified on hardware.
+
+## Linux side (captured 2026-11-20, Linux 7.2.15 amdgpu, Hyprland 0.56.2, LG ULTRAGEAR+ on DP-3)
+
+Capture files: EFI partition `/boot/vermilion/capture/display-20261120-{001650,001722,001737}/` (not in git). All 2560x1440,
+4 lanes, `output_bpc` max 12, FEC/DSC sink support yes. Linux picks the link rate itself from the mode (DPCD 0x100:
+0x0a = HBR 2.7, 0x14 = HBR2 5.4, 0x1e = HBR3 8.1).
+
+| Step | Hz (OTG0 fps) | Link (current) | DSC | max_bpc | DP_PIXEL_FORMAT | DISPCLK = DPPCLK kHz | DCFCLK / deep sleep kHz | VID_M/N |
+|---|---|---|---|---|---|---|---|---|
+| 60 | 59.951 | HBR x4 | off | 8 | 0x41000000 | 245714 | 199000 / 17357 | 0x72b9/0x8000 |
+| 120 | 119.998 | HBR2 x4 | off | 8 | 0x41000000 | 505882 | 199000 / 35775 | 0x763e/0x8000 |
+| 144 | 143.991 | HBR2 x4 | off | 8 | 0x41000000 | 614285 | 199000 / 42675 | 0x8d0b/0x8000 |
+| 240 | 239.97 | **HBR3 x4** | **on** (bpp 256 = 16.0, slice 640x120, 2 slices, chunk 1280) | 8 | 0x41000000 | 537500 | 199000 / 71486 | 0xa75e/0x8000 |
+| hdr-60 | 59.951 | HBR x4 | off | 10 | **0x42000000** | 245714 | same as 60 | 0x72bc/0x8000 |
+| hdr-120 | 119.998 | HBR2 x4 | off | 10 | **0x42000000** | 505882 | same as 120 | 0x763b/0x8000 |
+| hbr2-60 / 120 / 144 | as above | same as unforced (Linux already picks HBR x4 at 60, HBR2 x4 at 120/144) | off | 8 | 0x41000000 | as above | as above | as above |
+| hbr2-120-10 | 119.998 | HBR2 x4 | off | 10 | 0x42000000 | 505882 | 35775 | 0x763a/0x8000 |
+
+(DP_PIXEL_FORMAT 0x41 = 8 bpc, 0x42 = 10 bpc.) FCLK 601000 kHz in every step.
+
+- **Result for macOS:** 120 Hz at 10 bpc and 144 Hz at 8 bpc need only HBR2 x4, which matches the link the firmware trains.
+  240 Hz needs HBR3 + DSC on Linux (DSC 2 slices, 16 bpp); not a target.
+- **Watermarks (DTN, set A):** 120 Hz: data_urgent 19.28, sr_enter 61.52, sr_exit 54.54, dram_clk_change 419.28 (all us); 240 Hz:
+  20.18 / 62.26 / 55.30 / 420.18. Set B 13.0 / 55.24 / 48.26 / 413.0 at 120 Hz. They barely move with refresh rate.
+  The DET segment table is in each step's `amdgpu_dm_dtn_log.txt` (not extracted here).
+- **HDR:** Hyprland `cm, hdr` + `bitdepth, 10` was accepted (10 bpc, DP_PIXEL_FORMAT 0x42). The hdr-60 trace wrote many registers
+  the plain 60 trace did not (inferred from a set difference of two traces whose starting states differ, so treat as candidates):
+  0x3542/49/4b, 0x36b8, 0x397c, 0x3b8f-92, 0x3bb8, 0x3c04, 0x42f0, 0x4d6e-74, 0x4f24/25, 0x4f8d/8e, 0x53e5, 0x5712/13/21,
+  0x64c0, 0x651c and a block at 0x90xx. The OGAM/SDP assignment of these is **not verified**; map them against the DCN 3.x
+  register headers before use. hdr-120 vs 120 differs only in 0x90f4-0x90f9.
+- 0x90f4-0x90ff appears when the pass starts from a different state (also in hbr2-120 vs 120), so it is probably a
+  per-session register and not HDR or HBR2 specific (inferred).
+- **Tooling bug fixed:** Hyprland 0.56 uses Lua config; `hyprctl keyword monitor` no longer works, so the script now sends
+  `hyprctl eval 'hl.monitor{...}'`. The first run of all steps (every step captured 240 Hz) was deleted.
+- The optional draft pipe-0 plans (hbr2-120/144 traces into `phx_p0_plan` form) are not done.

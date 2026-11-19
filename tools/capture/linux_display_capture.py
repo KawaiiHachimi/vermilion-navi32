@@ -137,6 +137,16 @@ class Cap:
         cmd = ["hyprctl", *args] if os.geteuid() == uid else ["sudo", "-u", user, "-E", "hyprctl", *args]
         return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=20).stdout
 
+    @staticmethod
+    def lua_monitor(rule):
+        # Hyprland >= 0.55 reads Lua; "keyword" no longer works. Turn the legacy rule string into hl.monitor{}.
+        f = rule.split(",")
+        t = {"output": f[0], "mode": f[1], "position": f[2], "scale": f[3]}
+        for k, v in zip(f[4::2], f[5::2]):
+            t[k] = v
+        body = ", ".join(f'{k} = {v}' if v.isdigit() or k == "scale" else f'{k} = "{v}"' for k, v in t.items())
+        return "hl.monitor({ " + body + " })"
+
     def monitor(self):
         for m in json.loads(self.hypr("-j", "monitors") or "[]"):
             if m.get("name") == self.cname:
@@ -224,7 +234,7 @@ class Cap:
         written, n = set(), 0
         if rule:
             self.trace_start()
-            r = self.hypr("keyword", "monitor", rule)
+            r = self.hypr("eval", self.lua_monitor(rule))
             time.sleep(4)
             written, n = self.trace_stop(os.path.join(d, "trace-modeset.txt"))
             self.say(f"   hyprctl: {r.strip()[:80]}; {n} register writes traced, {len(written)} distinct registers")
