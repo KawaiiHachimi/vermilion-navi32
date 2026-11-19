@@ -44,6 +44,28 @@ list instead of the real one.
 4. In the installer: Disk Utility > View > Show All Devices. Erase **only the `MACOS` volume** (78 GiB, exFAT) as
    APFS, name it `Macintosh HD`, then install onto it.
 
+## Reading the macOS disk from Linux (root, read-only)
+
+Logs from macOS boots that never reached a desktop (2026-11-19, works). `apfs-fuse` is read-only. Build it once:
+
+```sh
+git clone --recursive https://github.com/sgan81/apfs-fuse.git && mkdir apfs-fuse/build && cd apfs-fuse/build
+cmake -DUSE_FUSE3=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_FLAGS="-include cstdint" .. && make -j8
+```
+
+Mount one volume at a time. On p3: `-v 0` Data, `1` Preboot, `2` Recovery, `3` System, `4` Update. Files are under
+`<mnt>/root`:
+
+```sh
+sudo ./apfs-fuse -o ro,allow_other -v 0 /dev/nvme0n1p3 /mnt/mac   # Data volume
+sudo tail -100 /mnt/mac/root/private/var/log/install.log           # installer phases, "Triggering reboot"
+sudo ls /mnt/mac/root/Library/Logs/DiagnosticReports               # panic reports
+sudo umount /mnt/mac
+```
+
+The OpenCore log of every boot (`/boot/opencore-*.txt`) shows the boot.efi path and kernel flags
+(`grep -a 'LIMG:FP\|MBA:OUT\|EXITBS'`). Together these tell you which installer phase a boot was in.
+
 ## Reading the XTX from Linux (no root)
 
 [`tools/capture/gpuinfo.c`](../tools/capture/gpuinfo.c) (libdrm `AMDGPU_INFO_DEV_INFO`, `VRAM_GTT`, firmware
