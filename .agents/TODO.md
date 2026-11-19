@@ -7,6 +7,31 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
+## Current state (handoff, 2026-11-19)
+
+- **macOS 26.7.1 is installed** on p3 (`Macintosh HD`, APFS, 78 GiB) with the `install` stage EFI (`/boot/EFI/OC`,
+  firmware entry "OpenCore", Limine first in the boot order; the owner picks OpenCore with F8). Not yet checked: whether
+  the first boot reaches Setup Assistant / the desktop. nullmoth/1401 documents a black screen with only a cursor where
+  Setup should start on macOS 26 without a GPU driver; their fix creates the account from Recovery's Terminal and skips
+  Setup (docs/TROUBLESHOOTING.md, `finish-setup.sh`).
+- **What it took** ([findings](findings/2026-11-18-first-boot-acpi.md)):
+  1. 5 in-place DSDT NOP patches (AM5 chipset `If (G002 ...)` blocks);
+  2. SSDT-CPUR (the CPUs exist only as ACPI0007 devices);
+  3. iGPU disabled in the BIOS;
+  4. the AGDP pikera kernel patch (Navi);
+  5. `DisableVariableWrite`.
+- **BIOS now:** iGPU disabled (re-enable for Phase 5), CSM off, Above 4G + ReBAR on.
+- **Observability:** only photos of the verbose screen. Next useful tools: `apfs-fuse` on Linux to read macOS logs, and
+  `log show` once the desktop works.
+- **Next steps, in order:**
+  1. First boot of Macintosh HD to the desktop (finish-setup route if Setup can't draw).
+  2. Delete p4 (installer), grow the APFS container to 100 GiB.
+  3. `base` stage: Wi-Fi.
+  4. Ethernet.
+  5. Bluetooth.
+  6. USB map.
+  7. Phase 2 (Vermilion).
+
 ## Phase 0: Housekeeping
 
 - [x] 2026-11-18 Explore upstream and the machine; audit XT vs XTX ([findings](findings/2026-11-18-xtx-port-audit.md))
@@ -48,14 +73,14 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
   - [x] 2026-11-18 Second boot: the DSDT loaded (no ACPI errors) but it hung at the same line. Cause: the chipset
         devices are still conditional (nullmoth/1401 issue 21, same symptom on ASUS AM5)
   - [x] 2026-11-18 Fix v2: `fix_dsdt.py resolve` with the Linux namespace (unwrap active blocks, remove inactive ones)
-  - [ ] Third boot with fix v2. Next suspects if it still hangs: `DisableVariableWrite` (1401 #21, installer stage),
-        Reset NVRAM, the `IOPCIIsHotplugPort` patch, `npci=0x3000`, Resizable BAR off as a test
+  - [x] 2026-11-19 Then: in-place DSDT NOP patches, SSDT-CPUR, iGPU off, AGDP pikera patch, DisableVariableWrite.
+        The installer ran to the end (see Current state)
   - [ ] USB map: the chipset controller `0c:00.0` has 17 ports (12 USB 2 + 5 USB 3), over macOS's 15 per controller.
         Map after the install (USBToolBox), or generate from Linux sysfs
 - [x] 2026-11-18 `install` stage on the EFI partition (`/boot/EFI/OC`), firmware entry Boot0006 "OpenCore",
       boot order Limine (0000) first, OpenCore second (pick it with F8). `EFI/BOOT` untouched
 - [ ] Optional: a Limine menu entry that chainloads OpenCore
-- [ ] Install macOS to the `MACOS` partition (erase it as APFS, nothing else): steps in [runbooks.md](runbooks.md)
+- [x] 2026-11-19 macOS 26.7.1 installed on `Macintosh HD` (p3)
 - [ ] Post-install, one item at a time, each tested and logged:
   - [ ] Ethernet I225-V: try the built-in driver first. Fallback documented on Tahoe 26.7.1 with an I225-V:
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
