@@ -70,3 +70,7 @@ Use upstream's guide ([INSTALL.md](INSTALL.md)) with these differences:
 - Power off fully when coming from Linux.
 - First boot without desktop arm (apps get Metal, the GOP keeps the screen), then the squat boot.
 - Watch GPU temperature and power for the first minutes. Without clock gating the idle card runs hot.
+- On the XTX machine the desktop without a driver is too slow to type in, so the files go in from Recovery:
+  `tools/phxctl/esp_stage.sh` (Linux) puts them on the EFI partition and `tools/phxctl/recovery_install.sh` installs
+  them; later flags come through `<EFI>/vermilion/flags/` (`tools/phxctl/esp_flags.sh`). Steps:
+  [`.agents/runbooks.md`](../.agents/runbooks.md).

@@ -29,8 +29,12 @@ progress, `[x]` done, `[-]` dropped (say why).
 - **Next steps, in order:**
   1. ~~First boot of Macintosh HD to the desktop~~ done 2026-11-19. Too slow to use: WindowServer runs its CPU
      "Software compositor" at 30 Hz, no IOGPU device ([findings](findings/2026-11-19-first-desktop-logs.md)).
-  2. **Phase 2 first (owner's decision, 2026-11-19):** build Vermilion on macbox, install it without the desktop
-     (files on the EFI partition from Linux, one install script run from Terminal or Recovery's Terminal).
+  2. **Phase 2 first (owner's decision, 2026-11-19):** built and staged
+     ([findings](findings/2026-11-19-phase2-build-and-stage.md)). `vermilion` EFI stage on `/boot/EFI/OC`
+     (`OC.prev` = `install`), payload in `/boot/vermilion`. **Next boot:** Reset NVRAM > Recovery > Terminal >
+     `diskutil mount disk0s1; sh /Volumes/EFI/vermilion/install.sh` > restart into Macintosh HD, wait ~3 min
+     (no desktop arm: bring-up + Metal for apps), shut down, then read `/var/log/phxboot.log` from Linux. Then stage
+     `phxboot-desktop` from Linux for the accelerated-desktop boot ([runbooks](runbooks.md)).
   3. Then Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (Apple's E1000 dext
      fails its entitlement check, so the I210 + `e1000=0` fallback), Bluetooth, USB map.
 
@@ -46,9 +50,8 @@ progress, `[x]` done, `[-]` dropped (say why).
       every suite green on both macOS and Linux
 - [ ] CI: GitHub Actions running the mock tests (Linux runner), plus a macOS runner that builds the kexts, plugin
       and translator (no signing)
-- [ ] Set up the build host: check macbox's macOS version; install the Command Line Tools, MacKernelSDK, Rust with
-      `x86_64-apple-darwin`, Mesa build deps (meson, ninja, glslang, mako). Build every component once and write
-      down the exact steps in [runbooks.md](runbooks.md)
+- [x] 2026-11-19 Set up the build host (macbox, macOS 26.7.3 + Xcode): MacKernelSDK, Rust, Python 3.12 via uv,
+      meson/ninja, glslang, Mesa `f5cb8ee0`, SPIRV-Tools; every component built; steps in [runbooks.md](runbooks.md)
 
 ## Phase 1: Bare-metal macOS without GPU acceleration
 
@@ -114,7 +117,10 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
 - [ ] A boot log line (daemon or kext) with: PCI revision, DMCUB version (SCRATCH1), OTG0 totals, DP link
       rate/lanes, DPCD 0x100/0x101, `phx-bar0-len`, VRAM size
 - [ ] Docs: name rev `0xC8` and `0xCC` in README, INSTALL, script headers
-- [ ] Build everything on the build host, install by INSTALL.md with flags `sdma`, `cg`, `uclk=456` only
+- [x] 2026-11-19 Build everything on the build host (macbox; [runbooks](runbooks.md))
+- [x] 2026-11-19 Install path without a desktop: `esp_stage.sh` (Linux) + `recovery_install.sh` (Recovery), flags
+      from Linux through `esp_flags.sh` (daemon pre-hook) ([findings](findings/2026-11-19-phase2-build-and-stage.md))
+- [~] Install with flags `sdma`, `cg`, `uclk=456` only (staged; runs in Recovery on the next boot)
 - [ ] First boot without desktop arm: bring-up log, `metaltest`, temperatures and power
 - [ ] Squat boot: accelerated desktop at 1440p60
 - [ ] Soak: 20 cold boots in a row reach `SUCCESS`; a day of normal use with no GPU hang (log every failure in

@@ -97,19 +97,68 @@ numbers differ from the VBIOS's.
 Never write to `amdgpu_regs`. Captures go to a local directory outside git, unless they contain no serials and are
 turned into plans.
 
-## Build host (macOS VM via macbox) *(unverified)*
+## Build host (macOS VM via macbox) (2026-11-19, works)
+
+The macbox VM runs macOS 26.7.3 (x86_64) with Xcode. Set up once (everything in `~/src` on the guest):
 
 ```sh
-macbox up                 # starts the VM (Docker, QEMU); macbox status shows it
-macbox ssh                # shell on the guest
+macbox up && ssh macbox
+git clone -b ownback/explore-7900xtx-efi-passthrough https://github.com/ownback/vermilion.git ~/src/vermilion
+cd ~/src/vermilion/deps && git clone --depth 1 https://github.com/acidanthera/MacKernelSDK.git \
+  && git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git
+curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-host x86_64-apple-darwin
+curl -LsSf https://astral.sh/uv/install.sh | sh                     # Mesa's meson needs Python >= 3.10; the system has 3.9
+~/.local/bin/uv python install 3.12 && ~/.local/bin/uv venv -p 3.12 ~/src/venv
+~/.local/bin/uv pip install -p ~/src/venv/bin/python meson ninja mako pyyaml markupsafe packaging cmake
+# glslangValidator: the macOS release binary of KhronosGroup/glslang 16.6.0, unpacked to ~/src/tools/glslang
+# Mesa at f5cb8ee0 (a shallow fetch of the one commit), then the patches with an ABSOLUTE path:
+mkdir ~/src/mesa && cd ~/src/mesa && git init -q && git remote add origin https://gitlab.freedesktop.org/mesa/mesa.git \
+  && git fetch --depth 1 origin f5cb8ee032adabef599ae892ec4e42d796b84da9 && git checkout FETCH_HEAD
+git -C ~/src/mesa am ~/src/vermilion/patches/mesa/*.patch          # `radv.sh apply` passes a relative path, which fails
+                                                                   # under `git -C`
 ```
 
-The guest needs the Command Line Tools, MacKernelSDK (`deps/MacKernelSDK`), Vulkan-Headers, Rust with
-`x86_64-apple-darwin`, and for RADV: meson, ninja, glslang, python3 with mako, pyyaml, markupsafe, packaging, plus a
-Mesa checkout at `f5cb8ee0`. Then follow [BUILD.md](../docs/BUILD.md). Stop the VM afterwards (`macbox down`): it uses
-8 CPUs and 15 GB.
+Build (about 10 minutes, most of it RADV):
 
-The VM has no AMD GPU, so it builds only. All driver testing happens on bare metal.
+```sh
+cd ~/src/vermilion && export PATH=$HOME/src/tools/glslang/bin:$HOME/.cargo/bin:$HOME/src/venv/bin:$PATH
+export MKSDK=$PWD/deps/MacKernelSDK MESA_DIR=$HOME/src/mesa
+tools/firmware/fetch_firmware.sh
+for s in kext accel tools metaltest plugin translator radv; do sh scripts/build/$s.sh; done
+```
+
+`spirv-val` (the translator runs it; Vermilion doesn't ship it): SPIRV-Tools v2025.4, `python3 utils/git-sync-deps`,
+then `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DSPIRV_SKIP_TESTS=ON
+-DBUILD_SHARED_LIBS=OFF` and `ninja spirv-val`. Copy it to `build/spirv-val` and sign it with `codesign -fs -`.
+
+Copy `build/` to the Linux checkout with `rsync -a macbox:src/vermilion/build/ build/`. Stop the VM afterwards
+(`macbox down`): it uses 8 CPUs and 15 GB. The VM has no AMD GPU, so it only builds; all driver testing happens on
+bare metal. The mock suites run there too (`bash tests/mock/run.sh`, `b15test.sh`, `espflags_test.sh`,
+`recovery_install_test.sh`); the guest has passwordless sudo, so `recovery_install.sh` can also be run as root
+against a fake Data volume.
+
+## Installing Vermilion without the desktop (XTX machine, 2026-11-19)
+
+From Linux (root):
+
+```sh
+sh tools/phxctl/esp_stage.sh /boot/vermilion ~/.cache/vermilion/fw/navi31   # payload + install.sh, MD5SUMS
+efi/build.py build --stage vermilion && efi/build.py install --esp /boot --stage vermilion   # keeps EFI/OC.prev
+```
+
+Then power off, F8 > OpenCore > Reset NVRAM > OpenCore > the Recovery entry > Utilities > Terminal:
+
+```sh
+diskutil mount disk0s1; sh /Volumes/EFI/vermilion/install.sh
+```
+
+(If `disk0s1` is not the EFI partition, `diskutil list` shows which one is.) Then restart into Macintosh HD.
+
+Flags for the next boot, from Linux, without macOS: `touch /boot/vermilion/flags/phxboot-desktop` (one desktop-arm
+attempt), `touch /boot/vermilion/flags/phxboot-off` (kill switch), `touch /boot/vermilion/flags/phxboot-off.rm`
+(remove it). The daemon's pre-hook takes them at the next boot and logs one `esp-flags:` line each in
+`/var/log/phxboot.log`. Read that log from Linux with `apfs-fuse` (above). Roll the EFI back with
+`mv /boot/EFI/OC /boot/EFI/OC.vermilion && mv /boot/EFI/OC.prev /boot/EFI/OC`.
 
 ## OpenCore EFI install *(unverified)*
 

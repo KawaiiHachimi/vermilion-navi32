@@ -33,6 +33,8 @@ python3 hotplug0_mut.py        # 8 mutations of the daemon's hotplug0_boot (~/gp
 bash watchsrv_mut.sh           # 11 mutations of b15_boot.sh's watchdog read server path (srv_start/sget/bgof, w2read, follow0, watch1), each CAUGHT by b15test.sh (11-03)
 PAR=1 bash relight_mut.sh      # any runner / suite: PAR = how many at once (default 2), see "Cost knobs" below
 bash b15diff.sh OLD NEW [VAR=v] # decision diff of two b15_boot.sh versions over every b15test.sh scenario (logs, calls, writes, stub call counters)
+bash espflags_test.sh          # esp_flags.sh, the daemon pre-hook that takes flags staged on the EFI partition (4/4, 11-19)
+bash recovery_install_test.sh  # recovery_install.sh against a fake Data volume, no root (6/6, 11-19)
 bash phxctl_serve_test.sh      # host test of `phxctl serve` (the read server; no kext needed: register items answer empty, sysctl items real) (9/9)
 ./run.sh -k                    # keep the work dirs (to debug a FAIL)
 ./run.sh happy user_logged     # only the named scenarios

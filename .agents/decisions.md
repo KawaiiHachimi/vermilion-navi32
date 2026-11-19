@@ -73,3 +73,31 @@ their own JSON.
 version, so the repo keeps the generic fixer, not the table. The fixer is generic, so other AM5 boards with the same
 firmware pattern can use it.
 **Revisit:** after a BIOS update (dump again), or if OpenCore gains a quirk for deferred module-level code.
+
+## 2026-11-19: GPU before the rest of Phase 1; install Vermilion from Recovery via the EFI partition
+
+**Decision:** the owner put Phase 2 (Vermilion) ahead of Wi-Fi, Ethernet, Bluetooth and the USB map, because the
+desktop without a GPU driver is unusable (WindowServer's software compositor at 30 Hz,
+[findings](findings/2026-11-19-first-desktop-logs.md)). The files reach the macOS Data volume without the desktop:
+Linux stages them on the EFI partition (`tools/phxctl/esp_stage.sh`), and one command in Recovery's Terminal installs
+them (`tools/phxctl/recovery_install.sh`). Flags for later boots come the same way: the boot daemon got a generic
+pre-start hook (`~/gpu/phxboot-pre.sh`), and on this machine that hook is `tools/phxctl/esp_flags.sh`, which takes
+`phxboot-*` files from `<EFI>/vermilion/flags/`. The `vermilion` EFI stage inherits `install`, not `base`, so the
+first Vermilion boot doesn't also bring in the untested Wi-Fi kext.
+**Why:** Linux can't write APFS, and Recovery can (it has every tool the script uses, checked in BaseSystem.dmg). The
+hook keeps the daemon unchanged when absent (169/169 mock scenarios, plus 3 new ones), and lets Linux arm a desktop
+boot or set a kill switch between boots without anyone typing in macOS.
+**Revisit:** once the accelerated desktop works, flags can be set in macOS directly again; the hook stays useful for
+soak tests from Linux.
+
+## 2026-11-19: Desktop-arm boots by file, not by NVRAM, while DisableVariableWrite is on
+
+**Decision:** arm the accelerated desktop with `~/gpu/phxboot-desktop` (staged through the EFI partition), not with
+`nvram phxfb-squat=1`. Never inject `phxfb-squat` through OpenCore's `NVRAM > Add`.
+**Why:** `DisableVariableWrite` (needed for the installer on this board) blocks macOS's NVRAM writes to the firmware,
+so a squat request set in macOS does not survive the reboot (unverified whether it even reads back in the same boot).
+An OpenCore-injected `phxfb-squat` would come back at every boot, and the daemon's failure path, which clears it and
+reboots onto the firmware framebuffer, would loop. The file-based arm is a supported daemon path (`DESK=1` without
+`SQUAT`); `phxfb-boot`, which the daemon sets in the same boot, is the open question for the first desktop-arm boot.
+**Revisit:** test whether macOS runs stable with `DisableVariableWrite` off after the install; then the squat path and
+`phxboot-auto` work as upstream documents.
