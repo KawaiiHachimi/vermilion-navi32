@@ -191,6 +191,22 @@ power-cycled; the machine booted normally at 22:46:36.
   with the first user client (`newUserClient`), after the pre-hook. The daemon's `waitstep_boot` runs after
   "bring-up + claim", when the oid exists (it reads 50 later in the same boot). That boot stayed at 50.
 
+## Live test 5 (2026-11-19 22:55-22:57): tearing: `ws-cdcopy-hold` 1000 us: no change, reverted
+
+Tearing seen by the owner in live test 4 at both wait steps. Read the present path first:
+- The kernel flips HUBP0 with FLIP_TYPE vsync (`scanFlipLocked(..., false)`; immediate is used only for the restore),
+  and `nvmtl_scanout.c` waits for the copy's fence before the flip. Slots are taken only when the kernel reports
+  them reusable (race counter "on-screen slot reported reusable" 0). So a classic tear (a frame switched mid-scan, or a
+  slot written while on screen) is not expected from this code (unverified on screen).
+- Candidate: an unwaited CoreDisplay commit followed 0.2-0.45 ms later by a waited one to the same display surface
+  (upstream's E0 trace 2026-10-28); presenting the first shows an incomplete frame. Upstream's switch for it:
+  `/Library/GPUBundles/nvmtl/ws-cdcopy-hold` (microseconds; hold an unwaited present, drop it if a later commit came).
+
+Set to 1000 at 22:55:36 (plugin logged `hold 1000 us`), deleted at 22:57:33 (`hold 0 us`). Plugin: **1000 held
+unwaited presents, 11 superseded by a later commit** (1.1 %). Owner: "still the same ... not as bad as it was before",
+asked to set it back. So the incomplete-frame case is rare and not what the owner sees as tearing. Still open: what
+the owner calls tearing (where on screen, which motion). Next: ask for a short phone video of it.
+
 ## Next steps (one change at a time)
 
 1. **Flicker:** `/Library/GPUBundles/nvmtl/ws-gpu-present-async` is a live switch (the plugin re-reads it every

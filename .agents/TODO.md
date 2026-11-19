@@ -68,7 +68,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
 - [ ] Kernel panic at the 22:44 restart (most likely at the end of the shutdown: no OpenCore log, no phxboot run in
       between; no panic report saved; [findings](findings/2026-11-19-gpu-present-flicker-heat.md)). If it happens again:
       a photo of the panic screen. Then: why no panic report is saved on this install
-- [ ] Screen tearing at 1440p60 with GPU present (owner, live test 4, both wait steps): research first
+- [~] Screen tearing at 1440p60 with GPU present (owner, live test 4, both wait steps). Flips are vsync and wait for the
+      copy (code). 22:55 `ws-cdcopy-hold` 1000 us: no change, 1.1 % of presents superseded; deleted (live test 5).
+      Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
 
