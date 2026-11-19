@@ -239,7 +239,11 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
                          "ExecutablePath": kx["exec"], "MaxKernel": "", "MinKernel": kx["min_kernel"],
                          "PlistPath": "Contents/Info.plist"})
     k["Block"], k["Force"] = [], []
-    k["Patch"] = patches
+    k["Patch"] = patches + [{"Arch": "x86_64", "Base": "", "Comment": kp["comment"], "Count": kp.get("count", 0),
+                             "Enabled": True, "Find": bytes.fromhex(kp["find"]), "Identifier": kp["identifier"],
+                             "Limit": 0, "Mask": b"", "MaxKernel": kp.get("max_kernel", ""),
+                             "MinKernel": kp.get("min_kernel", ""), "Replace": bytes.fromhex(kp["replace"]),
+                             "ReplaceMask": b"", "Skip": 0} for kp in machine.get("kernel_patches", [])]
     k["Emulate"].update(machine["kernel_emulate"])
     k["Quirks"].update(machine["kernel_quirks"])
 

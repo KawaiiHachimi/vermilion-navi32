@@ -42,6 +42,12 @@
     "ProvideCurrentCpuInfo": true,
     "XhciPortLimit": false
   },
+  "kernel_patches": [
+    {"comment": "Pike R. Alpha | AGDP board-id -> board-ix (agdpmod=pikera without WhateverGreen) | 26+",
+     "identifier": "com.apple.driver.AppleGraphicsDevicePolicy", "find": "626f6172642d6964", "replace": "626f6172642d6978",
+     "min_kernel": "25.0.0", "count": 0}
+  ],
+  "_kernel_patches": "Navi (RDNA) cards need agdpmod=pikera or they hang/black-screen when the graphics stack takes over (stall after 'IOG flags 0x3 (0x51)', 2026-11-19). WhateverGreen breaks on macOS 26 (Dortania Tahoe page), so this is the same rename as a kernel patch, exactly as nullmoth/1401 p1401/policy.py PIKERA_PATCH does for AMD dGPUs on Tahoe.",
   "kernel_emulate": {
     "DummyPowerManagement": true
   },

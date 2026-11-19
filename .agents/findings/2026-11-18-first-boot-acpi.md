@@ -131,3 +131,17 @@ caused by graphics: WhateverGreen (not used here) or a GPU macOS can't drive bei
 [WhateverGreen problem](https://forum.amd-osx.com/threads/whatevergreen-problem.5975/), where one user got past it by
 leaving only one GPU). This machine has two: the RX 7900 XTX (no macOS driver, GOP console) and the Radeon 610M iGPU
 (no macOS driver either). Next step, one change: iGPU disabled in the BIOS for the install.
+
+## Sixth and seventh boot (2026-11-19): iGPU off, then a panic, then stuck before the GUI
+
+- **iGPU disabled in the BIOS.** The first boot panicked during IOKit matching: a page fault on `0xFED802B0` (the FCH
+  ACPI/SMI MMIO area), nested panic, CPU 18. It did not repeat; no matching report found. If it recurs: ForgedInvariant
+  (TSC sync on the 2-CCD 7900X3D; a Zen 5 user stopped panics with it, forum.amd-osx.com post 43074).
+- **The next boots** passed `IOG flags` and reached `recoveryd` and `Generation from SMC report as 2`, then nothing for
+  7+ minutes, even after Reset NVRAM. That was the fix for "no GUI after SMC init" in nullmoth/1401 issue 21; not here.
+- **What 1401 does for this card:**
+  - Its builder, OpCore-Simplify (`config_prodigy.py`), adds `agdpmod=pikera` for every Navi-codename AMD dGPU.
+  - On Tahoe, 1401 (`p1401/policy.py`, citing Dortania's Tahoe page: WhateverGreen breaks on macOS 26) replaces it
+    with Pike R. Alpha's AppleGraphicsDevicePolicy patch `board-id` -> `board-ix` (MinKernel 25.0.0).
+  - 1401's docs say RX 7000 cards run macOS with basic display through its EFI.
+  - Our config lacked this. Added as `kernel_patches` in the machine file (one change for the next boot).
