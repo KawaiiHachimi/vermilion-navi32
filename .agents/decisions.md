@@ -146,3 +146,14 @@ unified log. MtkWireless is the only candidate tested on this exact macOS build 
 the table, AMD_Vanilla's `IOPCIIsHotplugPort`, changes PCI enumeration for the GPU too and needs evidence first.
 **Revisit:** if MtkWireless doesn't attach either (then the IORegistry decides), or once AirportMtkWlan reports an
 RZ616 working on 26.7.1.
+
+## 2026-11-19: `pci=0x8000000` on this machine: macOS keeps the firmware's PCIe tag settings
+
+**Decision:** the `base` stage boots with `pci=0x8000000` (`kIOPCIConfiguratorDefaultETF`), and Wi-Fi uses
+MtkWirelessWifi 1.1.1.
+**Why:** IOPCIFamily otherwise sets 10-Bit Tag Requester Enable on the chipset root port (GPP7); the MT7922 and the
+I225-V can't complete 10-bit tags and stop answering. Linux leaves that bit off. AMD_Vanilla's binary patch for the
+same thing is enabled but didn't keep the bit off on 26.7.1. A boot-arg that uses Apple's own switch is simpler than
+fixing a byte pattern. Verified: Wi-Fi at 802.11ax, Vermilion unaffected.
+**Revisit:** if a future IOPCIFamily drops the flag, or if the GPU path turns out to want 10-bit tags (then a
+per-device fix instead). Other AM5 boards with these two chips likely need the same; worth upstreaming as a note.

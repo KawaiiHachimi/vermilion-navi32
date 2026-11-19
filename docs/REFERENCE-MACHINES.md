@@ -31,7 +31,7 @@ The machine [ownback/vermilion](https://github.com/ownback/vermilion) is being m
 | iGPU | Radeon 610M (Raphael, `1002:164e`) | no macOS driver; Linux uses it in the VFIO setup |
 | Monitor | LG UltraGear+ 27", 2560x1440, 60/120/144 Hz DTDs, range 48-240 Hz, HDR metadata, 384-byte EDID (2 extensions). Connected to both the dGPU (DisplayPort, DP-3) and the iGPU | 60 Hz expected at first; high refresh needs new plans |
 | Ethernet | Intel I225-V (`8086:15f3`) | Apple's built-in driver (to verify on Tahoe) |
-| Wi-Fi | MediaTek MT7922 / AMD RZ616 (`14c3:0616`, subsystem `105b:e0cd`), behind the chipset switch (`GPP7.UP00.DP58`) | community kext (AirportMtkWlan 2.1.6, being tested) |
+| Wi-Fi | MediaTek MT7922 / AMD RZ616 (`14c3:0616`, subsystem `105b:e0cd`), behind the chipset switch (`GPP7.UP00.DP58`) | works (2026-11-19): Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1 + boot-arg `pci=0x8000000` (macOS must not enable 10-bit tags on the chipset root port) |
 | Bluetooth | MediaTek MT7922 over USB (`0489:e0e2`, Foxconn ID) | community firmware loader (to verify) |
 | Audio | ASUS USB audio (`0b05:1a5c`, Realtek USB codec) | standard USB audio, expected to work without a driver |
 | Storage | One PCIe 5.0 NVMe (Phison E26). macOS gets a 100 GiB partition next to Linux | NVMe native |

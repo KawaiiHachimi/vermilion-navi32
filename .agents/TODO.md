@@ -7,7 +7,14 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 09:00): on the Mac; Wi-Fi blocked by an empty PCI capability list
+## Current state (2026-11-19, 10:05): Wi-Fi works; next Bluetooth
+
+**Wi-Fi works on macOS** (MtkWirelessWifi 1.1.1 + boot-arg `pci=0x8000000`, [findings](findings/2026-11-19-wifi-mt7922.md)).
+The cause was macOS setting 10-Bit Tag Requester Enable on the chipset root port, which the MT7922 and the I225-V
+can't complete. EFI = `vermilion` stage (inherits `base`), built and installed from the Mac; `OC.prev` = the same
+without `pci=0x8000000`. Next: Bluetooth (USB `0489:e0e2`), then Ethernet (its capability list is back).
+
+## Earlier (09:00): on the Mac; Wi-Fi blocked by an empty PCI capability list
 
 **Next: one Linux capture** ([HANDOFF-LINUX-CAPTURE.md](HANDOFF-LINUX-CAPTURE.md), for the Claude on Omarchy): the
 owner boots Linux once, `tools/capture/linux_pci_capture.sh` writes `/boot/vermilion/capture/linux-pci-*.txt`,
@@ -157,7 +164,7 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
         AppleIntelI210Ethernet 2.3.1 + `device-id 0x1533` + `e1000=0`
         ([GeekAudio/intel-i225-tahoe-fix](https://github.com/GeekAudio/intel-i225-tahoe-fix)); the B650E-F config
         uses the same kext + `e1000=0`
-  - [~] Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`) ([findings](findings/2026-11-19-wifi-mt7922.md)):
+  - [x] 2026-11-19 Wi-Fi MT7922 (`14c3:0616`, subsystem `105b:e0cd`) ([findings](findings/2026-11-19-wifi-mt7922.md)):
     - [x] 2026-11-19 Boot 1: AirportMtkWlan 2.1.6 loaded but never attached (no driver object, no Wi-Fi port)
     - [x] 2026-11-19 Boot 2: MtkWirelessWifi 1.1.1 loaded, not attached either. Cause: the card's IOPCIDevice has
           an empty capability list (no MSI) because its config space didn't answer when IOPCIFamily published it;
@@ -174,7 +181,8 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 BIOS PCIe ASPM off: no change (ASPM ruled out)
     - [x] 2026-11-19 Cause: macOS sets 10-Bit Tag Requester Enable on the GPP7 root port; MT7922 and I225-V can't
           complete 10-bit tags (Linux leaves the requester off)
-    - [~] Fix staged: boot-arg `pci=0x8000000` (IOPCIFamily keeps firmware tag settings) in the `base` stage
+    - [x] 2026-11-19 **Wi-Fi works** (boot 4): boot-arg `pci=0x8000000` in the `base` stage; MtkWirelessWifi 1.1.1,
+          802.11ax 5 GHz 80 MHz, 780 Mbit/s, WPA2/WPA3; Vermilion unaffected
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable
