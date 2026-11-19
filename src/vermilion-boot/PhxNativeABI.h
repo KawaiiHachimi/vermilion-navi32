@@ -265,8 +265,10 @@ static_assert(sizeof(struct phxn_info) == 192, "info is 192 B");
 #define PHXN_SCANSLOT_INUSE    (1u << 1)
 #define PHXN_SCANSLOT_REUSABLE (1u << 2)
 #define PHXN_SCANST_RESTORING  (1u << 0)
-/* VRAM byte offsets of the three slots: 24/32/40 MiB, between phxfb's B (16 MiB) and PHX_VRAM_RING_MIN (48 MiB);
- * 8 MiB each, so up to 1920x1080x4. Free only by convention: nothing else may use 0x1800000..0x3000000. */
+/* VRAM byte offsets of the three slots for a frame up to 8 MiB (1920x1080x4): 24/32/40 MiB, between phxfb's B (16 MiB)
+ * and PHX_VRAM_RING_MIN (48 MiB). Free only by convention: nothing else may use 0x1800000..0x3000000. A larger frame
+ * (b126: 2560x1440 and up to 32 MiB) takes the large layout at 256/288/320 MiB instead: PhxScanLayout.h, which also
+ * reserves [256 MiB, 352 MiB) by the same convention. */
 #define PHXN_SCAN_SLOT_VRAM(k) (0x1800000ull + (uint64_t)(k) * 0x800000ull)
 #define PHXN_SCAN_SLOT_BYTES   0x800000ull
 struct phxn_scan_query {

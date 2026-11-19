@@ -29,8 +29,9 @@ IOReturn PhxBringup::vmMapVram(uint32_t handle, uint64_t va, uint64_t vramOff, u
 // drawing (the family's wait for the plane surface's last GPU write never fires on our stack, RE'd 2026-10-25).
 // Cobalt64 instead has the frame copied on the GPU, at the end of the command buffer that drew it, into a VRAM slot,
 // and flips HUBP0 to that slot once the GPU is done. These are its selectors, with its structs, so RADV's
-// radv_darwin_scanout_* work unchanged. Slots live at fixed VRAM offsets (PHXN_SCAN_SLOT_VRAM); a client's BO is
-// rebound onto one (its PTEs point at the slot's VRAM). The console surface A (VRAM 0) keeps receiving the display
+// radv_darwin_scanout_* work unchanged. Slots live at fixed VRAM offsets, small or large by the plane's frame size
+// (PhxScanLayout.h, b126; small = PHXN_SCAN_SLOT_VRAM as before); a client's BO is rebound onto one (its PTEs point at
+// the slot's VRAM). The console surface A (VRAM 0) keeps receiving the display
 // pipe's copies (debug.phxfb_flip must be 0 for Acquire), so a restore is a flip back to A. HUBP0 registers are
 // absolute dwords (DCN 3.2 segment 0x34c0 + dcn_3_2_0_offset.h), the flip sequence is Linux's hubp3 one.
 uint64_t PhxBringup::scanFrameLocked() {
@@ -128,7 +129,7 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->plane_h = q->v_active = vbs > vbe ? vbs - vbe : 0;
     q->flags = ((rreg(kOtg0Control) & 1) ? PHXN_SCANQ_LIT : 0) | PHXN_SCANQ_NATIVE;
     const uint64_t bytes = static_cast<uint64_t>(q->pitch_px) * 4 * q->plane_h;
-    if (q->hubp_format == PHXN_SCAN_FMT_ARGB8888 && !q->sw_mode && !q->dcc_en && q->plane_h && bytes <= PHXN_SCAN_SLOT_BYTES)
+    if (q->hubp_format == PHXN_SCAN_FMT_ARGB8888 && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
         q->flags |= PHXN_SCANQ_GEOM_OK;
     if (scanLock) IOLockLock(scanLock);
     q->frame_count = scanFrameLocked();
@@ -139,6 +140,37 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->plane_mc = scanPlane();
     q->earliest_mc = scanEarliest();
     q->otg = 0;
+}
+
+// b126: the slot layout for a frame of `bytes` (PhxScanLayout.h) against the VRAM size and the display's FB window as the
+// registers read now. Register reads only.
+int PhxBringup::scanLayoutFor(uint64_t bytes, phxscanlay::Layout *l) const {
+    if (!mmio) return phxscanlay::kErrEmpty;
+    return phxscanlay::choose(bytes, fbSize, rreg(kDcnVmFbLocationBase), rreg(kDcnVmFbLocationTop), l);
+}
+
+// b126: debug.phxscan_layout, what an acquire would get for the live plane, and the slots of the current acquisition.
+int PhxBringup::scanLayoutStat(char *buf, size_t cap) {
+    if (!mmio) return snprintf(buf, cap, "no MMIO");
+    phxn_scan_query q;
+    scanQuery(&q);
+    const uint64_t bytes = static_cast<uint64_t>(q.pitch_px) * 4 * q.plane_h;
+    phxscanlay::Layout l{};
+    const int r = scanLayoutFor(bytes, &l);
+    const uint32_t db = rreg(kDcnVmFbLocationBase) & 0xffffff, dt = rreg(kDcnVmFbLocationTop) & 0xffffff;
+    int n = snprintf(buf, cap, "plane %ux%u pitch %u px fmt %u sw %u dcc %u lit %u: %llu bytes -> %s",
+                     q.plane_w, q.plane_h, q.pitch_px, q.hubp_format, q.sw_mode, q.dcc_en, (q.flags & PHXN_SCANQ_LIT) ? 1u : 0u,
+                     static_cast<unsigned long long>(bytes), phxscanlay::name(r));
+    if (r >= 0 && n > 0 && static_cast<size_t>(n) < cap)
+        n += snprintf(buf + n, cap - static_cast<size_t>(n), " at VRAM 0x%llx + k * 0x%llx", l.base, l.stride);
+    if (n > 0 && static_cast<size_t>(n) < cap)
+        n += snprintf(buf + n, cap - static_cast<size_t>(n), "; geom_ok %u; VRAM %llu MiB; DCN FB window 0x%x..0x%x (%llu MiB); acquired %u",
+                      (q.flags & PHXN_SCANQ_GEOM_OK) ? 1u : 0u, static_cast<unsigned long long>(fbSize >> 20), db, dt,
+                      dt >= db ? static_cast<unsigned long long>(dt - db + 1) * 16 : 0ull, q.acquired);
+    if (q.acquired && n > 0 && static_cast<size_t>(n) < cap)
+        n += snprintf(buf + n, cap - static_cast<size_t>(n), " (slots %s at VRAM 0x%llx + k * 0x%llx)", phxscanlay::name(scan.lay.kind), scan.lay.base,
+                      scan.lay.stride);
+    return n;
 }
 
 IOReturn PhxBringup::scanAcquire(const void *who, uint64_t out[2]) {
@@ -153,9 +185,11 @@ IOReturn PhxBringup::scanAcquire(const void *who, uint64_t out[2]) {
     IOLockLock(scanLock);
     IOReturn r = kIOReturnSuccess;
     const uint64_t fbBase = static_cast<uint64_t>(rreg(kDcnVmFbLocationBase) & 0xffffff) << 24;
+    phxscanlay::Layout lay{};
+    const int layR = scanLayoutFor(static_cast<uint64_t>(q.pitch_px) * 4 * q.plane_h, &lay);
     if (scan.acquired) {
         r = kIOReturnBusy;
-    } else if (!(q.flags & PHXN_SCANQ_GEOM_OK) || !(q.flags & PHXN_SCANQ_LIT)) {
+    } else if (!(q.flags & PHXN_SCANQ_GEOM_OK) || !(q.flags & PHXN_SCANQ_LIT) || layR < 0) {
         r = kIOReturnUnsupported;
     } else if (q.plane_mc != fbBase || q.earliest_mc != fbBase || (rreg(kHubpreq0FlipControl) & 0x100)) {
         r = kIOReturnNotReady;   // the console surface A must be on screen and idle (debug.phxfb_flip=0)
@@ -169,11 +203,13 @@ IOReturn PhxBringup::scanAcquire(const void *who, uint64_t out[2]) {
         scan.fbBase = fbBase;
         scan.pitchPx = q.pitch_px;
         scan.planeH = q.plane_h;
+        scan.lay = lay;
         scan.front = scan.pending = PHXN_SCAN_NO_SLOT;
         scan.lastCallAbs = mach_absolute_time();
         out[0] = scan.consoleMc;
         out[1] = scanFrameLocked();
-        IOLog("PhxBringup: scanout acquired (console MC 0x%llx, %ux%u)%s\n", scan.consoleMc, q.pitch_px, q.plane_h, prev ? " (previous owner dropped)" : "");
+        IOLog("PhxBringup: scanout acquired (console MC 0x%llx, %ux%u, slots %s at VRAM 0x%llx + k * 0x%llx)%s\n", scan.consoleMc,
+              q.pitch_px, q.plane_h, phxscanlay::name(scan.lay.kind), scan.lay.base, scan.lay.stride, prev ? " (previous owner dropped)" : "");
     }
     IOLockUnlock(scanLock);
     if (r == kIOReturnSuccess) {
@@ -192,7 +228,7 @@ IOReturn PhxBringup::scanAllocSlot(const void *who, const phxn_scan_reg *r, uint
         ret = kIOReturnNotPermitted;
     } else if (r->reserved0 || r->offset || r->format != PHXN_SCAN_FMT_ARGB8888 || r->pitch_bytes != scan.pitchPx * 4 ||
                r->width != scan.pitchPx || r->height != scan.planeH ||
-               static_cast<uint64_t>(r->pitch_bytes) * r->height > PHXN_SCAN_SLOT_BYTES) {
+               static_cast<uint64_t>(r->pitch_bytes) * r->height > scan.lay.stride) {
         ret = kIOReturnBadArgument;
     } else {
         uint32_t k = 0;
@@ -201,7 +237,7 @@ IOReturn PhxBringup::scanAllocSlot(const void *who, const phxn_scan_reg *r, uint
             ret = kIOReturnNoResources;
         } else {
             scan.slotUsed[k] = true;
-            *vramOff = PHXN_SCAN_SLOT_VRAM(k);
+            *vramOff = phxscanlay::slotOff(scan.lay, k);
             scan.slotMc[k] = scan.fbBase + *vramOff;
             *slot = k;
             *mc = scan.slotMc[k];

@@ -113,6 +113,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxkey);
         sysctl_register_oid(&sysctl__debug_phxcalls);
         sysctl_register_oid(&sysctl__debug_phxscan);
+        sysctl_register_oid(&sysctl__debug_phxscan_layout);   // b126
         if (!gMmIdxLock) gMmIdxLock = IOSimpleLockAlloc();   // b82: before the sysctls that use it
         sysctl_register_oid(&sysctl__debug_phxpipe2);
         sysctl_register_oid(&sysctl__debug_phxpipe2_stat);

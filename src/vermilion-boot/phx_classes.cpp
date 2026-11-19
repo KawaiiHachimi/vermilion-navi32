@@ -54,6 +54,8 @@ public:
     IOReturn scanPresent(const void *who, uint32_t slot, uint64_t out[3]);
     IOReturn scanStatus(const void *who, phxn_scan_status *st);
     IOReturn scanRelease(const void *who, uint64_t out[2]);   // also when `who` closes; idempotent
+    int scanLayoutFor(uint64_t bytes, phxscanlay::Layout *l) const;   // b126: PhxScanLayout.h's choice for the live registers
+    int scanLayoutStat(char *buf, size_t cap);                        // b126: debug.phxscan_layout (reads registers only)
     bool scanHeldBy(const void *who) const { return scan.owner == who; }
     // b82 (M7 S2, phx_pipe2.cpp): register access for the pipe-1 engine, and one VRAM dword through MM_INDEX/MM_DATA
     uint32_t p2Rd(uint32_t reg) const;
@@ -71,6 +73,7 @@ private:
         const void *owner;            // the client that acquired (kept after a watchdog restore until it releases/closes)
         bool acquired;                // HUBP0 may show a slot
         uint64_t consoleMc, fbBase, slotMc[PHXN_SCAN_MAX_SLOTS];
+        phxscanlay::Layout lay;       // b126: the slots' VRAM layout for this acquisition (PhxScanLayout.h)
         bool slotUsed[PHXN_SCAN_MAX_SLOTS];
         uint32_t front, pending, pitchPx, planeH;
         uint64_t presents, latched, replaced, refused, restores, watchdogRestores, lastCallAbs, frameExt;

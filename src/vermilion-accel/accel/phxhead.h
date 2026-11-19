@@ -18,7 +18,9 @@ constexpr unsigned kMaxHeads = 2;
 // at 4K); 16 MiB = phxfb's flip buffer B (debug.phxfb_flip, off); 24-48 MiB = the three GPU-present slots
 // (PhxNativeABI.h PHXN_SCAN_SLOT_VRAM); 48 MiB = the PSP ring + cmd + fence (bringup_navi31.sh RING_OFF, 36 KiB used,
 // 1 MiB kept); 96 MiB = the TMR (to 115 MiB); 128 MiB fw_buf; 136 MiB VCN ring; 140 MiB IH ring; 144 MiB SMU tables;
-// 160-164 MiB mesboot; 164-240 MiB page tables. 64-96 MiB is used by nothing in the kext, mesboot (only its manual
+// 160-164 MiB mesboot; 164-240 MiB page tables; 256-352 MiB = the large GPU-present slots for frames over 8 MiB
+// (VermilionBoot b126, PhxScanLayout.h; past BAR0, GPU only). Head 0's B (flipBRange) may take all of 16-48 MiB: at
+// 2560x1440 it sits at 16-30.1 MiB, over the small slots, which GPU present never uses at the same time. 64-96 MiB is used by nothing in the kext, mesboot (only its manual
 // fbflip/fbcomp test verbs paint 64 MiB) or the shim. Head 1 takes 64-72 MiB for its surface and keeps 72-96 MiB for
 // its three GPU-present slots of S4b (not used in S3a).
 constexpr uint64_t kMiB = 1ull << 20;

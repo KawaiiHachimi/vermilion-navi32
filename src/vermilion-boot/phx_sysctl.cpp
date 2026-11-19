@@ -312,6 +312,15 @@ static int phxScanRaceStat SYSCTL_HANDLER_ARGS {
              gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost, gScanLatchFix);
     return sysctl_handle_string(oidp, b, 0, req);
 }
+// b126: the GPU-present slot layout the live plane would get (PhxScanLayout.h) and the one in use; register reads only
+static int phxScanLayoutSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    char b[512];
+    if (gPhx) gPhx->scanLayoutStat(b, sizeof b); else snprintf(b, sizeof b, "no PhxBringup");
+    return sysctl_handle_string(oidp, b, 0, req);
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxscan_layout, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxScanLayoutSysctl, "A",
+            "b126: GPU-present slot layout for the live plane (small 24/32/40 MiB, large 256/288/320 MiB, or why refused)");
 SYSCTL_PROC(_debug, OID_AUTO, phxscan_race_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxScanRaceStat, "A", "b74 scanout latch race counters");
 SYSCTL_PROC(_debug, OID_AUTO, phxwait_scoped_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxWaitScopedStat, "A", "b72 scoped WAITSEQ counters");
 SYSCTL_INT(_debug, OID_AUTO, phxwait_spin_us, CTLFLAG_RW | CTLFLAG_LOCKED, &gWaitSpinUs, 0, "WAITSEQ: microseconds spun before sleeping");

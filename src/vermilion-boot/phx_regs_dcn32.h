@@ -4,6 +4,7 @@
 #pragma once
 #include <stdint.h>
 static constexpr uint32_t kDcnVmFbLocationBase          = 0x3935;   // DCN_VM_FB_LOCATION_BASE
+static constexpr uint32_t kDcnVmFbLocationTop           = 0x3936;   // DCN_VM_FB_LOCATION_TOP (16 MiB units, inclusive; Linux on the XTX: 0x85ff)
 static constexpr uint32_t kHubp0SurfaceConfig           = 0x3aa5;   // HUBP0_DCSURF_SURFACE_CONFIG
 static constexpr uint32_t kHubp0TilingConfig            = 0x3aa7;   // HUBP0_DCSURF_TILING_CONFIG
 static constexpr uint32_t kHubp0DchubpCntl              = 0x3ab3;   // HUBP0_DCHUBP_CNTL (underflow status 30:28, clear 31)
