@@ -101,3 +101,16 @@ reboots onto the firmware framebuffer, would loop. The file-based arm is a suppo
 `SQUAT`); `phxfb-boot`, which the daemon sets in the same boot, is the open question for the first desktop-arm boot.
 **Revisit:** test whether macOS runs stable with `DisableVariableWrite` off after the install; then the squat path and
 `phxboot-auto` work as upstream documents.
+
+## 2026-11-19: GPU-present slots for frames over 8 MiB go above BAR0 (256 MiB), chosen by frame size
+
+**Decision:** VermilionBoot b126 keeps b44's three 8 MiB slots at 24/32/40 MiB for frames up to 8 MiB and gives
+larger frames (up to 32 MiB) three 32 MiB slots at 256/288/320 MiB, only when the VRAM and the display's FB window
+(DCN_VM_FB_LOCATION_TOP, as the GOP left it) reach 352 MiB (`PhxScanLayout.h`).
+**Why:** three 14.06 MiB slots fit no hole inside the 256 MiB BAR without moving the PSP ring, the TMR, mesboot or the
+page-table pool, which the XT's working layout relies on. A slot needs no CPU view (the GPU writes it through the
+client's PTEs, HUBP0 reads it by MC address), and nothing in Vermilion uses VRAM between 240 MiB and the firmware's
+regions at the top. Choosing by frame size leaves the XT at 1080p exactly as before (detect, don't overwrite).
+**Cost:** `debug.phxshot` can't read a large slot through the BAR (it returns EINVAL while GPU present shows one).
+**Revisit:** if the GOP's DCN window turns out smaller than 352 MiB, program DCN_VM_FB_LOCATION_TOP as Linux's
+`hubbub3_init_dchub_sys_ctx` does, or fit the slots below 256 MiB by shrinking the page-table pool.

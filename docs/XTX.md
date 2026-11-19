@@ -39,8 +39,11 @@ Upstream's display code is built around two 1080p monitors. On one 2560x1440 Dis
 - **Everything that changes the mode refuses cleanly** (zero writes). That covers the pipe-0 and pipe-2 engines,
   the DP stream fix and the `b15`/`wm144`/`hubp_dlg`/`p0prefetch` scripts. They only accept OTG totals of upstream's
   1080p modes.
-- **GPU present can't be used at 1440p:** the scan slots are 8 MiB and a 1440p frame is 14 MiB. WindowServer falls
-  back to a CPU copy (speed unverified).
+- **GPU present at 1440p needs VermilionBoot b126:** b125's scan slots are 8 MiB and a 1440p frame is 14.06 MiB, so
+  every frame was CPU-copied into phxfb's flip buffer B (which does fit). b126 gives frames over 8 MiB three slots at
+  256/288/320 MiB (`PhxScanLayout.h`; past BAR0, written by the GPU only); 1080p keeps the slots at 24/32/40 MiB.
+  GPU present at 1440p is unverified on hardware.
+- **The GOP mode on the XTX machine is 2560x1440 at 60 Hz** (kernel log, OTG0 totals 2720x1481, 2026-11-19).
 - **No DP link retraining.** 1440p at 144 Hz needs HBR2 x4, and 240 Hz needs HBR3 x4 or DSC. Vermilion can only
   re-time the link the GOP trained.
 - **The EDID is read up to 256 bytes;** the LG's is 384. The 120/144 Hz modes are in the first 256 bytes; DisplayID
@@ -56,7 +59,7 @@ What 1440p high refresh needs, in order:
    DLG/TTU, DCHUBBUB watermarks, DET, clocks, DIG/DP), DPCD from `/dev/drm_dp_aux*`, and an ftrace of the mode
    changes.
 3. Code:
-   - 16 MiB scan slots;
+   - scan slots for 1440p (b126, unverified);
    - EDID segment pointer (384 bytes);
    - mode matching by the EDID's own timings instead of two fixed 1080p entries;
    - DP retraining on the GOP's connector;

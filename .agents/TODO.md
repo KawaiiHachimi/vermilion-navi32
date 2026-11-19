@@ -7,7 +7,7 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (handoff, 2026-11-19, evening)
+## Current state (handoff, 2026-11-19, night)
 
 - **The accelerated desktop runs on the XTX** (Vermilion, Metal compositor, one display at 2560x1440) on macOS 26.7.1
   bare metal. Every OpenCore boot is a squat boot and arms the desktop by itself
@@ -17,8 +17,11 @@ progress, `[x]` done, `[-]` dropped (say why).
   display). Reset NVRAM is the escape hatch back to the plain firmware display. A failed desktop attempt reboots, and
   the default entry is Limine, so it lands in Linux. Warm macOS restarts are fine on this card.
 - **Machine state:**
-  - EFI: `vermilion` stage on `/boot/EFI/OC` (`OC.prev` = `install`); `DisableVariableWrite` on, so macOS can't
-    write firmware NVRAM.
+  - EFI: `vermilion` stage with **VermilionBoot b126** on `/boot/EFI/OC` (2026-11-19 05:30; `OC.prev` = the same stage
+    with b125, the last booted one; the `install` stage is backed up in `~/.cache/vermilion/efi-backup/`);
+    `DisableVariableWrite` on, so macOS can't write firmware NVRAM.
+  - Staged for the next boot: `/boot/vermilion/run-once.sh` + `perf/` (boot 1 of the GPU-present test: starts the
+    counter logger only).
   - `phxfb-squat` is set as an EFI variable from Linux
     (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`, value "1").
   - `~/gpu` flags: `sdma`, `cg`, `uclk=456`.
@@ -29,14 +32,13 @@ progress, `[x]` done, `[-]` dropped (say why).
   (`~/.local/src/apfs-fuse`), `/var/log/phxboot.log`, crash reports, the unified log decoded with
   `~/.local/src/macos-UnifiedLogs` ([runbooks](runbooks.md)). Build host: macbox ([runbooks](runbooks.md)).
 - **Next steps, in order:**
-  1. **Input lag at 1440p:** every frame (14.7 MB) is CPU-copied through the BAR
-     (`PhxFB: alias: ... copying through the BAR`, iop plane `scanout 0`). phxfb's flip buffer B and the three
-     GPU-present slots are 8 MiB regions (`src/vermilion-accel/accel/phxhead.h`, `src/vermilion-boot/PhxNativeABI.h`:
-     slots at 24/32/40 MiB, PSP ring at 48 MiB, BAR0 window `kFbAperMapMax` 160 MiB). Make them fit a 1440p (or
-     mode-sized) frame: research the VRAM layout first, keep the XT's 1080p layout working, bump `PHX_KEXT_BUILD`,
-     mock tests on macbox, deliver through `run-once.sh` / the EFI, one change per boot.
-  2. The monitor's refresh: unknown (the owner will read the monitor OSD). 144/240 Hz needs mode switching + DP link
-     training (Phase 3).
+  1. **Input lag at 1440p** ([findings](findings/2026-11-19-1440p-gpu-present.md)): every frame (14.7 MB) is CPU-copied
+     into phxfb's flip buffer B (B fits at 1440p; only the GPU-present slots were 8 MiB). b126 gives frames over 8 MiB
+     three GPU-present slots at 256/288/320 MiB (past BAR0, GPU only), the XT's 1080p slots unchanged. Boot 1 (staged):
+     b126 with GPU present off + `perflog.sh`; read `/var/log/vermilion-perf-*.log`, `debug.phxscan_layout` and the
+     kernel log. Boot 2: `run-once.sh` creates `/Library/GPUBundles/nvmtl/ws-gpu-present`, same logger.
+  2. The monitor's refresh: **60 Hz** at 2560x1440 (OTG0 totals 2720x1481 in the kernel log, boot 7). 144/240 Hz
+     needs mode switching + DP link training (Phase 3).
   3. Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (E1000 dext fails its
      entitlement check: I210 + `e1000=0` fallback), Bluetooth, USB map.
   4. Small fixes: `recovery_install.sh`'s Data-volume search (found 3 in Recovery), the reader in
@@ -135,11 +137,17 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
 - [x] 2026-11-19 Phantom "UNKNOWN" display fixed by squat boots: `phxfb-squat` written as an EFI variable from Linux
       (macOS can't write NVRAM here); it stays set, so every OpenCore boot is a squat boot. Delete it with Reset NVRAM
       or from Linux (`/sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82`)
-- [ ] **Input lag at 1440p: frames are CPU-copied through the BAR** (flip buffer B and GPU-present slots are 8 MiB,
-      a 1440p frame is 14.7 MB). Next code work: 16 MiB (or mode-sized) scan-out regions; needs a VRAM layout change
-      (`phxhead.h`, `PhxNativeABI.h`; the PSP ring sits at 48 MiB, BAR0 window 160 MiB)
-- [ ] Refresh rate / input lag at 1440p: measure what the GOP mode and DP link are, and whether frames go through the
-      CPU copy (no GPU present at 1440p: 8 MiB scan slots, docs/XTX.md)
+- [~] **Input lag at 1440p: frames are CPU-copied through the BAR** ([findings](findings/2026-11-19-1440p-gpu-present.md))
+  - [x] 2026-11-19 VRAM layout audited (code + Linux read-only); flip B already fits 1440p; DCN FB TOP is `0x3936`
+  - [x] 2026-11-19 VermilionBoot b126: GPU-present slots by frame size (large: 256/288/320 MiB), `debug.phxscan_layout`;
+        host test 43/43, mock suites green on macbox, installed on the EFI (unverified on hardware)
+  - [x] 2026-11-19 `tools/phxctl/perflog.sh` + `perflog_install.sh`: the display counters to a log, one boot only
+  - [ ] Boot 1: b126 + GPU present off: layout `large`? copy baseline (`copy_us_avg`)
+  - [ ] Boot 2: GPU present on (`ws-gpu-present`): `scanout acquired (... large ...)`, `skipped_foreign` ~ frames, lag
+  - [ ] If it holds: make GPU present the default at 1440p (daemon or install), docs; consider `debug.phxscan_latchfix=1`
+        (b74 UI-shake fix, default 0)
+- [~] Refresh rate / input lag at 1440p: the GOP mode is 2560x1440 at 60 Hz (2026-11-19, OTG0 totals 2720x1481);
+      frames go through the CPU copy into flip B (see the item above). DP link rate/lanes: not logged yet
 - [ ] `recovery_install.sh` and `esp_stage.sh`: include the air-runtime reader (from NullMoth's package, md5-pinned)
 - [ ] `recovery_install.sh`: its Data-volume search found 3 candidates in Recovery (the system volume shows the
       Data volume's folders through firmlinks); pick the APFS Data role (`diskutil apfs list`) or the volume whose
@@ -159,7 +167,7 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
   - [ ] Install `umr` (optional)
 - [ ] Captures at 1440p 60/120/144/165/240 on this card and monitor
 - [ ] A plan generator (upstream's is not public): capture to `phx_p0_plan_*.inc`, with self-tests
-- [ ] Scan slots 16 MiB (`PhxNativeABI.h`, `phx_scan.cpp`)
+- [x] 2026-11-19 Scan slots for 1440p and up (b126, `PhxScanLayout.h`: 32 MiB slots at 256 MiB, unverified on hardware)
 - [ ] EDID: E-DDC segment pointer, serve all 384 bytes (`PhxDdc.h`, `PhxEdid.h`)
 - [ ] Mode matching by EDID timings instead of the two fixed 1080p entries (`PhxPipe0.h`, `PhxPipe2.h`, the scripts)
 - [ ] DP link retraining on the GOP connector (DP B / DIG1) to HBR2, later HBR3 (`PhxDpLink.h`)
