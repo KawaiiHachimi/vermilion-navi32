@@ -163,6 +163,21 @@ attempt), `touch /boot/vermilion/flags/phxboot-off` (kill switch), `touch /boot/
 `/var/log/phxboot.log`. Read that log from Linux with `apfs-fuse` (above). Roll the EFI back with
 `mv /boot/EFI/OC /boot/EFI/OC.vermilion && mv /boot/EFI/OC.prev /boot/EFI/OC`.
 
+## Measuring a boot from Linux (2026-11-19, tested on macbox)
+
+`tools/phxctl/perflog.sh` writes the display path's counters (frames/s, CPU copy time, flips, GPU-present skips,
+frame pacing, `debug.phxscan_layout`) every 10 s for 10 min to `/var/log/vermilion-perf-<date>.log`, starting when
+the daemon armed the desktop. It reads only named sysctls. Start it for one boot from a `run-once.sh`:
+
+```sh
+sudo mkdir -p /boot/vermilion/perf && sudo cp tools/phxctl/perflog.sh tools/phxctl/perflog_install.sh /boot/vermilion/perf/
+# run-once.sh: bash "$1/perf/perflog_install.sh" "$1/perf/perflog.sh" 600 10
+```
+
+`perflog_install.sh` copies the logger to `/var/db/vermilion` and starts it with `launchctl bootstrap` from a plist in
+that directory, so it runs once and never again at a later boot. Read the log afterwards with apfs-fuse
+(`/mnt/mac/root/private/var/log/vermilion-perf-*.log`).
+
 ## OpenCore EFI install *(unverified)*
 
 The EFI partition is shared with Limine (`/boot` on Linux). Steps:
