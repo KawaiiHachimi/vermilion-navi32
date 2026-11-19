@@ -171,7 +171,10 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
     - [x] 2026-11-19 Nobody clears it in macOS: Common Clock was already clear at the 0.47 s scan on the whole chipset
           tree and no ACPI code writes link control; Linux sets CCC itself. Hypothesis: BIOS-enabled ASPM L1 with CCC
           clear, the endpoints never leave L1 in macOS ([findings](findings/2026-11-19-wifi-mt7922.md))
-    - [~] Test: BIOS PCIe ASPM / power saving off (no code change)
+    - [x] 2026-11-19 BIOS PCIe ASPM off: no change (ASPM ruled out)
+    - [x] 2026-11-19 Cause: macOS sets 10-Bit Tag Requester Enable on the GPP7 root port; MT7922 and I225-V can't
+          complete 10-bit tags (Linux leaves the requester off)
+    - [~] Fix staged: boot-arg `pci=0x8000000` (IOPCIFamily keeps firmware tag settings) in the `base` stage
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable

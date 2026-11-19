@@ -78,7 +78,9 @@
     "base": {
       "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot. Wi-Fi: AirportMtkWlan 2.1.6 loaded but never attached to the card (boot 1, 2026-11-19); MtkWirelessWifi 1.1.1 since then (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "install",
-      "kexts_add": ["MtkWirelessWifi"]
+      "kexts_add": ["MtkWirelessWifi"],
+      "boot_args_add": ["pci=0x8000000"],
+      "_boot_args_add": "pci=0x8000000 = kIOPCIConfiguratorDefaultETF (IOPCIFamily-726 IOPCIConfigurator.h): macOS keeps the firmware's extended/10-bit tag settings. Without it IOPCIBridge::probeBusGated sets 10-Bit Tag Requester Enable on the GPP7 root port (Linux leaves it off), and the MT7922 and I225-V, the only chipset endpoints without 10-bit tag completer support, stop answering (2026-11-19, findings/2026-11-19-wifi-mt7922.md). AMD_Vanilla's 'Disable 10 bit tags' patch is enabled but the bit was set anyway."
     },
     "vermilion": {
       "_comment": "Phase 2: Vermilion (docs/INSTALL.md section 1). Needs build/VermilionBoot.kext from the macOS build host. Inherited install from 2026-11-19 (GPU first, Wi-Fi untested); re-parented onto base on 2026-11-19 for the Wi-Fi test, so the booted stage gets AirportMtkWlan and nothing else changes.",
