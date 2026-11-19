@@ -31,6 +31,8 @@
     "RebuildAppleMemoryMap": true,
     "SetupVirtualMap": true,
     "SyncRuntimePermissions": true,
+    "DisableVariableWrite": true,
+    "_DisableVariableWrite": "Ryzen 7000/8000/9000 boards hang when the macOS installer writes firmware variables (freeze at ~12-19 minutes remaining, 2026-11-19). Fix from nullmoth/1401 docs/TROUBLESHOOTING.md and issue 21.",
     "ResizeAppleGpuBars": 0,
     "_ResizeAppleGpuBars": "0 = macOS sees the GPU BARs at their default sizes (BAR0 256 MiB) while Resizable BAR stays on in the BIOS for Linux. Vermilion maps BAR0 as a VRAM window and was validated with 256 MiB (src/vermilion-boot/phx_core.cpp). OpenCore 1.0.8 accepts only -1 or 0 here."
   },

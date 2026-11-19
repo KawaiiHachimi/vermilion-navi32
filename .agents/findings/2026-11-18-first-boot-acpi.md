@@ -145,3 +145,11 @@ leaving only one GPU). This machine has two: the RX 7900 XTX (no macOS driver, G
     with Pike R. Alpha's AppleGraphicsDevicePolicy patch `board-id` -> `board-ix` (MinKernel 25.0.0).
   - 1401's docs say RX 7000 cards run macOS with basic display through its EFI.
   - Our config lacked this. Added as `kernel_patches` in the machine file (one change for the next boot).
+
+## Eighth boot (2026-11-19): the installer GUI, then a freeze at "12 minutes remaining"
+
+With the AGDP pikera patch the installer GUI came up on the firmware framebuffer: keyboard and mouse work, Disk Utility
+erased p3 as APFS ("Macintosh HD"), and the install started (no network, as expected). Then it froze at about 12
+minutes remaining. This is documented for Ryzen 7000/8000/9000: the board hangs when the installer writes firmware
+variables (nullmoth/1401 docs/TROUBLESHOOTING.md, issue 21). Fix: `Booter > Quirks > DisableVariableWrite = true`
+(added to the machine file and installed).
