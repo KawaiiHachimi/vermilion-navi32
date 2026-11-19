@@ -244,6 +244,20 @@ ws_cdcopy(){ [ -e "$G/phxboot-wscdcopy" ] || return 0
   if launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1 2>/dev/null; then
     echo "wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted WindowServer (CoreDisplay's display surfaces are presented)"
   else echo "wscdcopy: launchctl setenv failed: SkyLight's targets are presented"; fi; }
+# Fence wait step (2026-11-19, the XTX machine): with $G/phxboot-waitstep, debug.phxwait_step_us gets the value in the
+# file (empty = 200; 20-1000 accepted) before the WindowServer restart. A WAITSEQ that outlasts its 20 us spin sleeps in
+# timed steps of this length while IRQ waits are off; the kext's default is 50. 200 cut WindowServer's wakeups 5-15x
+# and was not worse than 50 in a blind A/B (findings 2026-11-19-gpu-present-flicker-heat.md, live test 4). Only 50 and
+# 200 were tried on hardware. The sysctl resets to 50 at every boot; without the flag nothing is written.
+waitstep_boot(){ [ -e "$G/phxboot-waitstep" ] || return 0
+  local v out rc
+  v=$(tr -d ' \t\r\n' <"$G/phxboot-waitstep" 2>/dev/null); [ -n "$v" ] || v=200
+  case "$v" in [1-9][0-9]|[1-9][0-9][0-9]|1000) ;; *) v=0;; esac
+  if [ "$v" -lt 20 ]; then
+    echo "waitstep: ~/gpu/phxboot-waitstep holds '$(head -c 20 "$G/phxboot-waitstep" | tr -d '\r\n')', not 20-1000: debug.phxwait_step_us stays at the kext's default"; return 0; fi
+  sysctl -n debug.phxwait_step_us >/dev/null 2>&1 || { echo "waitstep: PhxBringup without debug.phxwait_step_us: nothing set"; return 0; }
+  out=$(sysctl -w debug.phxwait_step_us=$v 2>&1); rc=$?
+  echo "waitstep: debug.phxwait_step_us=$v rc $rc, reads $(sysctl -n debug.phxwait_step_us 2>/dev/null) ($(echo "$out" | tail -1 | cut -c1-80))"; }
 m7_light(){ [ -e "$G/phxboot-m7" ] || return 0
   [ -e "$G/m7_boot.sh" ] || { echo "m7: $G/m7_boot.sh missing"; return 0; }
   sh "$G/m7_boot.sh" light; r=$?
@@ -468,6 +482,7 @@ if [ $DESK = 1 ]; then
   GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}
   [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
   ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
+  waitstep_boot   # the fence wait's timed step for the restarted WindowServer (flag ~/gpu/phxboot-waitstep)
   WS1=$(wspid)
   if [ -n "$WS0" ] && [ "$WS1" != "$WS0" ]; then echo "first WindowServer died before the restart (pid $WS0 -> ${WS1:-none}; usually no .ips)"
   else echo "first WindowServer survived to the restart (pid ${WS0:-none})"; fi
