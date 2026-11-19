@@ -120,7 +120,14 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
 - [x] 2026-11-19 Build everything on the build host (macbox; [runbooks](runbooks.md))
 - [x] 2026-11-19 Install path without a desktop: `esp_stage.sh` (Linux) + `recovery_install.sh` (Recovery), flags
       from Linux through `esp_flags.sh` (daemon pre-hook) ([findings](findings/2026-11-19-phase2-build-and-stage.md))
-- [~] Install with flags `sdma`, `cg`, `uclk=456` only (staged; runs in Recovery on the next boot)
+- [x] 2026-11-19 Install with flags `sdma`, `cg`, `uclk=456` only (Recovery, `VERMILION_DATA` override)
+- [x] 2026-11-19 **First boot: the bring-up works on the XTX unchanged** (queues ready, SDMA idle, CG, UCLK pin)
+      ([findings](findings/2026-11-19-first-vermilion-boot.md))
+- [ ] VermilionAccel into the AuxKC: syspolicyd allowed it but holds the rebuild until a user is logged in. One boot
+      with a login, then check the AuxKC from Linux
+- [ ] `recovery_install.sh`: its Data-volume search found 3 candidates in Recovery (the system volume shows the
+      Data volume's folders through firmlinks); pick the APFS Data role (`diskutil apfs list`) or the volume whose
+      users directory is on its own device; test on macbox
 - [ ] First boot without desktop arm: bring-up log, `metaltest`, temperatures and power
 - [ ] Squat boot: accelerated desktop at 1440p60
 - [ ] Soak: 20 cold boots in a row reach `SUCCESS`; a day of normal use with no GPU hang (log every failure in
