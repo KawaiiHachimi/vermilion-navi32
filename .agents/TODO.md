@@ -75,6 +75,26 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
+  - [x] 2026-11-19 Read-only survey on macOS ([findings](findings/2026-11-19-refresh-and-hdr.md)): GOP link on DP B is
+        **HBR2 x4 at 12 bpc**; 120 Hz (10 bpc) and 144 Hz (8 bpc) fit it without retraining, 240 Hz needs HBR3 (or
+        DSC at 10 bpc). Head 0's mode table has no 1440p rows; DMCUB is `0x07008748` (gate wants `0x07008742`).
+        HDR: monitor has PQ/BT.2020, the link has the bits at 60 Hz, Vermilion reports 8-bit only and sends no SDP
+  - [x] 2026-11-19 Step 3 (read-only): Apple's AMD framebuffer offers HDR through `getTimingRange`
+        (dynamic range SDR|HDR10, 8/10/12 bpc, BT.2020), `'hdrm'`, `'dsdp'` (HDR infoframe packet) and AGDC `0x711`;
+        Vermilion has none of them ([findings](findings/2026-11-19-refresh-and-hdr.md))
+  - [~] Step 1: VermilionBoot **b127** = b126 + `debug.phxedid_full` (whole EDID via the E-DDC segment pointer). Built
+        on the Mac (sha256 `4e1c708e...`), host test 27/27, mock suites 189/159 green. **Not staged, not installed:
+        needs a boot slot from the owner** (the EFI belongs to the "post-install" thread, the next restart to "GPU
+        heat"). Install = the runbook's `efi/build.py build/install --stage vermilion` with this kext (keeps `OC.prev`).
+        After boot: `sudo sysctl -w debug.phxedid_src=0x22; sudo sysctl -b debug.phxedid_full > edid.bin`.
+        **Rollback:** nothing runs unless root reads the sysctl; a bad boot = OpenCore `OC.prev` (from the Mac:
+        `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or `-phxbringupoff` for one boot
+  - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
+        `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
+  - [~] Step 2: Linux capture. Tool `tools/capture/linux_display_capture.py` (test
+        `tests/mock/linux_display_capture_test.py` 12/12), handoff [HANDOFF-LINUX-DISPLAY-CAPTURE.md](HANDOFF-LINUX-DISPLAY-CAPTURE.md),
+        copy on the EFI partition `vermilion/capture-tool/`. 2026-11-20: owner boots Omarchy; output goes to
+        `<ESP>/vermilion/capture/display-<date>/`. Back to macOS = full power-off
 
 ## Earlier (2026-11-19, 10:05): Wi-Fi works; next Bluetooth
 
