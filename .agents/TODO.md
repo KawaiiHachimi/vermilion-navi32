@@ -27,13 +27,12 @@ progress, `[x]` done, `[-]` dropped (say why).
   itself via `apfs-fuse` from Linux (`install.log`, panic reports; [runbooks](runbooks.md)). `log show` once the
   desktop works.
 - **Next steps, in order:**
-  1. ~~First boot of Macintosh HD to the desktop~~ done 2026-11-19.
-  2. Disable sleep (`pmset`, INSTALL.md section 10). Delete p4 (installer), grow the APFS container to 100 GiB.
-  3. `base` stage: Wi-Fi.
-  4. Ethernet.
-  5. Bluetooth.
-  6. USB map.
-  7. Phase 2 (Vermilion).
+  1. ~~First boot of Macintosh HD to the desktop~~ done 2026-11-19. Too slow to use: WindowServer runs its CPU
+     "Software compositor" at 30 Hz, no IOGPU device ([findings](findings/2026-11-19-first-desktop-logs.md)).
+  2. **Phase 2 first (owner's decision, 2026-11-19):** build Vermilion on macbox, install it without the desktop
+     (files on the EFI partition from Linux, one install script run from Terminal or Recovery's Terminal).
+  3. Then Phase 1's rest: sleep off (`pmset`), delete p4 and grow the container, Wi-Fi, Ethernet (Apple's E1000 dext
+     fails its entitlement check, so the I210 + `e1000=0` fallback), Bluetooth, USB map.
 
 ## Phase 0: Housekeeping
 
