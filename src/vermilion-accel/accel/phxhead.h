@@ -151,6 +151,11 @@ constexpr unsigned kNHead1Modes = sizeof kHead1Modes / sizeof kHead1Modes[0];
 static const HeadMode kHead0Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125},    // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464)
     {2, 1920, 1080, 144000, 32567, 2056, 1100},   // the AOC 24G2W1G4 CTA DTD at 0xa7 (the 144 plan, OTG0 0x807/0x44b)
+    // b128 (the XTX machine's LG ULTRAGEAR+, DP B): PhxBringup b128's 1440p plan family; offered only for a 2560x1440 surface
+    // and only for the DTDs the EDID has (the LG's base DTD and its two CTA DTDs; capture 2026-11-20)
+    {3, 2560, 1440, 59951, 24150, 2720, 1481},    // base DTD (the GOP's mode; plan 1440p60, OTG0 0xa9f/0x5c8)
+    {4, 2560, 1440, 119998, 49775, 2720, 1525},   // CTA DTD 2 (plan 1440p120, 10 bpc; OTG0 0xa9f/0x5f4)
+    {5, 2560, 1440, 143991, 59375, 2720, 1516},   // CTA DTD 1 (plan 1440p144, 8 bpc; OTG0 0xa9f/0x5eb)
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -223,7 +228,13 @@ struct HeadSync { uint32_t id, hSyncOffset, hSyncWidth, vSyncOffset, vSyncWidth;
 static const HeadSync kHead0Sync[] = {
     {1, 88, 44, 4, 5, true, true},   // base DTD @0x36, flags 0x1e; the 60 plan's OTG0 H_SYNC_A 0x2c, V_SYNC_A 5
     {2, 24, 32, 3, 5, true, true},   // CTA DTD @0xa7, flags 0x1e; the 144 plans' OTG0 H_SYNC_A 0x20, V_SYNC_A 5
+    {3, 48, 32, 3, 5, true, false},  // b128 LG DTDs: front porch 48 / 3, sync 32 / 5, flags 0x1a (H+, V-; OTG0 V_SYNC_A_CNTL 1)
+    {4, 48, 32, 3, 5, true, false},
+    {5, 48, 32, 3, 5, true, false},
 };
+// b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
+// LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.
+constexpr uint32_t switchHz(const HeadMode &m) { return (m.milliHz + 500) / 1000; }
 struct DetailedTiming {
     uint64_t pixelHz;
     uint32_t hActive, hBlank, hSyncOffset, hSyncWidth, vActive, vBlank, vSyncOffset, vSyncWidth;

@@ -1723,7 +1723,7 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     const bool flips = gFlipOn[0] != 0;
     if (flips) flipEnable(0);   // HUBP0 back on A while pipe 0 is re-timed (the engine blanks HUBP0, never moves its address)
     phx_pipe0_setmode req = {};
-    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = hm->milliHz / 1000; req.result = -1;
+    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = phxhead::switchHz(*hm);   /* b128: rounded (the LG 59.951 Hz = 60) */ req.result = -1;
     const IOReturn r = bringup->callPlatformFunction("phxPipe0SetMode", false, &req, nullptr, nullptr, nullptr);
     bringup->release();
     gHead0Switches++;
