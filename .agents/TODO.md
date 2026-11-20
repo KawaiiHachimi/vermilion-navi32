@@ -122,7 +122,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         Linux = HBR3 + FEC + DSC + ODM 2:1; PHY and AUX go through DMUB (payloads not in the register trace); 8 bpc fits
         HBR3 without FEC/DSC (inferred); HBR3 only in the extended DPCD caps (0x2201); 10 bpc at 240 needs DSC
   - [ ] **240 Hz HDR plan** (owner goal 2026-11-20; order, one boot per kext change):
-    - [ ] A. Linux capture v2 (`--r240 --hdr`, tool now records DMUB commands): the HBR3 TRANSMITTER_CONTROL / AUX bytes;
+    - [x] 2026-11-20 A done (Linux, `455afdd`): HBR3 TRANSMITTER_CONTROL = the trainer's own shape with symclk 81000;
+          AUX via registers; 240 only ever lit with FEC + DSC + ODM 2:1. Plan: [240hz-plan](findings/2026-11-20-240hz-plan.md)
+    - [ ] A. (done) Linux capture v2 (`--r240 --hdr`, tool now records DMUB commands): the HBR3 TRANSMITTER_CONTROL / AUX bytes;
           240 at 10 bpc and HDR; `240-nodsc` (does Linux light 240 on one pipe without DSC?). Read-only; Linux session
     - [ ] B. HDR at 60-144 Hz (no link change): 7a probe, then 10-bit scan-out + 10 bpc output + HDR infoframe + PQ path
     - [ ] C. DMUB on this card (asks the owner first): does DMCUB `0x07008748` answer Linux's QUERY_FEATURE_CAPS; gate

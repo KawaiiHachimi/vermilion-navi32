@@ -202,3 +202,10 @@ list (0x14 stays blocked). 240 Hz (HBR3 retraining of DP B + DSC) is the next, s
 **Why:** 120/144 fit the HBR2 x4 link the firmware trains, so they need no link training, the riskiest part. Every piece
 (plans, clock step, DET step, mode list) is also needed at 240 Hz.
 **Revisit:** if the engine's underflow check fails at 144 with the firmware's watermarks (then Linux's watermark sets A-D).
+
+## 2026-11-20: 240 Hz uses Linux's exact configuration (HBR3 + FEC + DSC + ODM 2:1)
+
+A single pipe without DSC would fit the link at 8 bpc (inferred) but needs a DPPCLK minimum and HUBP values Linux never
+used on this card, and gives no HDR at 240. Linux's configuration is fully captured (registers + DMUB commands), covers
+10 bpc, and keeps the rule "nothing Linux doesn't send". The link work is staged: retrain at HBR2 first, then HBR3 at
+144, then 240. Details: `.agents/findings/2026-11-20-240hz-plan.md`.
