@@ -96,3 +96,15 @@ VRR off = max = min. Open: the replay plans drop every DMUB command but TRANSMIT
 whether DMUB's FAMS is set up on macOS, and whether a DRR_UPDATE without Linux's `FAMS_SETUP` works, is not known.
 The Adaptive Sync SDP (VPG1 generic packet `0x13050700..`, `DP_SEC_CNTL 0x501111`) and DPCD 0x107 = 0x90 (MSA timing
 ignore, set in every step of the run) are the other pieces.
+
+## Which DRR path Linux takes on DCN 3.2 (Linux master, read 2026-11-20 23:00)
+
+`optc32_set_drr` (dcn32_optc.c) -> `optc3_set_vtotal_min_max` (dcn30_optc.c):
+`if (dc->caps.dmub_caps.mclk_sw && !dc->debug.disable_fams) dc_dmub_srv_drr_update_cmd(...) else optc1_set_vtotal_min_max(...)`,
+then `optc32_setup_manual_trigger` with the same condition (DMUB `SET_MANUAL_TRIGGER`, or `OTG_V_TOTAL_CONTROL`:
+MIN_SEL 1, MAX_SEL 1, FORCE_LOCK_ON_EVENT 0, SET_V_TOTAL_MIN_MASK = TRIGA (1 << 1)). The register path writes
+OTG_V_TOTAL_MAX, then OTG_V_TOTAL_MIN (both vertical_total - 1), then that OTG_V_TOTAL_CONTROL update. `disable_fams` has
+no module parameter or dcdebugmask bit on DCN 3.2 (`DC_DISABLE_SUBVP_FAMS` = 0x20000 sets only force_disable_subvp and
+fams2). `mclk_sw` comes from the firmware's QUERY_FEATURE_CAPS answer. On macOS the firmware is the GOP's DMCUB build,
+and PhxDmub.h forbids FAMS (76) commands to it. VermilionBoot b141 reads that answer (`debug.phxdmub_caps`): no
+fw-assisted mclk switching = Linux on this firmware would use the register path.

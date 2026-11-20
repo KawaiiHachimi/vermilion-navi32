@@ -603,6 +603,54 @@ static int phxDmubRegTestStatSysctl SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxdmub_regtest_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxDmubRegTestStatSysctl, "A",
             "b111 last debug.phxdmub_regtest: result, why, command, RPTR/WPTR before/after, 0x0506A old/new/restored, DMUB reply, OTG0 before/after");
 
+// b141 (Adaptive Sync, findings 2026-11-20-adaptive-sync-research.md): debug.phxdmub_caps, the GOP firmware's own answer to
+// QUERY_FEATURE_CAPS (DMUB 6/0, zero payload: the allow-listed ping debug.phxdpb_retrain sends first; Linux sends it at
+// DMUB init). Linux's DCN 3.2 DRR (optc3_set_vtotal_min_max) uses the DMUB FAMS_DRR_UPDATE command only when the
+// firmware reports fw-assisted mclk switching (dmub_caps.mclk_sw); else it writes OTG_V_TOTAL_MAX / MIN / CONTROL. This
+// read decides which path Linux would take on this firmware. Root writes 1 (anything else refused); reads the last rc
+// (-1 never). debug.phxdmub_caps_stat: the 16 reply dwords and the payload bytes. Under gP2Busy like the ladder.
+static uint32_t gDmubCaps[phxdmub::kCmdDw];
+static int gDmubCapsRc = -1;
+static uint32_t gDmubCapsUs = 0;
+static int phxDmubCapsSysctl SYSCTL_HANDLER_ARGS {
+    int v = gDmubCapsRc;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr)
+        return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v != 1) return EINVAL;
+    if (!p2Up()) return ENXIO;
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return EBUSY;
+    const phxp2::Env e = p2Env();
+    uint32_t ping[phxdmub::kCmdDw] = {0x0c000006u};   // QUERY_FEATURE_CAPS: type 6, sub 0, payload 12, all zero
+    const char *w = nullptr;
+    const int rc = phxdmub::submit(e.io, gP2.dmub, e.vramBytes, ping, &w);
+    if (rc == phxdmub::kOk) { for (unsigned i = 0; i < phxdmub::kCmdDw; i++) gDmubCaps[i] = gP2.dmub.reply[i]; gDmubCapsUs = gP2.dmub.lastUs; }
+    gDmubCapsRc = rc;
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    IOLog("PhxBringup: debug.phxdmub_caps: rc %d (%s) reply 0x%08x 0x%08x 0x%08x 0x%08x\n", rc, w ? w : phxdmub::rcName(rc), gDmubCaps[0],
+          gDmubCaps[1], gDmubCaps[2], gDmubCaps[3]);
+    return rc == phxdmub::kOk ? 0 : rc == phxdmub::kTimeout ? ETIMEDOUT : EIO;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxdmub_caps, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxDmubCapsSysctl, "I",
+            "b141 the GOP DMUB firmware's QUERY_FEATURE_CAPS answer (root, write 1: one allow-listed ping); reads the last rc");
+static int phxDmubCapsStatSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (req->newptr) return EPERM;
+    char b[512];
+    int n = snprintf(b, sizeof b, "rc=%d us=%u reply:", gDmubCapsRc, gDmubCapsUs);
+    for (unsigned i = 0; i < phxdmub::kCmdDw && n > 0 && n < (int)sizeof b; i++) n += snprintf(b + n, sizeof b - (size_t)n, " %08x", gDmubCaps[i]);
+    if (n > 0 && n < (int)sizeof b)   // dmub_feature_caps: byte 0 psr, byte 1 fw_assisted_mclk_switch_ver (Linux dmub_cmd.h)
+        n += snprintf(b + n, sizeof b - (size_t)n, " | payload bytes 0..3: %u %u %u %u", gDmubCaps[1] & 0xff, (gDmubCaps[1] >> 8) & 0xff,
+                      (gDmubCaps[1] >> 16) & 0xff, gDmubCaps[1] >> 24);
+    if (n < 0) n = 0;
+    if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;
+    b[n] = 0;
+    return SYSCTL_OUT(req, b, static_cast<size_t>(n) + 1);
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxdmub_caps_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxDmubCapsStatSysctl, "A",
+            "b141 last debug.phxdmub_caps: rc, the 16 reply dwords, the feature-caps payload bytes");
+
 // b113 (the cold-boot dark Acer, C3): debug.phxc3, the fixed DMUB REG_SEQ programs of
 // PhxC3Load.h through the GOP firmware (phxp2::dmubC3). Root writes 1-5 (the 1a1-1a5 sub-tests on the dark OTG1_OTG_H_TOTAL,
 // in order, each once) or 9 (PHY D's prologue + SRAM load, 1475 commands, one shot, gates G1-G4); anything else refused.

@@ -113,7 +113,10 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       carry the extension to 48 Hz (findings). 22:12 on the box: System Settings shows "Variable (48-240 Hz)" only, picked
       it; OTG0 stays at a fixed 240. Step 3 installed 22:40: the fixed rates without the extension plus a variable twin of
       240 (id 13, `kStdVrrTwin`). **Test:** restart: Variable next to 60 / 120 / 144 / 240. **Next:** the hardware (DMUB
-      `FAMS_DRR_UPDATE`, findings), after a read-only check of DMUB's FAMS state on macOS
+      `FAMS_DRR_UPDATE`, findings), after a read-only check of DMUB's FAMS state on macOS. 22:50 on the box: Variable next to the four fixed
+      rates (owner). b141 installed 23:05 (EFI `OC` = b141 sha 76482ab3, `OC.prev` = b140; b139 kext in
+      `~/vermilion-rollback/`): `sudo sysctl -w debug.phxdmub_caps=1; sysctl debug.phxdmub_caps_stat` after the restart
+      (one allow-listed ping). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)

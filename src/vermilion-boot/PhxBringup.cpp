@@ -47,7 +47,8 @@ extern struct sysctl_oid sysctl__debug_phxpipe2, sysctl__debug_phxpipe2_stat, sy
     sysctl__debug_phxscdc,   // b107 SCDC1 (read only)
     sysctl__debug_phxdmub_restart, sysctl__debug_phxdmub_restart_stat, sysctl__debug_phxdmub_trace_pre,   // b109 DMCUB restart
     sysctl__debug_phxscdc_fix, sysctl__debug_phxscdc_fix_stat,   // b109 SCDC fix
-    sysctl__debug_phxdmub_regtest, sysctl__debug_phxdmub_regtest_stat;   // b111 one-write DMUB REG_SEQ test
+    sysctl__debug_phxdmub_regtest, sysctl__debug_phxdmub_regtest_stat,   // b111 one-write DMUB REG_SEQ test
+    sysctl__debug_phxdmub_caps, sysctl__debug_phxdmub_caps_stat;   // b141 the GOP firmware's QUERY_FEATURE_CAPS answer
 extern struct sysctl_oid sysctl__debug_phxgamma, sysctl__debug_phxgamma_test, sysctl__debug_phxgamma_stat;   // b98 head-1 gamma (phx_gamma.cpp)
 extern struct sysctl_oid sysctl__debug_phxpipe0, sysctl__debug_phxpipe0_enable, sysctl__debug_phxpipe0_mode, sysctl__debug_phxpipe0_stat,
     sysctl__debug_phxpipe0_plan, sysctl__debug_phxpipe0_dead,   // b99 pipe-0 mode engine (phx_pipe0.cpp)
@@ -69,7 +70,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 140u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 141u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles
