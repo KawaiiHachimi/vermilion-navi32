@@ -407,6 +407,17 @@ aoc_modes(){ { [ -e "$G/phxboot-m7-aocmodes" ] || [ -e "$G/phxboot-m7-aoc144" ];
   if sysctl -w debug.phxpipe0_modes=1 >/dev/null 2>&1; then echo "aoc: head-0 mode list armed (debug.phxpipe0_modes=1)"
   else echo "aoc: no debug.phxpipe0_modes (kext < b101): head 0 keeps one mode"; fi; }
 [ "${PHXBOOT_NO_AOC:-0}" = 1 ] || aoc_modes
+# 1440p high refresh (2026-11-20, the XTX machine): with $G/phxboot-p0modes the pipe-0 engine is switched on and PhxAMDFB
+# head 0 lists the modes of the plan family OTG0 runs (the LG's 2560x1440 at 60/120/144 Hz), so System Settings can pick
+# one; it reads phx-pipe0-modes once, at the claim below. Needs VermilionBoot b128 (the 1440p plans: its pipe-0 stat has
+# dal_sent=) and a PhxAccel with the 1440p mode rows; with older ones nothing is armed (one mode, as before). Nothing
+# switches here: a mode change runs only when macOS asks for one. Rollback: rm ~/gpu/phxboot-p0modes.
+p0modes_boot(){ [ -e "$G/phxboot-p0modes" ] || return 0
+  sysctl -n debug.phxpipe0_stat 2>/dev/null | grep -q "dal_sent=" || { echo "p0modes: VermilionBoot before b128 (no 1440p plans): nothing armed"; return 0; }
+  local o1 o2 r1 r2; o1=$(sysctl -w debug.phxpipe0_enable=1 2>&1); r1=$?; o2=$(sysctl -w debug.phxpipe0_modes=1 2>&1); r2=$?
+  if [ $r1 = 0 ] && [ $r2 = 0 ]; then echo "p0modes: pipe-0 engine on, head-0 mode list armed (debug.phxpipe0_enable=1, debug.phxpipe0_modes=1)"
+  else echo "p0modes: enable rc $r1, modes rc $r2 ($(echo "$o1 $o2" | tr '\n' ' ' | cut -c1-100)): head 0 may keep one mode"; fi; }
+[ "${PHXBOOT_NO_AOC:-0}" = 1 ] || p0modes_boot
 WS0=$(wspid)                 # the first WindowServer (up since boot; it read com.apple.windowserver before this daemon ran)
 "$MB" claim 2>&1
 sysctl -w debug.phxbos_flush=0 >/dev/null 2>&1
