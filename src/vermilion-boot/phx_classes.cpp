@@ -151,6 +151,7 @@ private:
     int ctxPid[kMaxCtx]{};
     char ctxName[kMaxCtx][20]{};
 public:
+    IOLock *scanLockForEngines() const { return scanLock; }   // b131: debug.phxp0odm holds it so no flip runs mid-plan
     void vmTag(uint32_t handle, int pid, const char *name) {
         if (handle && handle <= kMaxCtx) { ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
     // the process whose context a hardware VMID points at, for a fault report

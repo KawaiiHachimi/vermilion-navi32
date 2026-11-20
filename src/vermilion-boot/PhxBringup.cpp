@@ -61,11 +61,12 @@ extern struct sysctl_oid sysctl__debug_phxc3, sysctl__debug_phxc3_stat, sysctl__
 extern struct sysctl_oid sysctl__debug_phxdplink, sysctl__debug_phxdplink_stat;   // b116 multiport S2b (phx_dplink.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpstream, sysctl__debug_phxdpstream_stat;   // b117 multiport S2c (phx_dpstream.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpb_retrain, sysctl__debug_phxdpb_retrain_stat;   // b129 DP B retrain (phx_dpbretrain.cpp)
+extern struct sysctl_oid sysctl__debug_phxp0odm, sysctl__debug_phxp0odm_stat, sysctl__debug_phxp0odm_active;   // b131 240 Hz (phx_p0odm.cpp, phx_sysctl.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpwatch, sysctl__debug_phxdpwatch_stat, sysctl__debug_phxdpwatch_snap;   // b120 / b122 multiport S3 step 0 (phx_dpwatch.cpp)
 static void phxDpWatchStop();   // b120, phx_dpwatch.cpp: called by stop()
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 130u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 131u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles
@@ -94,3 +95,4 @@ static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called 
 #include "phx_dpstream.cpp"   // b117
 #include "phx_dpwatch.cpp"   // b120
 #include "phx_dpbretrain.cpp"   // b129
+#include "phx_p0odm.cpp"   // b131

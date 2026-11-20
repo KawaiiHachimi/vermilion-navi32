@@ -303,6 +303,9 @@ static int phxDalStat SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxdal_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxDalStat, "A", "b76 DAL mailbox counters");
 // b74: the scanout latch race (UI shake)
 static int gScanLatchFix = 0;
+// b131: 1 = pipe 0 runs ODM 2:1 (debug.phxp0odm at 240 Hz): every flip goes to HUBP1 too (the right half of the same surface)
+static volatile int gP0OdmActive = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxp0odm_active, CTLFLAG_RD | CTLFLAG_LOCKED, const_cast<int *>(&gP0OdmActive), 0, "b131 1 = flips go to HUBP0 and HUBP1 (pipe 0 on ODM 2:1)");
 static SInt64 gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost;
 static uint32_t gScanGhost = 0xffffffffu;   // slot of the last accepted-but-forgotten flip (on screen until a later latch)
 SYSCTL_INT(_debug, OID_AUTO, phxscan_latchfix, CTLFLAG_RW | CTLFLAG_LOCKED, &gScanLatchFix, 0, "1 = latch a flip on FLIP_PENDING clear alone; the front slot is never reusable (b74)");

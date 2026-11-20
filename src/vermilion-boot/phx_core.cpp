@@ -124,6 +124,7 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxdplink); sysctl_unregister_oid(&sysctl__debug_phxdplink_stat);   // b116
         sysctl_unregister_oid(&sysctl__debug_phxdpstream); sysctl_unregister_oid(&sysctl__debug_phxdpstream_stat);   // b117
         sysctl_unregister_oid(&sysctl__debug_phxdpb_retrain); sysctl_unregister_oid(&sysctl__debug_phxdpb_retrain_stat);   // b129
+        sysctl_unregister_oid(&sysctl__debug_phxp0odm); sysctl_unregister_oid(&sysctl__debug_phxp0odm_stat); sysctl_unregister_oid(&sysctl__debug_phxp0odm_active);   // b131
         sysctl_unregister_oid(&sysctl__debug_phxdpwatch); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_stat); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122
         sysctl_unregister_oid(&sysctl__debug_phxhotplug); sysctl_unregister_oid(&sysctl__debug_phxhotplug_stat);
         gPhx = nullptr;

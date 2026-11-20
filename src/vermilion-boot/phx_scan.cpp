@@ -46,6 +46,12 @@ void PhxBringup::scanFlipLocked(uint64_t mc, bool immediate) {
     wreg(kHubpreq0FlipControl, immediate ? (fc | 2u) : (fc & ~2u));
     wreg(kHubpreq0PrimaryAddrHigh, static_cast<uint32_t>(mc >> 32) & 0xffff);
     wreg(kHubpreq0PrimaryAddr, static_cast<uint32_t>(mc));   // the low half arms the latch
+    if (gP0OdmActive) {   // b131: ODM 2:1, HUBP1 scans the right half of the same surface (HUBPREQ1 = HUBPREQ0 + 0xDC)
+        const uint32_t fc1 = rreg(kHubpreq0FlipControl + 0xDC);
+        wreg(kHubpreq0FlipControl + 0xDC, immediate ? (fc1 | 2u) : (fc1 & ~2u));
+        wreg(kHubpreq0PrimaryAddrHigh + 0xDC, static_cast<uint32_t>(mc >> 32) & 0xffff);
+        wreg(kHubpreq0PrimaryAddr + 0xDC, static_cast<uint32_t>(mc));
+    }
 }
 
 void PhxBringup::scanPollLocked() {

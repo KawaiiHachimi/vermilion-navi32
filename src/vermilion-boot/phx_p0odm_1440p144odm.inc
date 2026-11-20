@@ -50,8 +50,6 @@ static const struct phx_p0odm_step kPhxP0odm_1440p144odm[] = {
   {1, 87, 0x03AB4, 0x00d00000, 0xffffffff, 0},  /* HUBP0_HUBP_CLK_CNTL */
   {1, 88, 0x04185, 0x70000000, 0xffffffff, 0},  /* DPP_TOP0_DPP_CONTROL */
   {1, 89, 0x03555, 0x00000001, 0xffffffff, 0},  /* DC_IP_REQUEST_CNTL */
-  {1, 90, 0x03540, 0x00000100, 0xffffffff, 0},  /* DOMAIN0_PG_CONFIG */
-  {3, 90, 0x03541, 0x80000000, 0xc0000000, 1000000},  /* wait DOMAIN0_PG_STATUS & 0xc0000000 == 0x80000000 (<= 1000000 us) */
   {1, 91, 0x03555, 0x00000000, 0xffffffff, 0},  /* DC_IP_REQUEST_CNTL */
   {1, 92, 0x03B8F, 0x000f000b, 0xffffffff, 0},  /* HUBP1_DCHUBP_CNTL */
   {3, 92, 0x03B8F, 0x00000002, 0x00000002, 200},  /* wait HUBP1_DCHUBP_CNTL & 0x2 == 0x2 (<= 200 us) */
@@ -534,8 +532,6 @@ static const struct phx_p0odm_step kPhxP0odm_1440p144odm[] = {
   {1, 1517, 0x04FEE, 0x00030000, 0xffffffff, 0},  /* OTG0_OTG_H_TIMING_CNTL */
   {1, 1518, 0x04F90, 0x00000000, 0xffffffff, 0},  /* ODM0_OPTC_MEMORY_CONFIG */
   {1, 1519, 0x03555, 0x00000001, 0xffffffff, 0},  /* DC_IP_REQUEST_CNTL */
-  {1, 1520, 0x03540, 0x00000000, 0xffffffff, 0},  /* DOMAIN0_PG_CONFIG */
-  {3, 1520, 0x03541, 0x00000000, 0xc0000000, 1000000},  /* wait DOMAIN0_PG_STATUS & 0xc0000000 == 0x0 (<= 1000000 us) */
   {1, 1521, 0x03555, 0x00000000, 0xffffffff, 0},  /* DC_IP_REQUEST_CNTL */
   {1, 1522, 0x03AB4, 0x00500001, 0xffffffff, 0},  /* HUBP0_HUBP_CLK_CNTL */
   {1, 1523, 0x03AB9, 0x04000000, 0xffffffff, 0},  /* HUBP0_HUBPREQ_DEBUG */

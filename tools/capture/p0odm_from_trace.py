@@ -11,7 +11,9 @@
 #            half scans the same macOS surface through the same colour path as the left half;
 #   dropped  Linux's own surface and colour values for pipe 0 (macOS's stay), the per-frame OTG interrupt / static-screen /
 #            sync writes, flips, cursor, audio, the AUX engine (DPCD goes through the engine's own AUX path), DAL messages
-#            other than SetHardMinByFreq (9) for DISPCLK (8) / DPPCLK (9), DENTIST (the PMFW moves it after the hard minimums,
+#            other than SetHardMinByFreq (9) for DISPCLK (8) / DPPCLK (9), pipe 0's power gating (DOMAIN0: Linux gates and
+#            ungates HUBP0 / DPP0 around the switch, which loses their registers; macOS's surface and colour values are
+#            not replayed, so pipe 0 stays powered and keeps them), DENTIST (the PMFW moves it after the hard minimums,
 #            as the 120 / 144 plans), DMCUB GPINT, every DMUB command but TRANSMITTER_CONTROL, the DPCD source OUI writes;
 #   link     Linux's link-off window (D3 .. FEC_READY off) and link-up window (DP_CONFIG .. FEC on) become LINKOFF / LINKUP
 #            steps run by the engine's trainer (PhxDpLink.h, the bytes Linux sent; adaptive CR / EQ as Linux's).
@@ -41,7 +43,7 @@ def names(hdr):
 
 DROP = re.compile(r"VERTICAL_INTERRUPT|GLOBAL_SYNC_STATUS|STATIC_SCREEN|TRIGA_MANUAL_TRIG|DC_GPIO|DC_GENERICA|_AUX_|AFMT|^AZ|"
                   r"AUDIO|SEC_AUD|SEC_TIMESTAMP|DENTIST|OTG_STEREO|3D_STRUCTURE|OPPBUF|DMCUB|CURSOR|^CUR_|CNVC_CUR|"
-                  r"UCLK_PSTATE_FORCE|SURFACE_FLIP_INT|MPC_OUT_CSC_COEF_FORMAT")
+                  r"UCLK_PSTATE_FORCE|SURFACE_FLIP_INT|MPC_OUT_CSC_COEF_FORMAT|^DOMAIN0_PG_CONFIG$")
 COPY = re.compile(r"DCSURF_SURFACE_CONFIG|DCSURF_TILING_CONFIG|DCSURF_ADDR_CONFIG|DCSURF_SURFACE_PITCH|DCSURF_SURFACE_CONTROL|"
                   r"DCSURF_FLIP_CONTROL|SURFACE_ADDRESS|VMID_SETTINGS|DCHUBP_REQ_SIZE_CONFIG|HUBPRET_CONTROL|DCN_EXPANSION_MODE|"
                   r"CNVC_SURFACE_PIXEL_FORMAT|CNVC_CFG\d_FORMAT_CONTROL|PRE_DEALPHA|PRE_REALPHA|PRE_DEGAM|CM_CONTROL|"

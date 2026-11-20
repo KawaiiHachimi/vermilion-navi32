@@ -191,6 +191,7 @@ inline bool txAllowed(const uint32_t c[16], const Conn &k, const char **why) {
 inline bool dpcdWriteAllowed(uint32_t a, unsigned n) {
     if (!n || n > 5) return false;
     if (a == 0x600) return n == 1;
+    if (a == 0x120 || a == 0x160) return n == 1;   // b131: FEC_CONFIGURATION, DSC_ENABLE (the ODM 2:1 path only writes them)
     return a >= 0x100 && a + n <= 0x109;
 }
 
@@ -249,6 +250,8 @@ struct Opts {
     uint8_t eqMaxLoops = 6;
     bool onePpc = false;       // b119: the DIG/DP side in one pixel per clock (an OTG clocked the GOP's way, S2d); default =
                                // Linux's two pixels per clock (every golden of the host test)
+    bool fec = false;          // b131: FEC_READY during training (Linux dp_set_fec_ready: DPCD 0x120 = 1 after TRAINING_PATTERN
+                               // 0, DP_DPHY_CNTL FEC_READY_SHADOW 0x20 kept through the patterns); the caller turns FEC on after
 };
 inline uint32_t pixFmt(const Opts &o) { return o.onePpc ? kPixFmt8bpc1ppc : kPixFmt8bpc2ppc; }
 inline uint32_t fifoBase(const Opts &o) { return o.onePpc ? kFifoBase1ppc : kFifoBase; }
@@ -287,11 +290,13 @@ inline int dpWr(Ctx &x, uint32_t a, const uint8_t *b, unsigned n) {
 inline int dpWr1(Ctx &x, uint32_t a, uint8_t v) { return dpWr(x, a, &v, 1); }
 
 // The DP block side of a training pattern (Linux dcn10_link_encoder_dp_set_phy_pattern, trace order).
+constexpr uint32_t kDphyFecReady = 0x20u, kDphyFecEn = 0x10u;   // DP_DPHY_CNTL FEC_READY_SHADOW / FEC_EN (b131)
+inline uint32_t dphyIdle(const Opts &o) { return o.fec ? kDphyFecReady : 0u; }
 inline void phyPattern(Ctx &x, uint32_t sel) {
     const Regs g = regs(x.k.dig);
     W(x, g.tpsSel, sel);
     W(x, g.linkCntl, 0);
-    W(x, g.dphyCntl, 0);
+    W(x, g.dphyCntl, dphyIdle(x.o));
     W(x, g.prbs, kTrainPrbs);
 }
 inline int drive(Ctx &x, Link l, uint8_t vs, uint8_t pe) {
@@ -334,6 +339,10 @@ inline int trainOnce(Ctx &x, const Sink &s, Link l) {
     const uint32_t crUs = (ival[0] & 0x7f) ? (ival[0] & 0x7f) * 4000u : 100u;
     const uint32_t eqUs = (ival[1] & 0x7f) ? (ival[1] & 0x7f) * 4000u : 400u;
     if ((rc = dpWr1(x, 0x102, 0))) return rc;
+    if (x.o.fec) {                                                                // b131, Linux order (ODM 2:1 capture)
+        if ((rc = dpWr1(x, 0x120, 1))) return rc;
+        W(x, g.dphyCntl, kDphyFecReady);
+    }
     if ((rc = dpWr1(x, 0x108, 1))) return rc;                                     // 8b/10b
     if ((rc = dpWr1(x, 0x107, s.downspread ? 0x10 : 0x00))) return rc;
     if ((rc = dpWr1(x, 0x101, static_cast<uint8_t>(l.lanes | (s.enhanced ? 0x80 : 0))))) return rc;
@@ -390,7 +399,7 @@ inline int trainOnce(Ctx &x, const Sink &s, Link l) {
     W(x, g.framing, kFramingIdle | (s.enhanced ? kFramingEnhanced : 0));
     W(x, g.scram, kScram);
     W(x, g.linkCntl, kLinkTrained);
-    W(x, g.dphyCntl, 0);
+    W(x, g.dphyCntl, dphyIdle(x.o));
     W(x, g.prbs, kTrainPrbs);
     D(x, 5000);
     uint8_t a[6];

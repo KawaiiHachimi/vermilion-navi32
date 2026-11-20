@@ -152,6 +152,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
     - [~] 2026-11-20 E1 research: Linux's 144 -> 240 mode set decoded (incl. AUX / DPCD); one pipe is a blank interim only,
           the picture runs on ODM 2:1 + DSC x2 + FEC. Build plan (generator, engine, flip on both HUBPs, head-0 row 240) in
           [240hz-plan](findings/2026-11-20-240hz-plan.md)
+    - [~] 2026-11-20 **E1 = VermilionBoot b131** (`debug.phxp0odm`: 1 survey, 2 = 240 Hz, 3 = back to 144; inert until root
+          writes it; not in System Settings yet). Host test p0odm 1203/1203. VermilionBoot sha256 `f462415c...`.
+          **Test after the boot:** survey, then 2 (screen dark ~0.2 s, then 240 Hz: monitor OSD), then 3 (back to 144).
+          After 2 or 3 the 120/144 switch in System Settings refuses until reboot (pipe 0 is on Linux's 2 ppc setup).
+          **Rollback:** dark or garbled after 2 / 3 = power off / on (nothing persists; the GOP relights 60 Hz). Bad boot:
+          `OC.prev` (= b130) or `-phxbringupoff`
     - [ ] E. 240 Hz HDR: FEC + DSC (+ ODM 2:1 as Linux) at 10 bpc
   - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
         `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
