@@ -116,7 +116,10 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       `FAMS_DRR_UPDATE`, findings), after a read-only check of DMUB's FAMS state on macOS. 22:50 on the box: Variable next to the four fixed
       rates (owner). b141 installed 23:05 (EFI `OC` = b141 sha 76482ab3, `OC.prev` = b140; b139 kext in
       `~/vermilion-rollback/`): `sudo sysctl -w debug.phxdmub_caps=1; sysctl debug.phxdmub_caps_stat` after the restart
-      (one allow-listed ping). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`
+      (one allow-listed ping). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`. 22:38 on the box: rc 0 in 10 us, every
+      feature-caps byte 0 (no fw-assisted mclk switching: Linux would take the OTG register path). b142 installed 23:25
+      (`OC` = b142, `OC.prev` = b141; b140 kext in `~/vermilion-rollback/`): `debug.phxvrr` 1 / 0, `debug.phxvrr_stat`.
+      **Test:** at 2560x1440 240, `sudo sysctl -w debug.phxvrr=1`: the OSD rate follows what is drawn; `=0` undoes it
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)

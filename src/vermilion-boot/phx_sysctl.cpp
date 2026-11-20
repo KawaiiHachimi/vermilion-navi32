@@ -305,6 +305,10 @@ SYSCTL_PROC(_debug, OID_AUTO, phxdal_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG
 static int gScanLatchFix = 0;
 // b131: 1 = pipe 0 runs ODM 2:1 (debug.phxp0odm at 240 Hz): every flip goes to HUBP1 too (the right half of the same surface)
 static volatile int gP0OdmActive = 0;
+// b142 Adaptive Sync: 1 while debug.phxvrr has OTG0's V_TOTAL range on (phx_p0odm.cpp); the scan-out's flip then fires
+// Linux's per-flip manual trigger (OTG_TRIGA_MANUAL_TRIG), which ends the stretched frame
+static volatile int gVrrOn = 0;
+static volatile SInt64 gVrrTrigs = 0;
 SYSCTL_INT(_debug, OID_AUTO, phxp0odm_active, CTLFLAG_RD | CTLFLAG_LOCKED, const_cast<int *>(&gP0OdmActive), 0, "b131 1 = flips go to HUBP0 and HUBP1 (pipe 0 on ODM 2:1)");
 static SInt64 gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost;
 static uint32_t gScanGhost = 0xffffffffu;   // slot of the last accepted-but-forgotten flip (on screen until a later latch)

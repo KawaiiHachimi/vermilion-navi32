@@ -276,6 +276,25 @@ inline int findMode(const Set &s, uint32_t key) {
     for (unsigned i = 0; i < s.n; i++) if (s.m[i].key == key) return static_cast<int>(i);
     return -1;
 }
+// ---- b142 Adaptive Sync (findings 2026-11-20-adaptive-sync-research.md) --------------------------------------------------
+// Linux's DCN 3.2 DRR on a firmware without fw-assisted mclk switching (the GOP build reports none, debug.phxdmub_caps):
+// optc32_set_drr -> optc1_set_vtotal_min_max writes OTG_V_TOTAL_MAX, then OTG_V_TOTAL_MIN (lines - 1 each), then
+// optc32_setup_manual_trigger updates OTG_V_TOTAL_CONTROL (MIN_SEL 1, MAX_SEL 1, FORCE_LOCK_ON_EVENT 0, SET_V_TOTAL_MIN_MASK
+// = TRIGA); each flip, optc2_program_manual_trigger writes OTG_TRIGA_MANUAL_TRIG = 1. The range for a mode: min = its
+// V_TOTAL, max = its lines at minHz with integer Hz (Linux at 144: 1516 * 144 / 48 = 4548 lines -> 0x11c3, capture v3).
+constexpr uint32_t kOtg0VMin = 0x04FF0, kOtg0VMax = 0x04FF1, kOtg0VCtl = 0x04FF3, kOtg0TrigAMan = 0x04FFA;
+constexpr uint32_t kVCtlMinSel = 1u, kVCtlMaxSel = 2u, kVCtlForceLock = 0x10u, kVCtlMinMask = 0xffff0000u;
+constexpr uint32_t kVCtlTrigA = (1u << 1) << 16;   // SET_V_TOTAL_MIN_MASK bit 1 = TRIGA
+struct VrrRegs { uint32_t vmin, vmax, ctl; };
+inline bool vrrRegs(const Mode &m, uint32_t minHz, uint32_t ctlNow, VrrRegs *o) {
+    if (!minHz || minHz >= m.hz || !m.vTotal) return false;
+    const uint32_t lines = (m.vTotal + 1) * m.hz / minHz;
+    if (lines <= m.vTotal + 1 || lines - 1 > 0x7fffu) return false;
+    o->vmin = m.vTotal;
+    o->vmax = lines - 1;
+    o->ctl = (ctlNow & ~(kVCtlMinSel | kVCtlMaxSel | kVCtlForceLock | kVCtlMinMask)) | kVCtlMinSel | kVCtlMaxSel | kVCtlTrigA;
+    return true;
+}
 inline const Mode *curMode(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? &s.m[r.cur] : nullptr; }
 inline uint32_t curHz(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->hz : 0; }
 inline uint32_t curKey(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->key : 0; }

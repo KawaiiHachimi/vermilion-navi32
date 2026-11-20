@@ -108,3 +108,13 @@ no module parameter or dcdebugmask bit on DCN 3.2 (`DC_DISABLE_SUBVP_FAMS` = 0x2
 fams2). `mclk_sw` comes from the firmware's QUERY_FEATURE_CAPS answer. On macOS the firmware is the GOP's DMCUB build,
 and PhxDmub.h forbids FAMS (76) commands to it. VermilionBoot b141 reads that answer (`debug.phxdmub_caps`): no
 fw-assisted mclk switching = Linux on this firmware would use the register path.
+
+## The GOP firmware's feature caps (b141 on the box, 2026-11-20 22:38)
+
+`debug.phxdmub_caps=1`: rc 0 in 10 us; the reply is the header `0x0c000006` and 15 zero dwords, so every
+`dmub_feature_caps` byte is 0, `fw_assisted_mclk_switch_ver` included. Linux's `dc->caps.dmub_caps.mclk_sw` would be 0 on
+this firmware, so `optc3_set_vtotal_min_max` and `optc32_setup_manual_trigger` take the register path (inferred from
+the source; Linux never ran on this firmware). On macOS OTG0_OTG_V_TOTAL_MIN / MAX / CONTROL, TRIGA_CNTL and
+TRIGA_MANUAL_TRIG read 0 (no range). The DCN 3.2 register path never writes OTG_TRIGA_CNTL (only DCN 2's
+`optc2_setup_manual_trigger` sets its source to 21); whether the manual trigger ends a frame with TRIGA_CNTL = 0 is what
+b142 shows.

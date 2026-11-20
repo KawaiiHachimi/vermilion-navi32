@@ -404,6 +404,20 @@ int main() {
         CHECK(run(env(h), st, r, kSel240, 0, aux(h), kSet) == kHalted && st.halted && r.pipeWhy && r.failed);
         CHECK(h.writes.size() == 20);   // stopped at the write after which the change was seen (no further write)
     }
+    {   // b142 Adaptive Sync: Linux's DRR values (capture v3 from-vrr-143.99: max 0x11c3, min 0x5eb) and the CONTROL fields
+        using namespace phxodm;
+        const Mode m144{144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x14, 4, nullptr, nullptr};
+        const Mode m240{240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, nullptr, nullptr};
+        const Mode m60{60, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, nullptr, nullptr};
+        VrrRegs v{};
+        CHECK(vrrRegs(m144, 48, 0, &v) && v.vmax == 0x11c3 && v.vmin == 0x5eb && v.ctl == 0x00020003u);
+        CHECK(vrrRegs(m240, 48, 0, &v) && v.vmax == 1619u * 240 / 48 - 1 && v.vmin == 0x652);
+        CHECK(vrrRegs(m60, 48, 0, &v) && v.vmax == 1481u * 60 / 48 - 1 && v.vmin == 0x5c8);
+        CHECK(vrrRegs(m144, 48, 0xffffffffu, &v) && v.ctl == ((0xffffffffu & ~(1u | 2u | 0x10u | 0xffff0000u)) | 0x00020003u));   // other fields kept
+        CHECK(!vrrRegs(m144, 0, 0, &v) && !vrrRegs(m144, 144, 0, &v) && !vrrRegs(m144, 200, 0, &v));
+        const Mode mz{1, 1, 1, 60, 1, 0, 0, 0, 1, nullptr, nullptr};
+        CHECK(!vrrRegs(mz, 48, 0, &v));
+    }
     std::printf("p0odm_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }

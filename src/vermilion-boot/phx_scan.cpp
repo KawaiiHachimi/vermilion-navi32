@@ -291,6 +291,7 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
             }
         }
         scanFlipLocked(scan.slotMc[slot], false);
+        if (gVrrOn) { wreg(kOtg0TrigAManualTrig, 1u); OSIncrementAtomic64(&gVrrTrigs); }   // b142: Linux's per-flip trigger
         scan.pending = slot;
         scan.presents++;
         scan.slotPresents[slot]++;

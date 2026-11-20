@@ -77,7 +77,36 @@ static const phxodm::Mode kOdmModes[] = {
 static const phxodm::Set kOdmSet = {kOdmModes, sizeof kOdmModes / sizeof kOdmModes[0], 2, &kOdmEntry, 3};
 
 static int gOdmLast = -1;
-static phxodm::Run gOdm;   // where = kMac until the first run lands (cur is read only in kLinux)
+static phxodm::Run gOdm;
+
+// b142 Adaptive Sync (debug.phxvrr): OTG0's V_TOTAL range as Linux's DCN 3.2 register path writes it (PhxP0Odm.h
+// vrrRegs), only on a 1440p mode the replay engine lit. Off puts back the three values the first on found (the GOP's: 0);
+// every engine run turns it off first (the plans were captured without a range). Under gP2Busy and scanLock.
+static uint32_t gVrrBoot[3];   // OTG0 V_TOTAL_MIN, MAX, CONTROL before the first on
+static phxodm::VrrRegs gVrrSet{};
+static uint32_t gVrrMinHz = 48, gVrrOns = 0, gVrrOffs = 0, gVrrRefusals = 0;
+static const char *gVrrWhy = "never run";
+static void vrrOffLocked(const phxp2::Env &e) {
+    if (!gVrrOn) return;
+    e.io.wr(e.io.c, phxodm::kOtg0VCtl, gVrrBoot[2]);
+    e.io.wr(e.io.c, phxodm::kOtg0VMin, gVrrBoot[0]);
+    e.io.wr(e.io.c, phxodm::kOtg0VMax, gVrrBoot[1]);
+    gVrrOn = 0; gVrrOffs++; gVrrWhy = "off";
+}
+static int vrrOnLocked(const phxp2::Env &e) {
+    const phxodm::Mode *m = phxodm::curMode(gOdm, kOdmSet);
+    if (!m || m->h != 1440) { gVrrWhy = "not on a 1440p mode the replay engine lit (pick one in System Settings first)"; return EINVAL; }
+    if (phxp2::rd(e, phxodm::kOtg0V) != m->vTotal) { gVrrWhy = "OTG0 V_TOTAL is not the mode's"; return EINVAL; }
+    const uint32_t ctl = phxp2::rd(e, phxodm::kOtg0VCtl);
+    phxodm::VrrRegs v{};
+    if (!phxodm::vrrRegs(*m, gVrrMinHz, ctl, &v)) { gVrrWhy = "no range for this mode"; return EINVAL; }
+    if (!gVrrOn) { gVrrBoot[0] = phxp2::rd(e, phxodm::kOtg0VMin); gVrrBoot[1] = phxp2::rd(e, phxodm::kOtg0VMax); gVrrBoot[2] = ctl; }
+    e.io.wr(e.io.c, phxodm::kOtg0VMax, v.vmax);   // Linux's order: MAX, MIN, then the CONTROL fields
+    e.io.wr(e.io.c, phxodm::kOtg0VMin, v.vmin);
+    e.io.wr(e.io.c, phxodm::kOtg0VCtl, v.ctl);
+    gVrrSet = v; gVrrOn = 1; gVrrOns++; gVrrWhy = "on";
+    return 0;
+}   // where = kMac until the first run lands (cur is read only in kLinux)
 
 // One engine run under gP2Busy, the AUX lock and scanLock. -1 = not run (busy / not ready; *err set).
 static int odmRunLocked(int sel, int *err) {
@@ -87,6 +116,7 @@ static int odmRunLocked(int sel, int *err) {
     if (!p2I2cLock(gPhx, 1)) { OSCompareAndSwap(1, 0, &gP2Busy); *err = EBUSY; return -1; }
     gOdmLast = sel;
     IOLockLock(gPhx->scanLockForEngines());
+    vrrOffLocked(p2Env());   // b142: the plans run without a V_TOTAL range
     {   // b139: a size change first takes the plane back from GPU present (sel: 1 survey, 2 = 240, 3 = 144, else a key)
         const uint32_t key = sel == 2 ? 240u : sel == 3 ? 144u : static_cast<uint32_t>(sel);
         const int mi = sel == 1 ? -1 : phxodm::findMode(kOdmSet, key);
@@ -171,5 +201,52 @@ static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     IOFree(b, kN);
     return e;
 }
+// b142: root writes 1 (OTG0's range from the lit 1440p mode's V_TOTAL down to 48 Hz) or 0 (back to the boot values); reads
+// 1 while on. debug.phxvrr_stat: the registers now, the range set, the triggers fired, OTG0's frame rate over 250 ms.
+static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
+    int v = gVrrOn;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v != 0 && v != 1) return EINVAL;
+    if (!p2Up() || !gPhx || !gPhx->scanLockForEngines()) return ENXIO;
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return EBUSY;
+    IOLockLock(gPhx->scanLockForEngines());
+    const phxp2::Env e = p2Env();
+    int r = 0;
+    if (v) r = vrrOnLocked(e); else vrrOffLocked(e);
+    if (r) gVrrRefusals++;
+    IOLockUnlock(gPhx->scanLockForEngines());
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    IOLog("PhxBringup: debug.phxvrr=%d: %s (V_TOTAL_MIN 0x%x MAX 0x%x CONTROL 0x%x)\n", v, gVrrWhy, gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl);
+    return r;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxvrr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrSysctl, "I",
+            "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to 48 Hz on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
+static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (req->newptr) return EPERM;
+    char b[512];
+    int n;
+    if (!p2Up()) n = snprintf(b, sizeof b, "PhxBringup not ready");
+    else {
+        const phxp2::Env e = p2Env();
+        const uint32_t f0 = phxp2::rd(e, phxodm::kOtg0Frame);
+        IOSleep(250);
+        const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
+        n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
+                     "triggers %lld | ons %u offs %u refusals %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
+                     gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
+                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrOns, gVrrOffs,
+                     gVrrRefusals, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
+    }
+    if (n < 0) n = 0;
+    if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;
+    b[n] = 0;
+    return SYSCTL_OUT(req, b, static_cast<size_t>(n) + 1);
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxvrr_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxVrrStatSysctl, "A",
+            "b142 Adaptive Sync: OTG0's V_TOTAL range registers, the range set, triggers fired, OTG0's frame rate over 250 ms");
+
 SYSCTL_PROC(_debug, OID_AUTO, phxp0odm_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxP0OdmStatSysctl, "A",
             "b135 the replay engine: result, state (mac / linux, rate), the last failure, gates, writes, waits, training, post");
