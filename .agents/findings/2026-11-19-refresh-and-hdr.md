@@ -270,3 +270,49 @@ the second pipe (HUBP1 DLG/TTU, DPP1, MPCC1, OPP1, DSCL1), DSCRM, DP_DSC_CNTL, D
 8b/10b CR + EQ for DP A / DP E up to HBR2 (TPS2/3), behind the DMCUB version gate `0x07008742`; this card runs
 `0x07008748`. HBR3 needs TPS4 if the sink has it (0x003 bit 7: 0x81 in 0x2203 = yes), else TPS3 (inferred, Linux
 `decide_eq_training_pattern`).
+
+## Linux capture v2 (2026-11-20): DMUB commands for 144 -> 240 Hz, 240 Hz at 10 bpc, HDR
+
+Files: EFI partition `/boot/vermilion/capture/display-20261120-065140/` (not in git). Steps `base,144,240,144,240-10,hdr-240,240-nodsc,hdr-120`,
+Linux 7.2.15 amdgpu, Hyprland 0.56.2, LG ULTRAGEAR+ on DP-3. Header layout and enum values checked against `dmub_cmd.h` of tag v7.2.
+
+- **Tool bugs fixed:** the DMUB kprobe symbol on this kernel is `dmub_srv_fb_cmd_queue` (the `dmub_srv_cmd_queue` name does not exist).
+  Python's buffered text-mode append to `kprobe_events` returns EINVAL on Linux 7.2 tracefs; the script now uses one raw `write(2)`.
+  Per command: 16 dwords from `%si` (the command union), `phxcap/dmubcmd1` lines in `trace-modeset.txt`.
+- **No DP_AUX_ACCESS (type 70) went through DMUB** in any step. The AUX transactions for link training (DPCD 0x100/0x101, 0x120,
+  0x160, lane settings) are not in the DMUB trace; they use the register AUX engine (not captured by design: the script never reads
+  the AUX data FIFOs). The macOS side must take the AUX bytes from the DPCD dumps (`dpcd-*.bin`) and the DP spec.
+- **What DMUB did carry per mode set (counts of commands):**
+
+  | Step | total | 128/1 TRANSMITTER_CONTROL | 75/x CAB_FOR_SS | 76/x FAMS (`FW_ASSISTED_MCLK_SWITCH`) |
+  |---|---|---|---|---|
+  | 144 | 1243 | 22 | 107 | 1114 |
+  | 240 | 2043 | 22 | 179 | 1842 |
+  | 240-10 | 2047 | 22 | 181 | 1844 |
+  | hdr-240 | 2036 | 22 | 174 | 1840 |
+  | hdr-120 | 1049 | 22 | 97 | 930 |
+  | 240-nodsc | 2099 | **0** | 180 | 1919 |
+
+  Types 75/76 (power-feature and FAMS DRR/manual-trigger housekeeping, ~1 per 0.1 ms, e.g. `76/1` DRR_UPDATE pl 12, `76/3`
+  SET_MANUAL_TRIGGER) are not part of link bring-up; their count tracks the duration, not the mode. Ignore them for the port.
+- **The 22 TRANSMITTER_CONTROL commands** (type 128, subtype 1 = `DMUB_CMD__VBIOS_DIG1_TRANSMITTER_CONTROL`, header dword
+  `0x3c000180`, payload 60 bytes), identical in every step except the symclk dword; dwords 1..3 after the header:
+
+  | # | dword1 | dword2 (symclk, 10 kHz) | dword3 | meaning (inferred from the atombios transmitter control v1.7 field order) |
+  |---|---|---|---|---|
+  | 1 | `00000001` | 0 | `f4130003` | phyid 1 (UNIPHYB), action 0 DISABLE |
+  | 2 | `04000101` | **81000 (0x13c68) at 240 Hz; 54000 (0xd2f0) at 120/144 Hz** | `f4000003` | action 1 ENABLE, 4 lanes |
+  | 3-6 | `04000b01` | same | `f6130003` | action 0x0b SETUP_VSEMPH, lane-setting byte 0 (x4) |
+  | 7-10 | `04010b01` | same | `f6130003` | lane-setting byte 1 (x4) |
+  | 11-22 | `04020b01` | same | `f6130003` | lane-setting byte 2 (x12) |
+
+  So HBR3 is symclk 81000 and HBR2 is 54000. The sequence (DISABLE, ENABLE, then SETUP_VSEMPH with lane setting 0, 1, 2) is the same
+  at every rate; only dword2 changes. The training pattern and AUX writes between these commands are not in the trace.
+  The meaning of dword3 (`f4130003` / `f4000003` / `f6130003`) is not verified.
+- **240 Hz at 10 bpc and HDR:** `240-10` and `hdr-240` train HBR3 x4 with DSC on (slice width 640, 256 = 16 bpp, `odm_combine_segments` 2),
+  same as the 8 bpc 240 step; `max_bpc` 10, DP_PIXEL_FORMAT `0x42000000`; Hyprland shows `XRGB2101010` and `cm hdr`.
+  Linux 240 Hz is never lit without DSC at any bpc in this capture.
+- **`240-nodsc` is inconclusive:** it issued no TRANSMITTER_CONTROL commands (no new link training) and the state afterwards still
+  shows DSC on, 10 bpc, HDR preset, i.e. the earlier `hdr-240` state with 239 fps. The forced `dsc_clock_en = 2` did not
+  change the mode (inferred: it only applies at the next full link training, and Hyprland did not retrain for an identical mode).
+  Whether Linux can light 240 Hz without DSC is therefore unanswered; 8 bpc without DSC at HBR3 stays the inference from the 240 Hz research.

@@ -67,6 +67,15 @@ KPROBE_SYMS = ["dmub_srv_cmd_queue", "dmub_srv_fb_cmd_queue"]
 KPROBE_FETCH = " ".join(f"c{i}=+{4 * i}(%si):x32" for i in range(16))
 
 
+def kprobe_write(line):
+    """One raw write(2) to kprobe_events; Python's buffered text-mode append gets EINVAL from tracefs (Linux 7.2)."""
+    fd = os.open(f"{TRACE}/kprobe_events", os.O_WRONLY | os.O_APPEND)
+    try:
+        os.write(fd, line.encode())
+    finally:
+        os.close(fd)
+
+
 def denied(r):
     return any(a <= r <= b for a, b in DENY)
 
@@ -218,8 +227,7 @@ class Cap:
             if sym not in funcs:
                 continue
             try:
-                with open(f"{TRACE}/kprobe_events", "a") as f:
-                    f.write(f"p:phxcap/dmubcmd{i} {sym} {KPROBE_FETCH}\n")
+                kprobe_write(f"p:phxcap/dmubcmd{i} {sym} {KPROBE_FETCH}\n")
                 self.kprobes.append(f"phxcap/dmubcmd{i}")
             except OSError as e:
                 self.say(f"kprobe on {sym} failed: {e}")
@@ -229,8 +237,7 @@ class Cap:
         for k in getattr(self, "kprobes", []):
             try:
                 open(f"{TRACE}/events/{k}/enable", "w").write("0")
-                with open(f"{TRACE}/kprobe_events", "a") as f:
-                    f.write(f"-:{k}\n")
+                kprobe_write(f"-:{k}\n")
             except OSError as e:
                 self.say(f"kprobe {k} not removed: {e}")
         self.kprobes = []
