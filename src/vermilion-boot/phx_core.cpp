@@ -38,6 +38,10 @@ bool PhxBringup::start(IOService *provider) {
     doorbellMap = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
     smuLock = IOLockAlloc();
     gpuLock = IOLockAlloc();
+    // b140: the scanout lock exists from the start. It was made by the first GPU-present acquire, and the replay engine
+    // (odmRunLocked) needs it: the login screen's 240 Hz request at 20:39:39 on 2026-11-20 came 7 s before GPU present
+    // started and was refused "not ready", so the login screen stayed at the firmware's 60 Hz.
+    scanLock = IOLockAlloc();
     if (!gWaitSleepLock) gWaitSleepLock = IOLockAlloc();
     uint32_t dbg = 0;
     debug = PE_parse_boot_argn("phxdebug", &dbg, sizeof(dbg)) && dbg == 1;
