@@ -314,6 +314,8 @@ class PhxAMDFB : public IOFramebuffer {
     // b138: the boot console's geometry (the GOP's surface A, its VRAM and flip-B placement); fWidth / fHeight / fRowBytes
     // follow the lit mode once PhxBringup resizes the scan-out (head 0 with phx-p0-keys), else they stay these
     uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
+    uint32_t fVrrMinHz = 0;   // VRR probe: the EDID's minimum rate while the timing range is published (0 = off)
+    uint32_t fVrrSaid = 0;    // VRR probe: mode ids whose extension was logged (bit per id)
     bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
     const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
         return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
@@ -892,6 +894,16 @@ public:
             // rot5 / rot9: while a head is gated, a head's other modes leave CoreDisplay's default-mode choice (phxrot::h0Vbe,
             // h1Vbe), so the current one stays the default at a new display set
             d.verticalBlankingExtension = phxRotH0Vbe(fHead, (uint32_t)mode, fModeId);
+            // VRR probe step 2: the 1440p modes carry the stretch to the EDID's minimum rate, as Apple's AMD driver's mode
+            // validation hands them out (AGDC notifyModeValidation); rotation's own mark keeps priority
+            if (fVrrMinHz && !fHead && t.vActive == 1440 && !d.verticalBlankingExtension) {
+                d.verticalBlankingExtension = phxhead::vrrExtension(t, fVrrMinHz);
+                if (mode > 0 && mode < 32 && !(fVrrSaid & (1u << mode))) {
+                    fVrrSaid |= 1u << mode;
+                    PFBLOG("vrrprobe: mode %d %ux%u: verticalBlankingExtension %u (to %u Hz)", (int)mode, t.hActive, t.vActive,
+                           d.verticalBlankingExtension, fVrrMinHz);
+                }
+            }
             info->flags = kIODetailedTimingValid;
         }
         return kIOReturnSuccess;
@@ -1462,6 +1474,7 @@ bool PhxAMDFB::start(IOService *provider)
             tr.charSizeHorizontalTotal = tr.charSizeVerticalTotal = 1;
             tr.maxNumLinks = 1;
             if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
+            fVrrMinHz = er.minVHz;
             PFBLOG("vrrprobe: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
                    er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
         } else PFBLOG("vrrprobe: the EDID has no range limits descriptor: nothing published");

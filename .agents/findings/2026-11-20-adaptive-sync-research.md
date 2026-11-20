@@ -55,3 +55,15 @@ variable-refresh timing (inferred).
   words at +8 / +0xc built from link and controller feature queries), 0x921 `getLinkConfig`, 0x980 `getGpuCapability`.
   0x3, 0x711 and 0x2001 are in a compare chain (not mapped). PhxAGDC refuses 0x925 and 0x941. Inferred: macOS reads
   the port's VRR support from 0x941 (or 0x925) before it asks 0x979; which flag bit means VRR is not decoded yet.
+
+## Where the range comes from on Apple's path (read 2026-11-20 22:30)
+
+- `AmdLink::isVRRSupported` is AmdLink vtable slot 0x210; `reportCapabilities` calls it before setting the timing range's
+  sync flag 0x10. `getCapabilitiesOfPort` (AGDC 0x941) never calls it: the port capability answer carries no VRR bit
+  (its link queries are `AmdLink::getFeature` ids 0, 1, 4, 5, 6, 0xf and `getConnectorId`).
+- The per-mode extension is written in `AgdcServices::notifyModeValidation` / `notifyModeSet`: the timing goes into an
+  AGDC entry, `this->vfunc(0x8b0)(0xa, entry)` hands it to the AGDC client, and on a status 0..3 the entry's fields,
+  `verticalBlankingExtension` included, are copied back into the timing. So on the Mac Pro the range per mode is set by
+  the AGDC client during mode validation (inferred), and the timing range only says "capable".
+- Probe step 2 (PhxAccel, same flag): head 0's 1440p modes report the extension to the EDID minimum themselves
+  (`phxhead::vrrExtension`: pixel clock / (H total x 48 Hz) - V total; 1440p60: 368 lines). Host: head0_1440 47/47.

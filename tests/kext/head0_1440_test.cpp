@@ -120,6 +120,10 @@ int main() {
         CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 265 && r.maxVHz == 300 && r.minHKHz == 30 && r.maxHKHz == 455);
         e[54 + 18 * 2 + 4] = 0x01;   // 01 is reserved: no offset
         CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 10 && r.maxVHz == 45);
+        DetailedTiming v{};
+        CHECK(detailedTiming(0, 3, &v) && vrrExtension(v, 48) == 1849 - 1481);   // 1440p60: 241.5 MHz / (2720 * 48) = 1849
+        CHECK(detailedTiming(0, 5, &v) && vrrExtension(v, 48) > 0 && vrrExtension(v, 240) == 0);
+        CHECK(vrrExtension(v, 0) == 0 && vrrExtension(DetailedTiming{}, 48) == 0);
         uint8_t z[128] = {};
         CHECK(!edidRange(z, sizeof z, &r) && !edidRange(kLgEdid, 64, &r) && !edidRange(nullptr, 128, &r));
     }

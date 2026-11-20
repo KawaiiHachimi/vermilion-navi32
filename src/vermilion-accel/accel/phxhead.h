@@ -360,6 +360,15 @@ struct DetailedTiming {
     uint32_t hActive, hBlank, hSyncOffset, hSyncWidth, vActive, vBlank, vSyncOffset, vSyncWidth;
     bool hSyncPos, vSyncPos;
 };
+// VRR probe: the lines a frame of `t` may stretch by to reach minVHz (IODetailedTimingInformationV2::
+// verticalBlankingExtension; Apple's AMD driver: max V_TOTAL = vActive + vBlank + extension). 0 when the mode's own rate
+// is at or below minVHz, or the timing is empty.
+inline uint32_t vrrExtension(const DetailedTiming &t, uint32_t minVHz) {
+    const uint64_t ht = t.hActive + t.hBlank, vt = t.vActive + t.vBlank;
+    if (!ht || !vt || !minVHz || !t.pixelHz) return 0;
+    const uint64_t vMax = t.pixelHz / (ht * minVHz);
+    return vMax > vt ? static_cast<uint32_t>(vMax - vt) : 0u;
+}
 // Head 0's mode id -> its detailed timing; false for head 1 (no detailed timing, as before) and for unknown ids.
 inline bool detailedTiming(unsigned head, uint32_t id, DetailedTiming *out) {
     const HeadMode *m = head == 0 ? headMode(0, id) : nullptr;
