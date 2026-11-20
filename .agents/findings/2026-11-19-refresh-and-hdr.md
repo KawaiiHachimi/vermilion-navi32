@@ -226,3 +226,47 @@ Owner, at each step: the monitor's OSD showed **120 Hz** and **144 Hz**, the pic
 DENTIST by itself after the hard minimums (no DENTIST write needed, as upstream's pipe-1 switch). The firmware's watermarks
 were enough at 144 (no underflow in the verify window; longer runs unverified). Not tested yet: macOS rendering at the new
 rate (needs the head-0 mode list), sleep/wake, a cold boot after a switch (the GOP relights 1440p60 each boot).
+
+## 120/144 Hz from System Settings (2026-11-20 morning, XTX machine): works
+
+PhxAccel with the head-0 1440p rows + the daemon's `phxboot-p0modes` flag, after a full power-off: daemon log
+`p0modes: pipe-0 engine on, head-0 mode list armed`, `debug.phxfb_nmodes` 3, System Settings offers 60/120/144. Owner
+picked 144: the monitor shows 144 Hz, "less input lag, less screen tearing, everything is better". Read after:
+`debug.phxpipe0_stat` mode=144 last=done, 150 frames per window, VID_M 0x8d07, no fall-back. Not tested yet: the rate
+after a reboot (the GOP lights 60 each boot), sleep/wake, hours at 144.
+
+## 240 Hz research (2026-11-20, read-only)
+
+**Monitor (full EDID via b127 `debug.phxedid_full`, src 0x22, macOS):** the E-DDC segment read works on hardware: 3
+blocks, 384 bytes. Block 2 is DisplayID 1.2 with one Type I timing: **2560x1440, 1056.75 MHz, H total 2720 (blank 160,
+front 48, sync 32, +), V total 1619 (blank 179, front 3, sync 5), 239.96 Hz**. Kept outside git
+(`~/vermilion-captures/`, has the serial).
+
+**DPCD (Linux capture):** base caps DPCD 1.2, max rate 0x14 (HBR2!), 4 lanes, TPS3; extended caps (0x0E bit 7, 0x2200)
+DPCD 1.4, **max rate 0x1e (HBR3)**. A trainer that reads only 0x001 (b116 `PhxDpLink.h`) sees HBR2. DSC 1.2 supported
+(0x060 = 0x01), FEC capable (0x090 = 0xbf), downspread on.
+
+**Linux at 240 Hz (capture 001650/240):** HBR3 x4, **FEC + DSC on** (16 bpp, 2 slices 640x120 per half), **ODM combine
+2:1** (OTG0 drives OPP0 + OPP1, HUBP0 + HUBP1, DSC0 + DSC1; `odm_combine_segments` 2, OPTC_DATA_SOURCE_SELECT 0x00100001,
+OPTC_WIDTH_CONTROL 0x02800500), 2 pixels per cycle (DP_DTO0_PHASE 0x1f7e5cd8 = 528.375 MHz = pclk / 2), DISPCLK 537.5 MHz,
+DET 9/9/0/0, V_TOTAL 0x652. The 240 trace writes 220 registers the 144 trace does not: DSC (2 engines, the PPS words),
+the second pipe (HUBP1 DLG/TTU, DPP1, MPCC1, OPP1, DSCL1), DSCRM, DP_DSC_CNTL, DP_SEC_CNTL2 / GSP11 (the PPS SDP).
+- **The link training itself is not in the register trace:** DC sends the PHY steps (`TRANSMITTER_CONTROL`, VBIOS 128/1)
+  and every AUX/DPCD access through the DMCUB inbox (1902 `DMCUB_INBOX1_WPTR` writes in the 240 switch); only the
+  training-pattern registers (`DP1_DP_DPHY_TRAINING_PATTERN_SEL`, `DP_DPHY_CNTL`, scrambler) are visible. The payloads
+  live in the ring in VRAM. `tools/capture/linux_display_capture.py` now records them (kprobe on `dmub_srv_cmd_queue`,
+  16 dwords per command, interleaved with the register writes; untested on Linux yet).
+- **Bandwidth:** 1056.75 MHz x 24 bit = 25.36 Gbit/s; HBR3 x4 8b/10b = 25.92 Gbit/s (97.8 %), with FEC (3 %) 25.14 =
+  does not fit. So **240 Hz at 8 bpc fits HBR3 without FEC/DSC** (inferred; Linux turns FEC on for any FEC-capable sink,
+  which is why it needs DSC). 240 Hz at 10 bpc (HDR) = 31.7 Gbit/s: **needs DSC** in any case.
+- **1 pixel per cycle cannot reach 1056 MHz:** the firmware's DTO convention (phase = pclk, modulo 716,666,667) tops out
+  near 716 MHz. A 240 Hz plan must use Linux's 2-pixel-per-cycle convention (DTO phase = pclk / 2, `DP_PIXEL_FORMAT`
+  bit 30, `DP_VID_TIMING` N_MUL) (inferred from the register values).
+- DCN 3.2 runs ODM 2:1 for a single display as a power policy (`enable_single_display_2to1_odm_policy`, Linux source);
+  whether one pipe can carry 1056.75 MHz (DISPCLK/DPPCLK >= ~1.06 GHz) on this card is unverified. The `240-nodsc`
+  capture step asks Linux to light 240 with DSC forced off.
+
+**macOS side today:** b116's trainer (`PhxDpLink.h`) speaks TRANSMITTER_CONTROL ENABLE / SETUP_VSEMPH / DISABLE and
+8b/10b CR + EQ for DP A / DP E up to HBR2 (TPS2/3), behind the DMCUB version gate `0x07008742`; this card runs
+`0x07008748`. HBR3 needs TPS4 if the sink has it (0x003 bit 7: 0x81 in 0x2203 = yes), else TPS3 (inferred, Linux
+`decide_eq_training_pattern`).

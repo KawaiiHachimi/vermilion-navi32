@@ -7,6 +7,9 @@
 # every register write DC makes during the switch (ftrace amdgpu_dm:amdgpu_dc_wreg), lets it settle, then READS:
 # amdgpu_dm_dtn_log, the connector's debugfs state (link_settings, output_bpc, DSC), DPCD over /dev/drm_dp_auxN, the
 # steady value of every register DC wrote plus a fixed list (debugfs amdgpu_regs), clocks, DMUB trace and firmware info.
+# Since 2026-11-20 it also records every DMUB inbox command DC queues during the switch (a kprobe on dmub_srv_cmd_queue
+# fetching the 64-byte command: TRANSMITTER_CONTROL for the PHY / link rate, DP_AUX_ACCESS for DPCD), in order with the
+# register writes, so the HBR3 link training at 240 Hz can be read byte for byte (DC sends both through the DMCUB).
 # Nothing is written to the GPU by this script itself except through amdgpu: hyprctl mode sets, and in the "hbr2"
 # steps the debugfs link_settings preference (Linux retrains its own link; undone by a power-off).
 #
@@ -16,6 +19,9 @@
 #   hbr2-60 hbr2-120 hbr2-144   the same with the link forced to HBR2 x4 (what the GOP leaves macOS on) [--hbr2]
 #   hbr2-120-10     120 Hz at 10 bpc on HBR2 x4 [--hbr2]
 #   hdr-60 hdr-120  HDR on (Hyprland cm,hdr, 10 bpc) [--hdr]: the HDR infoframe / colorimetry / regamma writes
+#   240-10 hdr-240  240 Hz at 10 bpc, and with HDR on (DSC at 10 bpc) [--r240]
+#   240-nodsc       240 Hz at 8 bpc with DSC forced off (debugfs dsc_clock_en = 2, back to 0 after): does Linux light
+#                   1440p240 on HBR3 without DSC? If the mode set fails, that is the answer [--r240]
 # At the end the monitor goes back to the config file (hyprctl reload). Forced link settings stay until power-off.
 #
 # Output: <outdir>/display-<date>/<step>/... and a summary.txt. Monitor serials are stripped from the EDID copy (base
@@ -47,13 +53,18 @@ STEPS = {   # name: (refresh Hz or None, bpc, link "auto"/"hbr2", hdr)
     "hbr2-60": (60, 8, "hbr2", False), "hbr2-120": (120, 8, "hbr2", False), "hbr2-144": (144, 8, "hbr2", False),
     "hbr2-120-10": (120, 10, "hbr2", False),
     "hdr-60": (60, 10, "auto", True), "hdr-120": (120, 10, "auto", True),
+    "240-10": (240, 10, "auto", False), "hdr-240": (240, 10, "auto", True), "240-nodsc": (240, 8, "nodsc", False),
 }
 DEFAULT = ["base", "60", "120", "144", "240"]
 HBR2 = ["hbr2-60", "hbr2-120", "hbr2-144", "hbr2-120-10"]
 HDR = ["hdr-60", "hdr-120"]
+R240 = ["240-10", "hdr-240", "240-nodsc"]
 DPCD_RANGES = [(0x0000, 0x100), (0x0100, 0x100), (0x0200, 0x100), (0x0300, 0x10), (0x0600, 0x1), (0x2200, 0x100)]
 TRACE = "/sys/kernel/tracing"
 EVENT = "amdgpu_dm/amdgpu_dc_wreg"
+# DMUB inbox commands: kprobe on the queue function (arg 2 = const union dmub_rb_cmd *, 64 bytes = 16 dwords), x86-64.
+KPROBE_SYMS = ["dmub_srv_cmd_queue", "dmub_srv_fb_cmd_queue"]
+KPROBE_FETCH = " ".join(f"c{i}=+{4 * i}(%si):x32" for i in range(16))
 
 
 def denied(r):
@@ -94,6 +105,7 @@ class Cap:
         self.a = a
         self.dry = a.dry_run
         self.log = []
+        self.kprobes = []
 
     def say(self, s):
         print(s, flush=True)
@@ -195,14 +207,47 @@ class Cap:
             return b""
 
     # ---- ftrace ----
+    def kprobes_add(self):
+        """One kprobe per DMUB queue function the kernel has (group phxcap). Missing ones are skipped and logged."""
+        self.kprobes = []
+        try:
+            funcs = set(open(f"{TRACE}/available_filter_functions").read().split())
+        except OSError:
+            funcs = set()
+        for i, sym in enumerate(KPROBE_SYMS):
+            if sym not in funcs:
+                continue
+            try:
+                with open(f"{TRACE}/kprobe_events", "a") as f:
+                    f.write(f"p:phxcap/dmubcmd{i} {sym} {KPROBE_FETCH}\n")
+                self.kprobes.append(f"phxcap/dmubcmd{i}")
+            except OSError as e:
+                self.say(f"kprobe on {sym} failed: {e}")
+        self.say(f"DMUB command kprobes: {', '.join(self.kprobes) or 'none (DMUB payloads not recorded)'}")
+
+    def kprobes_remove(self):
+        for k in getattr(self, "kprobes", []):
+            try:
+                open(f"{TRACE}/events/{k}/enable", "w").write("0")
+                with open(f"{TRACE}/kprobe_events", "a") as f:
+                    f.write(f"-:{k}\n")
+            except OSError as e:
+                self.say(f"kprobe {k} not removed: {e}")
+        self.kprobes = []
+
     def trace_start(self):
         w = lambda p, v: open(f"{TRACE}/{p}", "w").write(v)
         w("tracing_on", "0"); w("trace", ""); w("buffer_size_kb", "65536")
-        w(f"events/{EVENT}/enable", "1"); w("tracing_on", "1")
+        w(f"events/{EVENT}/enable", "1")
+        for k in self.kprobes:
+            w(f"events/{k}/enable", "1")
+        w("tracing_on", "1")
 
     def trace_stop(self, dst):
         open(f"{TRACE}/tracing_on", "w").write("0")
         open(f"{TRACE}/events/{EVENT}/enable", "w").write("0")
+        for k in self.kprobes:
+            open(f"{TRACE}/events/{k}/enable", "w").write("0")
         shutil.copyfile(f"{TRACE}/trace", dst)
         regs, n = set(), 0
         for line in open(dst, errors="replace"):
@@ -232,12 +277,24 @@ class Cap:
             self.trace_stop(os.path.join(d, "trace-linkforce.txt"))
             self.forced = True
         written, n = set(), 0
+        dsc = f"{self.dri}/{self.cname}/dsc_clock_en"
+        if link == "nodsc":
+            try:
+                open(dsc, "w").write("2")   # DSC_CLK_FORCE_DISABLE, used at the next mode set
+            except OSError as e:
+                self.say(f"   dsc_clock_en write failed: {e}")
         if rule:
             self.trace_start()
             r = self.hypr("eval", self.lua_monitor(rule))
             time.sleep(4)
             written, n = self.trace_stop(os.path.join(d, "trace-modeset.txt"))
-            self.say(f"   hyprctl: {r.strip()[:80]}; {n} register writes traced, {len(written)} distinct registers")
+            ncmd = sum(1 for l in open(os.path.join(d, "trace-modeset.txt"), errors="replace") if "dmubcmd" in l)
+            self.say(f"   hyprctl: {r.strip()[:80]}; {n} register writes traced, {len(written)} distinct registers; {ncmd} DMUB commands")
+        if link == "nodsc":
+            try:
+                open(dsc, "w").write("0")   # back to DSC_CLK_FORCE_DEFAULT (applies at the next mode set)
+            except OSError:
+                pass
         time.sleep(2)
         m = self.monitor()
         json.dump(m, open(os.path.join(d, "hyprctl-monitor.json"), "w"), indent=1)
@@ -270,12 +327,13 @@ class Cap:
                  f"lanes {(cfg & 3) + 1 if isinstance(cfg, int) else '?'}; VID_M/N 0x{mv:x}/0x{nv:x}; DP_PIXEL_FORMAT 0x{pf:08x}")
 
     def run(self):
-        steps = self.a.steps.split(",") if self.a.steps else DEFAULT + (HBR2 if self.a.hbr2 else []) + (HDR if self.a.hdr else [])
+        steps = self.a.steps.split(",") if self.a.steps else (DEFAULT + (HBR2 if self.a.hbr2 else []) + (HDR if self.a.hdr else [])
+                                                             + (R240 if self.a.r240 else []))
         for s in steps:
             if s not in STEPS:
                 sys.exit(f"unknown step {s}; known: {', '.join(STEPS)}")
-        if self.a.hdr and self.a.hbr2:   # HDR steps run before the link is forced
-            steps = [s for s in steps if not s.startswith("hbr2")] + [s for s in steps if s.startswith("hbr2")]
+        # the forced-HBR2 steps run last (the forced link stays until power-off)
+        steps = [s for s in steps if not s.startswith("hbr2")] + [s for s in steps if s.startswith("hbr2")]
         self.forced = False
         if self.dry:
             self.cname = "DP-?"
@@ -300,6 +358,7 @@ class Cap:
             self.say(f"EDID {len(e)} bytes (serials stripped in the copy)")
         except OSError as e:
             self.say(f"EDID unreadable: {e}")
+        self.kprobes_add()
         try:
             for s in steps:
                 try:
@@ -307,6 +366,7 @@ class Cap:
                 except Exception as ex:   # keep going: one failed step must not leave the monitor half-switched
                     self.say(f"   step {s} failed: {ex!r}")
         finally:
+            self.kprobes_remove()
             try:
                 self.say(f"restore: hyprctl reload -> {self.hypr('reload').strip()[:60]}")
             except Exception as ex:
@@ -321,6 +381,7 @@ def main():
     ap.add_argument("outdir")
     ap.add_argument("--hbr2", action="store_true", help="add the steps with the link forced to HBR2 x4")
     ap.add_argument("--hdr", action="store_true", help="add the HDR steps (Hyprland cm,hdr)")
+    ap.add_argument("--r240", action="store_true", help="add 240-10, hdr-240 and 240-nodsc")
     ap.add_argument("--steps", help="comma list, overrides the default set")
     ap.add_argument("--dry-run", action="store_true")
     Cap(ap.parse_args()).run()

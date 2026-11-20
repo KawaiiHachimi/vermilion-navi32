@@ -68,3 +68,21 @@ depth, DP pixel format, DCCG). Drafts go in the findings as tables, not into the
 - No register writes outside amdgpu (no `umr -w`, no `setpci`, no writes to `amdgpu_regs`), no VBIOS access.
 - No amdgpu reload, no kernel parameter change. Don't remove the reboot guard (`vermilion-reboot-to-linux.service`).
 - No EDID with a serial, no register dump, no capture file in git.
+
+## Capture v2 (2026-11-20): 240 Hz link training and HDR
+
+Goal now: 240 Hz with HDR on macOS. Linux trains HBR3 through the DMCUB, so the register trace misses the bytes macOS
+needs. The tool (branch `ownback/gpu-refresh-hdr`, copy on the EFI partition `vermilion/capture-tool/`) now adds a kprobe
+on `dmub_srv_cmd_queue` (16 dwords per DMUB command, `phxcap/dmubcmd*` lines in `trace-modeset.txt`, removed at the end).
+
+1. `git pull` (or use the EFI copy), then as root:
+   `python3 tools/capture/linux_display_capture.py /boot/vermilion/capture --steps base,144,240,144,240-10,hdr-240,240-nodsc,hdr-120`
+   Each `step: ... N DMUB commands` line in the summary should show N > 0 for 240. If the kprobe line says "none",
+   report `grep -i dmub_srv /sys/kernel/tracing/available_filter_functions` and stop.
+2. `240-nodsc` forces DSC off for one mode set (debugfs `dsc_clock_en` = 2, back to 0 after). A failed mode set is a valid
+   answer: write down what Hyprland reports and what `link_settings` / `odm_combine_segments` show.
+3. Decode, in a findings note: for the 144 -> 240 switch, the DMUB commands in order (type/subtype from dword 0: byte 0
+   type, byte 1 subtype, bytes 2-3 payload size). Expected: 128/1 TRANSMITTER_CONTROL (dword 2 = symclk in 10 kHz,
+   81000 for HBR3), DP_AUX_ACCESS (DPCD 0x100-0x103 writes, 0x120 FEC, 0x160 DSC, TRAINING_LANEx_SET), anything else
+   by name from Linux `dmub_cmd.h`. Same table for `240-nodsc` if it lit. Mark inferred fields.
+4. Then as before: commit the note (not the capture), push, owner powers off fully, macOS.

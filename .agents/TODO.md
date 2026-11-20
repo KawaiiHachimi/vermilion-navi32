@@ -82,7 +82,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
   - [x] 2026-11-19 Step 3 (read-only): Apple's AMD framebuffer offers HDR through `getTimingRange`
         (dynamic range SDR|HDR10, 8/10/12 bpc, BT.2020), `'hdrm'`, `'dsdp'` (HDR infoframe packet) and AGDC `0x711`;
         Vermilion has none of them ([findings](findings/2026-11-19-refresh-and-hdr.md))
-  - [~] Step 1: VermilionBoot **b127** = b126 + `debug.phxedid_full` (whole EDID via the E-DDC segment pointer). Built
+  - [x] 2026-11-20 Step 1 verified on hardware (b128 includes it): full EDID read over AUX2, 3 blocks; block 2 = the 240 Hz
+        timing (1056.75 MHz, 2720x1619). Old notes:
+        VermilionBoot **b127** = b126 + `debug.phxedid_full` (whole EDID via the E-DDC segment pointer). Built
         on the Mac (sha256 `4e1c708e...`), host test 27/27, mock suites 189/159 green. **Not staged, not installed:
         needs a boot slot from the owner** (the EFI belongs to the "post-install" thread, the next restart to "GPU
         heat"). Install = the runbook's `efi/build.py build/install --stage vermilion` with this kext (keeps `OC.prev`).
@@ -104,7 +106,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         **Rollback:** bad boot (no desktop, panic): power off, power on, OpenCore picker > (Space) > the previous entries are
         not separate, so: boot with `-phxbringupoff` once, or from Linux: `sudo mv /boot/EFI/OC /boot/EFI/OC.bad &&
         sudo mv /boot/EFI/OC.prev /boot/EFI/OC`; from macOS: `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`
-  - [~] 2026-11-20 **120/144 Hz in System Settings** (one change, one switch: the flag): PhxAccel with the LG's 1440p rows in
+  - [x] 2026-11-20 **120/144 Hz in System Settings works** (owner picked 144: OSD 144, less lag and tearing; `phxpipe0_stat`
+        mode=144 done). Not tested: the rate after a reboot, sleep/wake, hours at 144. Install notes:
+        **120/144 Hz in System Settings** (one change, one switch: the flag): PhxAccel with the LG's 1440p rows in
         head 0's mode table (ids 3-5, the EDID's DTDs; `target_hz` rounded, 59.951 -> 60; host test head0_1440 15/15; the
         installed PhxAccel was byte-identical to this branch without the change) + daemon flag `~/gpu/phxboot-p0modes`
         (`debug.phxpipe0_enable=1 debug.phxpipe0_modes=1` before the claim; mock 193/193). Installed 2026-11-20 from the
@@ -114,6 +118,18 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         again at the next boot. Full PhxAccel rollback: `sudo rm -rf /Library/Extensions/VermilionAccel.kext && sudo cp -R
         ~/vermilion-rollback/VermilionAccel.kext.20261120 /Library/Extensions/VermilionAccel.kext && sudo kmutil load -p
         /Library/Extensions/VermilionAccel.kext`, reboot. Bad boot: `-phxacceloff` once
+  - [x] 2026-11-20 240 Hz research, read-only ([findings](findings/2026-11-19-refresh-and-hdr.md), "240 Hz research"):
+        Linux = HBR3 + FEC + DSC + ODM 2:1; PHY and AUX go through DMUB (payloads not in the register trace); 8 bpc fits
+        HBR3 without FEC/DSC (inferred); HBR3 only in the extended DPCD caps (0x2201); 10 bpc at 240 needs DSC
+  - [ ] **240 Hz HDR plan** (owner goal 2026-11-20; order, one boot per kext change):
+    - [ ] A. Linux capture v2 (`--r240 --hdr`, tool now records DMUB commands): the HBR3 TRANSMITTER_CONTROL / AUX bytes;
+          240 at 10 bpc and HDR; `240-nodsc` (does Linux light 240 on one pipe without DSC?). Read-only; Linux session
+    - [ ] B. HDR at 60-144 Hz (no link change): 7a probe, then 10-bit scan-out + 10 bpc output + HDR infoframe + PQ path
+    - [ ] C. DMUB on this card (asks the owner first): does DMCUB `0x07008748` answer Linux's QUERY_FEATURE_CAPS; gate
+          gets `0x07008748` next to `0x07008742` (rev 0xC8 only)
+    - [ ] D. 240 Hz SDR: retrain DP B to HBR3 (TRANSMITTER_CONTROL bytes from A, TPS4, extended caps), 2-pixel-per-cycle
+          plan, head-0 row; fall back to HBR2 + the 60 Hz plan on any failure
+    - [ ] E. 240 Hz HDR: FEC + DSC (+ ODM 2:1 as Linux) at 10 bpc
   - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
         `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
   - [~] Step 2: Linux capture. Tool `tools/capture/linux_display_capture.py` (test
