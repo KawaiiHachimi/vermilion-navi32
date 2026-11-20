@@ -43,7 +43,8 @@ struct Hw {
     void advance(uint32_t us) {
         t += us;
         if (!otgOn()) return;
-        const double pclk = (double)r[0x00141] * ((r[0x056C9] & 0x40000000u) ? 2 : 1);
+        const uint32_t div = r[0x0012F] & 7u;   // OTG0 field: 6 = the GOP's 1 ppc (DTO = pclk), 2 = 2 ppc (DTO = pclk / 2)
+        const double pclk = (double)r[0x00141] * (div == 2 ? 2 : 1);
         const double rate = pclk / ((double)((r[0x04FEA] & 0x7fff) + 1) * ((r[0x04FEF] & 0x7fff) + 1));
         frac += us * 1e-6 * rate;
         const double whole = std::floor(frac);

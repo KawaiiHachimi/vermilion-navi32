@@ -117,6 +117,7 @@ static const struct phx_p0odm_step kPhxP0odm_1440p144odm[] = {
   {3, 313, 0x04F8F, 0x00000004, 0x00000004, 1000},  /* wait ODM0_OPTC_INPUT_CLOCK_CONTROL & 0x4 == 0x4 (<= 1000 us) */
   {1, 314, 0x05045, 0x00000003, 0xffffffff, 0},  /* OTG0_OTG_CLOCK_CONTROL */
   {3, 314, 0x05045, 0x00000100, 0x00000100, 1000},  /* wait OTG0_OTG_CLOCK_CONTROL & 0x100 == 0x100 (<= 1000 us) */
+  {1, 315, 0x0012F, 0x00000002, 0x00000007, 0},  /* OTG_PIXEL_RATE_DIV OTG0 = 2 (2 ppc; not in Linux's trace) */
   {1, 315, 0x00141, 0x11b1f3f8, 0xffffffff, 0},  /* DP_DTO0_PHASE */
   {1, 316, 0x00142, 0x2ab77490, 0xffffffff, 0},  /* DP_DTO0_MODULO */
   {1, 317, 0x00140, 0x0004d090, 0xffffffff, 0},  /* OTG0_PIXEL_RATE_CNTL */

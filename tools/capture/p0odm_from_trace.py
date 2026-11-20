@@ -111,7 +111,7 @@ def main():
     def emit(op, line, reg, val, mask, arg, note):
         out.append((OPS[op], line, reg, val, mask, arg, note))
         stats[op] = stats.get(op, 0) + 1
-    state, aux, dal_arg = "pre", None, 0
+    state, aux, dal_arg, div_set = "pre", None, 0, False
     nextw, last = {}, {}   # trace line -> the value of the next write to the same register (FIFO wait rule)
     for ln, l in enumerate(open(a.trace), 1):
         m = re.search(r"amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
@@ -186,6 +186,12 @@ def main():
                     sys.exit(f"line {ln}: no pipe-0 register for {n} ({src})")
                 emit("COPY", ln, r, nm2a[src], 0xFFFFFFFF, 0, f"{n} = {src} (live)")
             continue      # pipe 0's own surface / colour: macOS's values stay
+        if n == "DP_DTO0_PHASE" and not div_set:
+            # Linux started from its own 2-pixel-per-clock setup and never wrote OTG_PIXEL_RATE_DIV; macOS starts from the
+            # GOP's one pixel per clock (OTG0 field 6). Linux's value for a 2 ppc DP pipe: OTG0 DIVK1 /1, DIVK2 /2 = 2
+            # (dccg32_set_pixel_rate_div; box b132 2026-11-20: without it OTG0 ran at half rate, 120 Hz, DIO FIFO errors).
+            emit("W", ln, nm2a["OTG_PIXEL_RATE_DIV"], 0x2, 0x7, 0, "OTG_PIXEL_RATE_DIV OTG0 = 2 (2 ppc; not in Linux's trace)")
+            div_set = True
         emit("W", ln, r, v, SHARED_MASK.get(n, 0xFFFFFFFF), 0, n)
         for wr, wm, ww, wt in wait_rules(n, v, prev, nm2a, nextw.get(ln, 0)):
             emit("WAIT", ln, wr, ww, wm, wt, f"wait {nm.get(wr, hex(wr))} & 0x{wm:x} == 0x{ww:x} (<= {wt} us)")

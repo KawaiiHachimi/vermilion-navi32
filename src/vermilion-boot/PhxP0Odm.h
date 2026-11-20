@@ -77,7 +77,7 @@ struct Run {
     phxdpl::Report rep;
     int trc;
     uint32_t fp[kNFp];
-    uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes;
+    uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
 };
 
 inline int refuse(Run &r, const char *why) { r.res = kRefused; r.why = r.lastRefusal = why; r.refusals++; return kRefused; }
@@ -282,10 +282,25 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
     r.postHz = measureHz(e);
     r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
     r.postStream = rd(e, phxdpb::kR.vidStream); r.postDphy = rd(e, kDphyCntl);
+    e.io.delayUs(e.io.c, 500000);   // b133: the stream once went off after the first read (box b132)
+    r.postStream2 = rd(e, phxdpb::kR.vidStream); r.postPixFmt = rd(e, phxdpb::kR.pixFmt); r.postPixDiv = rd(e, phxdpb::kPixDiv);
     const uint32_t want = p.hz, lo = want * 95 / 100, hi = want * 105 / 100;
     const bool ok = r.postHz >= lo && r.postHz <= hi && r.postV == p.vTotal && (r.postStream & phxdpl::kStreamStatus) &&
-                    !(r.postHubp0 & phxp2::kUnderflow) && !(sel == kSel240 && (r.postHubp1 & phxp2::kUnderflow));
-    if (!ok) { r.failed = 1; r.res = kFailed; r.why = "post check: frame rate / V_TOTAL / stream / underflow not as planned"; return kFailed; }
+                    (r.postStream2 & phxdpl::kStreamStatus) && !(r.postHubp0 & phxp2::kUnderflow) &&
+                    !(sel == kSel240 && (r.postHubp1 & phxp2::kUnderflow));
+    if (!ok) {
+        r.failed = 1;
+        r.why = "post check: frame rate / V_TOTAL / stream / underflow not as planned";
+        if (sel == kSel240 && !st.halted && !st.dmub.dead) {   // b133: back to 144 instead of leaving it dark
+            const char *why = r.why;
+            r.phase = 2; r.why = nullptr;
+            const int bb = runPlan(x, back);
+            r.backRes = bb ? 2 : 1; r.why = why;
+            if (!bb && !st.halted && !st.dmub.dead) { r.res = kFellBack; return kFellBack; }
+        }
+        r.res = kFailed;
+        return kFailed;
+    }
     r.at240 = sel == kSel240;
     r.dones++;
     r.res = kDone;
@@ -306,8 +321,9 @@ inline int stat(const Run &r, char *b, int n) {
     PHXODM_OUT("stop: step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x back=%u\n", r.step, r.line, r.op, r.reg, r.val, r.got, r.backRes);
     PHXODM_OUT("io: writes=%u copies=%u waits=%u wait_max_us=%u dal=%u dal_resp=%u dpcd=%u stray=%u train=%s cr=%u eq=%u\n", r.writes,
                r.copies, r.waits, r.waitMaxUs, r.dals, r.dalResp, r.dpcd, r.strayWr, phxdpl::rcName(r.trc), r.rep.crLoops, r.rep.eqLoops);
-    PHXODM_OUT("post: hz=%u odm=0x%08x v_total=0x%x hubp0=0x%08x hubp1=0x%08x stream=0x%x dphy=0x%x%s%s\n", r.postHz, r.postOdm,
-               r.postV, r.postHubp0, r.postHubp1, r.postStream, r.postDphy, r.pipeWhy ? " changed=" : "", r.pipeWhy ? r.pipeWhy : "");
+    PHXODM_OUT("post: hz=%u odm=0x%08x v_total=0x%x hubp0=0x%08x hubp1=0x%08x stream=0x%x stream_0.5s=0x%x pixfmt=0x%08x pixdiv=0x%x "
+               "dphy=0x%x%s%s\n", r.postHz, r.postOdm, r.postV, r.postHubp0, r.postHubp1, r.postStream, r.postStream2, r.postPixFmt,
+               r.postPixDiv, r.postDphy, r.pipeWhy ? " changed=" : "", r.pipeWhy ? r.pipeWhy : "");
 #undef PHXODM_OUT
     return o;
 }
