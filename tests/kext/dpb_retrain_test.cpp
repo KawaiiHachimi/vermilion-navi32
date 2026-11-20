@@ -239,6 +239,13 @@ int main() {
         CHECK(run(env(h2), st2, r2, 7, 0, aux(h2)) == kRefused && h2.writes.empty());
         CHECK(run(env(h2), st2, r2, kSelHbr2, 1, aux(h2)) == kRefused && h2.writes.empty());   // after a DMUB restart
     }
+    // ---- b130: a sticky TU-overflow flag in DP_STEER_FIFO (the box 2026-11-20 07:20) does not refuse ----
+    {
+        Hw h; gop(h); h.r[0x056CD] = 0x3f000100; State st{}; Run r{};
+        CHECK(run(env(h), st, r, kSelSurvey, 0, aux(h)) == kSurveyed && h.writes.empty());
+        Hw g; gop(g); g.r[0x056CD] = 0x3e000000; State st2{}; Run r2{};   // a different TU size still refuses
+        CHECK(run(env(g), st2, r2, kSelSurvey, 0, aux(g)) == kRefused && g.writes.empty());
+    }
     // ---- the XT build's firmware passes the gate too ----
     {
         Hw h; gop(h); h.r[phxdmub::kScratch1] = 0x07008742; State st{}; Run r{};

@@ -142,6 +142,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
           **Rollback:** dark after a retrain = power off / on (the GOP trains HBR2 again; nothing persists). Bad boot: OpenCore
           `OC.prev` (from the Mac: `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or
           `-phxbringupoff` for one boot. The 120/144 flag and PhxAccel are unchanged
+    - [~] 2026-11-20 07:20 b129 booted fine (macOS restored 144 Hz by itself at login). Survey refused with zero writes:
+          DP1_DP_STEER_FIFO 0x3f000100 (sticky TU_OVERFLOW_FLAG; the gate compared the whole register). **b130** masks the
+          status bits (dpb_retrain 69/69; VermilionBoot sha256 `0f2ceee9...`). Same test and rollback as b129 (OC.prev = b129)
     - [ ] D. 240 Hz SDR: retrain DP B to HBR3 (TRANSMITTER_CONTROL bytes from A, TPS4, extended caps), 2-pixel-per-cycle
           plan, head-0 row; fall back to HBR2 + the 60 Hz plan on any failure
     - [ ] E. 240 Hz HDR: FEC + DSC (+ ODM 2:1 as Linux) at 10 bpc

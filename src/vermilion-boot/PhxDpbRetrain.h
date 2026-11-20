@@ -69,6 +69,9 @@ constexpr uint32_t kGopFifo = 0x1du;            // READ_START_LEVEL 7, OUTPUT_PI
 constexpr uint32_t kFifoStatusBits = 0x30100000u;   // DIG_FIFO_ERROR, RESET_DONE (status, ignored by the gate)
 constexpr uint32_t kGopVidStream = 0x201u;      // ENABLE, DIS_DEFER 2, no CHANGE_KEEPOUT (STATUS bit 16 masked)
 constexpr uint32_t kGopSteer = 0x3f000000u, kGopVidTiming = 0x100u, kGopVidN = 0x8000u, kGopConfig = 3u;
+// DP_STEER_FIFO status bits (sticky, never written): OVERFLOW_FLAG / _INT, TU_OVERFLOW_FLAG (b130: seen set after a boot
+// with macOS restoring 144 Hz, 2026-11-20 07:20). The gate compares only the configuration fields.
+constexpr uint32_t kSteerStatusBits = 0x00000130u;
 constexpr uint32_t kPix2ppc = 0x40000000u, kPixDepthMask = 0x07000000u;
 constexpr uint32_t kDtoModulo = 716666667u;     // DP_DTO0_MODULO the GOP sets (0x2ab7772b)
 static_assert(kGopBeCntl == phxdpl::beCntl(kConnDpB, true) && kGopFifo == (phxdpl::kFifoBase1ppc | phxdpl::kFifoEnable) &&
@@ -190,7 +193,7 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
     if (!(r.linkCntl & phxdpl::kLinkTrained)) return "DP1 link not trained";
     if ((r.vidStream & ~phxdpl::kStreamStatus) != kGopVidStream || !(r.vidStream & phxdpl::kStreamStatus))
         return "DP1 stream not the GOP's running 0x201 (ENABLE, DIS_DEFER 2) with STATUS 1";
-    if (r.steer != kGopSteer || r.vidTiming != kGopVidTiming || r.vidN != kGopVidN || r.config != kGopConfig)
+    if ((r.steer & ~kSteerStatusBits) != kGopSteer || r.vidTiming != kGopVidTiming || r.vidN != kGopVidN || r.config != kGopConfig)
         return "DP1 steer FIFO / VID_TIMING / VID_N / DP_CONFIG not the GOP's (0x3f000000 / 0x100 / 0x8000 / 3 = 4 lanes)";
     if (r.pixFmt & kPix2ppc) return "DP1 pixel format is two pixels per clock (not the GOP's convention)";
     const uint32_t depth = (r.pixFmt & kPixDepthMask) >> 24;
