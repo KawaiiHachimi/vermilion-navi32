@@ -80,8 +80,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       started. Capture v3 (2026-11-20 130351, all 12 EDID modes from the 144 hub, VRR and HDR at 60/120/144/240) is in
       `~/vermilion-captures/capture/` (outside git). Order: (1) b135 every 1440p rate both ways, (2) the other EDID
       resolutions (needs PhxAccel surface sizes), (3) Adaptive Sync from the vrr-* traces, (4) HDR from the hdr-* traces
-- [~] 2026-11-20 **b137: the other EDID resolutions, kext side** (installed 16:15, OC.prev = b136; built, host-tested
-      264147/264147, NOT booted). 1920x1080@60/120, 1280x1024@75, 1024x768@60, 800x600@60, 640x480@60/59.94 as Linux's
+- [x] 2026-11-20 **b137: the other EDID resolutions, kext side: every mode works on the box** (16:22-16:30, owner read
+      the OSD: 1920x1080@60/120, 1280x1024@75, 1024x768@60, 800x600@60, 640x480@60/59.94, then back to 1440p144; 9 runs 9
+      done, 0 fall-backs, 0 soft-wait timeouts, training ok at RBR x1/x2/x4 and HBR x4). Installed 16:15, OC.prev = b136. 1920x1080@60/120, 1280x1024@75, 1024x768@60, 800x600@60, 640x480@60/59.94 as Linux's
       switches through the 144 hub; `debug.phxp0odm` only (PhxAccel unchanged), so macOS keeps drawing 2560x1440 and the
       monitor should show the desktop's top-left corner at the real mode. **Test after the boot:** System Settings 144 (or
       240), then in Terminal `sudo sysctl -w debug.phxp0odm=1080060` (OSD 1920x1080 60 Hz, top-left of the desktop), then
