@@ -100,7 +100,8 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       1280x1024@75, 1024x768@60, 800x600@60, 640x480 at 59.94 / 60. No freeze. The boot itself went black: macOS applied
       the saved 1280x1024 at login, the plugin kept the 1440p plane, the CPU copy skipped every frame as foreign;
       `debug.phxscan=0` gave the plane back (fix: b139 kernel)
-- [~] 2026-11-20 **b139 installed** (EFI `OC` = b139 sha 50c846bf, `OC.prev` = b138; b137 kext in
+- [x] 2026-11-20 **b139 works on the box** (owner 20:45, "everything feels smooth"; log: 1080p120 gave the plane back
+      (restore verified, 16645 presents 0 dropped), back at 1440p GPU present ON in 0.14 s, 120 -> 240 kept it). Was: **b139 installed** (EFI `OC` = b139 sha 50c846bf, `OC.prev` = b138; b137 kext in
       `~/vermilion-rollback/VermilionBoot.kext.b137`): before a size change the kernel gives the plane back from GPU
       present. **Test:** after the restart GPU present on at 2560x1440 (smooth); switch to 1080p and back, 1280x1024 and
       back, a rate change at 1440p (GPU present stays on). **Rollback:** black screen: from T3, `sudo sysctl -w
