@@ -209,3 +209,10 @@ A single pipe without DSC would fit the link at 8 bpc (inferred) but needs a DPP
 used on this card, and gives no HDR at 240. Linux's configuration is fully captured (registers + DMUB commands), covers
 10 bpc, and keeps the rule "nothing Linux doesn't send". The link work is staged: retrain at HBR2 first, then HBR3 at
 144, then 240. Details: `.agents/findings/2026-11-20-240hz-plan.md`.
+
+## 2026-11-20: every 1440p rate is a Linux replay through Linux's 144 (b135)
+
+The 1 ppc pipe-0 plans (b128) and the Linux replay (b131-b134) left pipe 0 in two different setups that neither could
+leave. b135 makes Linux's own 144 the hub: each rate is Linux's switch from 144 and back (capture v3), so every transition is
+two recorded Linux mode sets and no start state is guessed. macOS's own state keeps the b128 plans until the first 240 (the
+only entry, b133's verified plan). Other resolutions, VRR and HDR join the same set from the same capture.

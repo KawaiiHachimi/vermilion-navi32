@@ -75,16 +75,30 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
 - [ ] **TARGET (owner, restated 2026-11-20): the LG at every resolution and refresh rate it supports, incl. 2560x1440 at
-      240 Hz, with HDR and Adaptive Sync, all from System Settings.** Status 08:30: 1440p 60/120/144 in System Settings;
-      240 from `debug.phxp0odm` only; other rates / resolutions, HDR, VRR not started. Order: (1) 240 in System Settings,
-      (2) every EDID rate / resolution, (3) Adaptive Sync (needs a Linux capture with VRR on), (4) HDR (needs the probe and a
-      capture of SDP / regamma). No reboot while the owner is away (remote via T3 Code, autologin not yet seen on a boot)
-- [~] 2026-11-20 **240 Hz in System Settings: VermilionBoot b134 + PhxAccel head-0 row 6** (built and host-tested, NOT
-      installed: the owner is away and the next boot is the first autologin boot; one change per boot). PhxAccel lists
-      2560x1440 @ 239.96 Hz when the full EDID (phxEdidReadFull) has the LG's DisplayID timing; picking it runs the ODM plan
-      (from 60 / 120 via 144). After 240, 60 / 120 are refused until reboot (144 and 240 work). Install when the owner is back:
-      EFI (efi/build.py install, OC.prev = b133) + PhxAccel (/Library/Extensions + kmutil load -p, rollback copy), then one
-      boot. Rollback: OC.prev / ~/vermilion-rollback PhxAccel copy
+      240 Hz, with HDR and Adaptive Sync, all from System Settings.** Status 15:50: 1440p 60/120/144/240 in System
+      Settings, switching in any order works (b136); other resolutions, HDR, VRR not
+      started. Capture v3 (2026-11-20 130351, all 12 EDID modes from the 144 hub, VRR and HDR at 60/120/144/240) is in
+      `~/vermilion-captures/capture/` (outside git). Order: (1) b135 every 1440p rate both ways, (2) the other EDID
+      resolutions (needs PhxAccel surface sizes), (3) Adaptive Sync from the vrr-* traces, (4) HDR from the hdr-* traces
+- [x] 2026-11-20 **b136 = b135 + the DET / compressed-buffer waits: works on the box** (15:50, owner, System Settings: 240
+      at login, then 60, 120, 144, 240, 60, 240 all landed; stat 7 runs 7 done, 0 fall-backs, 0 soft-wait timeouts, longest
+      wait 7.9 ms). Installed 13:55, OC.prev = b135, b134's kext in
+      `~/vermilion-rollback/VermilionBoot.kext.b134`). b135 on the box: 240 DONE, 240 -> 60 dark (DET1 never released,
+      COMPBUF CONFIG_ERROR, DET0 0 segments; the model now reproduces it). Same test and rollback as b135 below; the stat has
+      a new `det:` line (swait_timeouts should be 0)
+- [~] 2026-11-20 **b135: every 1440p rate through one replay engine** (installed 13:40; 240 worked, 240 -> 60 dark).
+      VermilionBoot sha256 `1c791a4e...`; PhxAccel and the daemon unchanged (PhxAccel b134 stays). Linux's own switches
+      144 -> 60 / 120 / 240 and back (capture v3); from macOS's state only the entry to 240 (b133's plan), after that every
+      rate as cur -> 144 -> target. Fall-back to 144 is not latched; a refusal before any write is not latched; the last
+      failure stays in `debug.phxp0odm_stat` (`last_fail:` with the DAL response). DAL busy is retried (~2 s).
+      **Test after the boot:** System Settings > Displays: 240, then 60, 120, 144, 240, 60 (each should land; the first
+      240 takes ~2 s). After each: `sysctl -n debug.phxp0odm_stat | head -3`. A refusal or fall-back: keep that output.
+      **Rollback:** a bad boot = OpenCore `OC.prev` (b134; from the Mac `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv
+      <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or `-phxbringupoff` for one boot. A bad switch: pick 144 or reboot (nothing is
+      written at boot; the engine runs only when a rate is picked)
+- [x] 2026-11-20 **240 Hz in System Settings: VermilionBoot b134 + PhxAccel head-0 row 6** (installed; 240 worked once
+      from System Settings; then 60 / 120 refused after 240 and a DAL refusal latched the engine: fixed in b135).
+      PhxAccel lists 2560x1440 @ 239.96 Hz when the full EDID (phxEdidReadFull) has the LG's DisplayID timing
 - [~] 2026-11-20 Automatic login (owner): the daemon owns loginwindow's autoLoginUser (deleted at daemon start / shutdown /
       revert to GOP, written right before the Metal WindowServer restart; flag `~/gpu/phxboot-autologin` = user name,
       password in /etc/kcpassword from `sysadminctl -autologin set`). Plain macOS autologin would log in before the arm,
