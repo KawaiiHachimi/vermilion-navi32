@@ -126,7 +126,10 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       22:56 on the box: **VRR works** (debug.phxvrr=1: OTG0 52-188 Hz with the content, the owner sees it). b144 + PhxAccel
       installed 23:50 (`OC` = b144, `OC.prev` = b143; b142 kext and the PhxAccel before in `~/vermilion-rollback/`):
       System Settings' Variable turns the range on (phxVrrSet), a fixed rate off; on only while GPU present scans.
-      **Test:** restart; pick Variable, move windows (OSD follows), pick 144 (fixed 144), Variable again
+      **Test:** restart; pick Variable, move windows (OSD follows), pick 144 (fixed 144), Variable again.
+      **23:08 on the box: works** (owner: "Works amazingly"; log: Variable -> range on, 1080p120 / 1440p120 -> off, Variable
+      -> on, 6057 triggers). Left: Variable for the other resolutions; the probe flag becomes the feature (rename,
+      docs); the CPU copy has no trigger (Variable needs GPU present: 1440p only today)
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
