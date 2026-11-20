@@ -259,6 +259,26 @@ public:
         OSCompareAndSwap(1, 0, &edidBusy);
         return kIOReturnSuccess;
     }
+    // b134: "phxEdidReadFull" = the whole EDID (up to 4 blocks, AUX blocks 2-3 through the E-DDC segment pointer, b127's
+    // readEdidFull, read on the box 2026-11-20) for PhxAMDFB's head-0 mode offer (the LG's 240 Hz timing is a DisplayID
+    // timing in block 2). out holds phxddc::kEdidMaxBlocks * 128 bytes. Same lock and bounds as edidFetch.
+    IOReturn edidFetchFull(uint8_t *out, uint32_t *len, int32_t *rc, uint32_t src) {
+        if (!out || !len || !rc) return kIOReturnBadArgument;
+        *len = 0; *rc = phxddc::kErrArg;
+        if (!mmio) return kIOReturnNotReady;
+        bool got = false;
+        for (unsigned i = 0; i < 20 && !(got = OSCompareAndSwap(0, 1, &edidBusy)); i++) IOSleep(5);
+        if (!got) return kIOReturnBusy;
+        phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                      [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                      [](void *, uint32_t us) { IODelay(us); }};
+        phxddc::Diag d{};
+        unsigned n = 0, ann = 0;
+        *rc = phxddc::readEdidFull(io, src, out, &n, &ann, &d);
+        *len = n;
+        OSCompareAndSwap(1, 0, &edidBusy);
+        return kIOReturnSuccess;
+    }
     // WP1 step 2a: the interrupt handler (IH) ring in system memory, polled from debug.phxih_stat (no MSI yet)
     IOReturn ihEnable();
     void ihDisable();

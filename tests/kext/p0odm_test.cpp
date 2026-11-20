@@ -206,6 +206,12 @@ int main() {
         CHECK(h.r[0x03542] & 0x100);                                               // pipe 1 power-gated again (Linux)
         char b[2048];
         CHECK(stat(r, b, sizeof b) > 100 && std::strstr(b, "result=DONE"));
+        // b134: 240 again from the back plan's 144 (Linux's own starting state), then back again
+        CHECK(r.linux144 && !r.at240);
+        const int r2 = run(e, st, r, kSel240, 0, aux(h), kTo, kBack);
+        CHECK(r2 == kDone && r.at240 && !r.linux144 && h.r[0x04FEF] == 0x652 && r.postHz >= 228 && r.postHz <= 252);
+        if (r2 != kDone) std::printf("  240 again: %s step %u line %u\n", r.why, r.step, r.line);
+        CHECK(run(e, st, r, kSelBack, 0, aux(h), kTo, kBack) == kDone && r.linux144 && h.r[0x04FEF] == 0x5eb);
     }
     // ---- HBR3 fails: the back plan runs, 144 at HBR2 ----
     {
@@ -225,6 +231,7 @@ int main() {
             {"no DSC", [](Hw &h) { h.dpcd[0x60] = 0; }},
             {"no HBR3", [](Hw &h) { h.dpcd[0xe] = 0x01; }},
             {"1080p", [](Hw &h) { h.r[0x04FEA] = 0x897; }},
+        {"2 ppc without the back plan", [](Hw &h) { h.r[0x056C9] = 0x41000000; }},
         };
         for (auto &c : cs) {
             Hw h; gop(h); c.f(h); State st{}; Run r{};

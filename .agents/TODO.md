@@ -79,6 +79,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       240 from `debug.phxp0odm` only; other rates / resolutions, HDR, VRR not started. Order: (1) 240 in System Settings,
       (2) every EDID rate / resolution, (3) Adaptive Sync (needs a Linux capture with VRR on), (4) HDR (needs the probe and a
       capture of SDP / regamma). No reboot while the owner is away (remote via T3 Code, autologin not yet seen on a boot)
+- [~] 2026-11-20 **240 Hz in System Settings: VermilionBoot b134 + PhxAccel head-0 row 6** (built and host-tested, NOT
+      installed: the owner is away and the next boot is the first autologin boot; one change per boot). PhxAccel lists
+      2560x1440 @ 239.96 Hz when the full EDID (phxEdidReadFull) has the LG's DisplayID timing; picking it runs the ODM plan
+      (from 60 / 120 via 144). After 240, 60 / 120 are refused until reboot (144 and 240 work). Install when the owner is back:
+      EFI (efi/build.py install, OC.prev = b133) + PhxAccel (/Library/Extensions + kmutil load -p, rollback copy), then one
+      boot. Rollback: OC.prev / ~/vermilion-rollback PhxAccel copy
 - [~] 2026-11-20 Automatic login (owner): the daemon owns loginwindow's autoLoginUser (deleted at daemon start / shutdown /
       revert to GOP, written right before the Metal WindowServer restart; flag `~/gpu/phxboot-autologin` = user name,
       password in /etc/kcpassword from `sysadminctl -autologin set`). Plain macOS autologin would log in before the arm,

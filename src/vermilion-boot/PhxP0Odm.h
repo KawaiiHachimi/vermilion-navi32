@@ -65,7 +65,8 @@ constexpr uint32_t kHubp1Cntl = 0x03B8F, kMpcc1Opp = 0x09017, kDscTop0 = 0x064C0
 constexpr uint32_t kDphyCntl = 0x056D7, kHubp1Clk = 0x03B90, kDom1Status = 0x03543;
 
 struct Run {
-    int failed, at240;              // latches: failed = nothing but survey until reboot; at240 = the 240 plan finished
+    int failed, at240, linux144;    // latches: failed = nothing but survey until reboot; at240 = the 240 plan finished;
+                                    // linux144 = the back plan finished (pipe 0 on Linux's 2 ppc 144, b134)
     uint32_t attempts, refusals, dones;
     int sel, res, phase;            // phase: 0 gates, 1 plan, 2 back plan, 3 post
     const char *why, *lastRefusal, *pipeWhy;
@@ -208,6 +209,18 @@ inline uint32_t measureHz(const Env &e) {
     return ((rd(e, kOtg0Frame) - f0) & 0xffffff) * 4u;
 }
 
+// The sink's caps for the trainer (AUX reads only).
+inline const char *readSink(const phxdpb::Aux &aux, phxdpb::Run &g, uint8_t minRate) {
+    g = phxdpb::Run{};
+    if (aux.rd(aux.c, kConnDpB.aux, 0, g.caps, 16)) return "DPCD caps not readable";
+    if (g.caps[0xe] & 0x80) {
+        g.extUsed = 1;
+        if (aux.rd(aux.c, kConnDpB.aux, 0x2200, g.ext, 16)) return "DPCD extended caps not readable";
+    }
+    phxdpl::Sink sk{};
+    if (!phxdpb::sinkOf(g, &sk) || sk.maxLanes < 4 || sk.maxRate < minRate) return "the sink cannot take the link (caps)";
+    return nullptr;
+}
 inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const phxdpb::Aux &aux, const Plan &to, const Plan &back) {
     if (r.sel != kSelSurvey && r.sel != kSel240 && r.sel != kSelBack) return "selector: 1 survey, 2 240 Hz, 3 back to 144";
     if (r.failed && r.sel != kSelSurvey) return "a run failed in this boot: nothing more until reboot";
@@ -218,21 +231,23 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
     if (r.sel == kSelBack) {
         if (!r.at240) return "back: 240 Hz was not set by debug.phxp0odm in this boot";
         if (rd(e, kOdmSrc) != kOdmTwo || rd(e, kOtg0V) != to.vTotal) return "back: pipe 0 is not on the 240 plan's ODM 2:1 timing";
-        r.g = phxdpb::Run{};   // the sink's caps for the trainer (AUX reads only)
-        if (aux.rd(aux.c, kConnDpB.aux, 0, r.g.caps, 16)) return "back: DPCD caps not readable";
-        if (r.g.caps[0xe] & 0x80) {
-            r.g.extUsed = 1;
-            if (aux.rd(aux.c, kConnDpB.aux, 0x2200, r.g.ext, 16)) return "back: DPCD extended caps not readable";
-        }
-        phxdpl::Sink sk{};
-        if (!phxdpb::sinkOf(r.g, &sk) || sk.maxLanes < 4 || sk.maxRate < back.rate) return "back: the sink cannot take the 144 link";
-        return nullptr;
+        return readSink(aux, r.g, back.rate);
     }
     if (r.at240) return "already at 240 Hz (3 = back)";
-    r.g = phxdpb::Run{};
-    r.g.sel = phxdpb::kSelHbr3;
-    const char *g = phxdpb::gates(e, st, r.g, restartDone, aux);
-    if (g) return g;
+    if (r.linux144) {   // b134: again from the back plan's state (= Linux's own starting point of the 240 capture)
+        if (rd(e, kOdmSrc) != 0xfff00000u || rd(e, kOtg0V) != back.vTotal) return "pipe 0 is not on the back plan's 144 (ODM 1:1, V 0x5eb)";
+        if (!(rd(e, phxdpb::kR.vidStream) & phxdpl::kStreamStatus)) return "DP1 stream not running";
+        if (!(rd(e, phxdpb::kR.pixFmt) & phxdpb::kPix2ppc)) return "DP1 not two pixels per clock (not the back plan's state)";
+        if (rd(e, phxdpb::kOtg1Ctl) & 1u) return "OTG1 enabled (a second display)";
+        const char *sk = readSink(aux, r.g, phxdpl::kHbr3);
+        if (sk) return sk;
+        r.g.hz = 144;
+    } else {
+        r.g = phxdpb::Run{};
+        r.g.sel = phxdpb::kSelHbr3;
+        const char *g = phxdpb::gates(e, st, r.g, restartDone, aux);
+        if (g) return g;
+    }
     uint8_t b = 0;
     if (aux.rd(aux.c, kConnDpB.aux, 0x090, &b, 1)) return "DPCD 0x090 (FEC caps) not readable";
     r.fecCap = b;
@@ -248,11 +263,11 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
 }
 
 inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const phxdpb::Aux &aux, const Plan &to, const Plan &back) {
-    const int failed = r.failed, at240 = r.at240;
+    const int failed = r.failed, at240 = r.at240, l144 = r.linux144;
     const uint32_t att = r.attempts + 1, refs = r.refusals, dones = r.dones;
     const char *lastRef = r.lastRefusal;
     r = Run{};
-    r.failed = failed; r.at240 = at240; r.attempts = att; r.refusals = refs; r.dones = dones; r.lastRefusal = lastRef;
+    r.failed = failed; r.at240 = at240; r.linux144 = l144; r.attempts = att; r.refusals = refs; r.dones = dones; r.lastRefusal = lastRef;
     r.sel = sel;
     const char *g = gates(e, st, r, restartDone, aux, to, back);
     if (g) return refuse(r, g);
@@ -302,6 +317,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         return kFailed;
     }
     r.at240 = sel == kSel240;
+    r.linux144 = sel == kSelBack;
     r.dones++;
     r.res = kDone;
     r.why = sel == kSel240 ? "240 Hz on ODM 2:1 + DSC + FEC, HBR3 x4" : "back at 144 Hz (Linux's 2 ppc setup, HBR2 + FEC)";

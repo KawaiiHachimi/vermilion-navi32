@@ -1365,7 +1365,20 @@ bool PhxAMDFB::start(IOService *provider)
         if (armed) {
             measureRefresh();
             uint32_t ids[phxhead::kNMaxModes];
-            const unsigned n = phxhead::modeList(0, fEdid, fEdidLen, fWidth, fHeight, ids);
+            // b134: the whole EDID (PhxBringup b134+ "phxEdidReadFull") for the offer only: the LG's 240 Hz timing is in
+            // block 2; what getDDCBlock serves stays fEdid. Used only when its base block equals fEdid's.
+            static uint8_t full[512];
+            uint32_t flen = 0, fsrc = 0;
+            int32_t frc = -1;
+            const uint8_t *oe = fEdid;
+            uint32_t olen = fEdidLen;
+            if (IOService *fb = copyBringup("phx-edid-full-fn")) {
+                if (fb->callPlatformFunction("phxEdidReadFull", false, full, &flen, &frc, &fsrc) == kIOReturnSuccess && !frc &&
+                    flen > fEdidLen && flen <= sizeof full && fEdidLen >= 128 && !memcmp(full, fEdid, 128)) { oe = full; olen = flen; }
+                fb->release();
+            }
+            PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
+            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
             PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");

@@ -156,6 +156,9 @@ static const HeadMode kHead0Modes[] = {
     {3, 2560, 1440, 59951, 24150, 2720, 1481},    // base DTD (the GOP's mode; plan 1440p60, OTG0 0xa9f/0x5c8)
     {4, 2560, 1440, 119998, 49775, 2720, 1525},   // CTA DTD 2 (plan 1440p120, 10 bpc; OTG0 0xa9f/0x5f4)
     {5, 2560, 1440, 143991, 59375, 2720, 1516},   // CTA DTD 1 (plan 1440p144, 8 bpc; OTG0 0xa9f/0x5eb)
+    // b134 (PhxBringup b134+): the LG's DisplayID Type I timing in EDID block 2 (1056.75 MHz, 2720x1619, 239.963 Hz):
+    // PhxBringup's ODM 2:1 plan (DSC + FEC over HBR3, debug.phxp0odm; OTG0 0xa9f/0x652), works on the box 2026-11-20
+    {6, 2560, 1440, 239963, 105675, 2720, 1619},
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -170,7 +173,15 @@ inline bool dtdIs(const uint8_t *d, const HeadMode &m) {
     const uint32_t lo = m.pclk10kHz - m.pclk10kHz / 500, hi = m.pclk10kHz + m.pclk10kHz / 500;
     return pc >= lo && pc <= hi && ha == m.w && va == m.h && ha + hb == m.hTotal && va + vb == m.vTotal;
 }
-// The EDID (base block + CTA-861 extensions) has a DTD for m.
+// b134: one DisplayID 1.x Type I detailed timing (20 bytes) = m (pixel clock in 10 kHz units minus 1, sizes minus 1).
+inline bool didT1Is(const uint8_t *d, const HeadMode &m) {
+    const uint32_t pc = (d[0] | (uint32_t)d[1] << 8 | (uint32_t)d[2] << 16) + 1u;
+    const uint32_t ha = (d[4] | (uint32_t)d[5] << 8) + 1u, hb = (d[6] | (uint32_t)d[7] << 8) + 1u;
+    const uint32_t va = (d[12] | (uint32_t)d[13] << 8) + 1u, vb = (d[14] | (uint32_t)d[15] << 8) + 1u;
+    const uint32_t lo = m.pclk10kHz - m.pclk10kHz / 500, hi = m.pclk10kHz + m.pclk10kHz / 500;
+    return pc >= lo && pc <= hi && ha == m.w && va == m.h && ha + hb == m.hTotal && va + vb == m.vTotal;
+}
+// The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
@@ -178,6 +189,16 @@ inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m) {
     for (unsigned o = 54; o <= 108; o += 18) if (dtdIs(e + o, m)) return true;
     for (uint32_t b = 128; b + 128 <= len; b += 128) {
         const uint8_t *x = e + b;
+        if (x[0] == 0x70) {   // b134: DisplayID extension: section header x[1..4], data blocks from x[5] (tag, rev, length)
+            const unsigned end = 5u + x[2] < 127u ? 5u + x[2] : 127u;
+            for (unsigned o = 5; o + 3 <= end;) {
+                const unsigned tag = x[o], n = x[o + 2];
+                if (o + 3 + n > end) break;
+                if (tag == 0x03) for (unsigned t = o + 3; t + 20 <= o + 3 + n; t += 20) if (didT1Is(x + t, m)) return true;
+                o += 3 + n;
+            }
+            continue;
+        }
         if (x[0] != 0x02 || x[2] < 4 || x[2] > 127) continue;   // CTA-861 block, DTDs from offset x[2]
         for (unsigned o = x[2]; o + 18 <= 127; o += 18) { if (!x[o] && !x[o + 1]) break; if (dtdIs(x + o, m)) return true; }
     }
@@ -231,6 +252,7 @@ static const HeadSync kHead0Sync[] = {
     {3, 48, 32, 3, 5, true, false},  // b128 LG DTDs: front porch 48 / 3, sync 32 / 5, flags 0x1a (H+, V-; OTG0 V_SYNC_A_CNTL 1)
     {4, 48, 32, 3, 5, true, false},
     {5, 48, 32, 3, 5, true, false},
+    {6, 48, 32, 3, 5, true, false},  // b134 DisplayID Type I: H offset 48 (+), sync 32, V offset 3 (-), sync 5
 };
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.

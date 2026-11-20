@@ -63,6 +63,18 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         if (param4) *static_cast<uint32_t *>(param4) = src;
         return edidFetch(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
     }
+    if (functionName && functionName->isEqualTo("phxEdidReadFull")) {   // b134: head 0 only (pipe 0's connector, b80 rule)
+        int auto_src = -1;
+        if (gEdidAuto && mmio) {
+            phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                          [](void *, uint32_t, uint32_t) {}, [](void *, uint32_t) {}};   // reads only
+            auto_src = phxddc::scanoutSource(io);
+        }
+        bool sensed = false;
+        const uint32_t src = phxddc::resolveSource(0, auto_src, gEdidAuto != 0, static_cast<uint32_t>(gEdidSrc), 0, &sensed);
+        if (param4) *static_cast<uint32_t *>(param4) = src;
+        return edidFetchFull(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
+    }
     return IOService::callPlatformFunction(functionName, waitForFunction, param1, param2, param3, param4);
 }
 
