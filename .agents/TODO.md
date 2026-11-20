@@ -80,7 +80,23 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       started. Capture v3 (2026-11-20 130351, all 12 EDID modes from the 144 hub, VRR and HDR at 60/120/144/240) is in
       `~/vermilion-captures/capture/` (outside git). Order: (1) b135 every 1440p rate both ways, (2) the other EDID
       resolutions (needs PhxAccel surface sizes), (3) Adaptive Sync from the vrr-* traces, (4) HDR from the hdr-* traces
-- [~] 2026-11-20 **b138: the other resolutions from System Settings, the desktop resizes** (built, host-tested, NOT booted):
+- [ ] 2026-11-20 **b138 froze the machine at 1280x1024; the recovery looped** ([findings](findings/2026-11-20-b138-freeze-and-squat-loop.md)).
+      16:39:21 the switch to 1280x1024@75 landed (75.000 Hz), ~0.5 s later the whole machine stopped (no log, no panic
+      report: DisableVariableWrite also blocks the NVRAM panic log). Then three boots in a row rebooted "onto IONDRV" and
+      came back squatting: `phxfb-squat` was set from Linux and macOS cannot clear it. The owner fixed it from Linux
+      (EFI `OC.bad` = b138, `OC` = b137 again, `phxfb-squat` deleted). Machine now: EFI b137, PhxAccel b138 and plugin
+      b138 still installed (inert without phx-p0-keys), GOP desktop. 19:40 kill switch removed (the new daemon
+      makes a squat boot safe); back to the accelerated b137 desktop = `phxfb-squat` set from Linux again (line ~299).
+  - [x] 2026-11-20 Daemon: a squat boot that can't leave the squat no longer reboots. The second squat boot runs a
+        safe desktop (CPU copy at the boot mode, no mode list / GPU present / flip / M7 / b15 / VCN); a safe attempt that
+        hangs leaves the next boot headless. Mock: 208/208 (8 new; the old daemon fails 4 of them: reboot issued).
+        Deployed to `~/gpu/phxboot-navi31.sh` (backup `~/vermilion-rollback/phxboot-navi31.sh.pre-nvstuck`).
+  - [ ] Freeze cause. Leading hypothesis: GPU present restarted at 1280x1024 (Linux's pitch = the width there, so the
+        plane check passes; the b138 note "below 1440p GPU present stays off" is wrong for 1280x1024 and 1024x768),
+        on the small slot layout (VRAM 24/32/40 MiB), never used before on the XTX. Next b138 attempt: keep GPU present
+        to the boot size (plugin), and log the kext's scan acquire to a file the next boot can read
+- [~] 2026-11-20 **b138: the other resolutions from System Settings, the desktop resizes** (built, host-tested; booted
+      16:37, froze at 1280x1024, see above; EFI back on b137):
       VermilionBoot b138 (Linux's HUBP0 pitch per mode, phxPipe0SetMode takes keys, phx-p0-keys), PhxAccel b138 (head 0
       offers the EDID's established / standard / VIC modes on the 2560x1440 surface, per-mode geometry with Linux's
       256-pixel pitch, flip B placed by the boot size), Metal plugin (a size change restarts GPU present instead of

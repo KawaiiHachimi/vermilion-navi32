@@ -216,3 +216,15 @@ The 1 ppc pipe-0 plans (b128) and the Linux replay (b131-b134) left pipe 0 in tw
 leave. b135 makes Linux's own 144 the hub: each rate is Linux's switch from 144 and back (capture v3), so every transition is
 two recorded Linux mode sets and no start state is guessed. macOS's own state keeps the b128 plans until the first 240 (the
 only entry, b133's verified plan). Other resolutions, VRR and HDR join the same set from the same capture.
+
+## 2026-11-20: A squat boot that can't leave the squat runs a safe desktop, never another reboot
+
+**Decision:** when a reboot meant to clear `phxfb-squat` comes back squatting (`~/gpu/phxboot-nvstuck`), the daemon
+stops rebooting. With the kill switch, an unfinished attempt or a failure marker, it runs a safe desktop on the squat
+(CPU copy at the boot mode; no pipe-0 mode list, GPU present, flip, M7, b15, VCN). If that attempt doesn't finish, the
+next boot stays headless (no attempt, no reboot). `DisableVariableWrite` stays on (owner's choice).
+**Why:** with `DisableVariableWrite` macOS can't delete the variable, so every recovery reboot came back to the same
+squat: three reboots in a row on 2026-11-20 until Linux deleted it. A squat boot has no display except PhxAMDFB, so a
+plain PhxAMDFB desktop is the only way to a picture without leaving macOS.
+**Revisit:** if `DisableVariableWrite` goes off, the first recovery reboot clears the squat as upstream designed and the
+safe desktop never runs.

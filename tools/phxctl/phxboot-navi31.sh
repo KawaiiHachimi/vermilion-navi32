@@ -127,7 +127,10 @@ all_apps(){ { printf '# phxboot: Metal for every app%s\n' "$1"; for d in $DENY; 
 # The clean-shutdown TERM trap is dropped first: the TERM of the reboot below must not run it (it would log a clean
 # shutdown and re-arm phxfb-squat after a failure).
 m2_fail(){ trap - TERM; echo "FAIL ($1): reverting to GOP"; b21_on "FAIL: the next boot is GOP"; touch "$FAILF"; apps_only; sysctl -w debug.phxagdc=0 >/dev/null 2>&1
-           nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKTOP"; sync; shutdown -r now; exit 0; }
+           nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKTOP"; sync
+           # a stuck squat (below) would come straight back here: stay up instead; the next boot runs the safe desktop
+           [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"; release; exit 0; }; }
+           shutdown -r now; exit 0; }
 # Login-window guard (11-04): a WindowServer without Metal (the first
 # one of every boot until the restart below, or the only one of a GOP boot) aborts in QuartzCore CA::OGL push_surface when
 # loginwindow draws the Memoji lock-screen avatar. SHOWFULLNAME true (name + password fields) avoids the avatar. loginwindow
@@ -216,17 +219,45 @@ rearm(){ nvram phxfb-squat=1 || return 1; sync; if nvram phxfb-squat >/dev/null 
 wait_fb(){ for i in $(seq 1 90); do ioreg -rc IOFramebuffer -d0 | grep -q 'class ' && break; sleep 1; done; }
 
 echo "squat boot (PhxFBSquatter holds IOFramebuffer, no IONDRV console): $SQUAT (decided by $SQWHY)"
+# A squat boot that cannot leave the squat (2026-11-20, the XTX machine). PhxFBSquatter squats while phxfb-squat is in
+# the firmware's NVRAM. With OpenCore's DisableVariableWrite, macOS's `nvram -d` (and the squatter's own removal) never
+# reach the firmware, so every "reboot onto IONDRV" came back squatting: three reboots in a row after a hung b138
+# boot, until Linux deleted the variable (findings 2026-11-20-b138-freeze-and-squat-loop.md).
+# $NVSTUCK holds "pending" when a boot rebooted to clear phxfb-squat. A squat boot that finds it knows the clear did not
+# stick (STUCK=1): no reboot can help, so the recovery runs a SAFE desktop on the squat instead, the plain path (CPU copy
+# at the boot mode: no pipe-0 mode list, GPU present, flip, M7, b15, VCN). A safe attempt that does not finish leaves
+# the next boot headless (dark, reachable over the network), never a loop. Reset NVRAM in the OpenCore picker clears
+# phxfb-squat; the first boot without a squat removes $NVSTUCK and $SAFEF.
+NVSTUCK=${PHXBOOT_NVSTUCK:-$G/phxboot-nvstuck}; SAFEF=${PHXBOOT_SAFEF:-$G/phxboot-safe}
+STUCK=0; SAFE=0; HUNG=0; [ -e "$MARK" ] && HUNG=1
+if [ -e "$NVSTUCK" ]; then
+  if [ $SQUAT = 1 ]; then STUCK=1; echo stuck > "$NVSTUCK"; sync
+    echo "nvstuck: still a squat boot after a reboot meant to clear phxfb-squat: macOS cannot clear it (OpenCore DisableVariableWrite); no reboot this boot, Reset NVRAM in the OpenCore picker clears it"
+  else rm -f "$NVSTUCK" "$SAFEF"; sync; echo "nvstuck: not a squat boot: phxfb-squat is clear"; fi
+fi
+# a squat boot's way back to IONDRV. On a stuck squat it returns 1 instead, and the caller goes on without a reboot.
+squat_reboot(){ [ $STUCK = 1 ] && return 1; echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync; echo "$1"; shutdown -r now; exit 0; }
+headless(){ echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). Reset NVRAM in the OpenCore picker for the firmware display"; release; exit 0; }
 # a squat boot has no display until we arm, so every early exit on one must reboot (back to IONDRV) instead
 if [ -e "$OFF" ]; then
   echo "kill switch present"; release
-  [ $SQUAT = 1 ] && { echo "squat boot with the kill switch on: rebooting onto IONDRV"; nvram -d phxfb-squat; sync; shutdown -r now; }
-  exit 0
-fi
-if [ -e "$MARK" ]; then
+  [ $SQUAT = 1 ] || exit 0
+  squat_reboot "squat boot with the kill switch on: rebooting onto IONDRV"
+  SAFE=1
+elif [ $HUNG = 1 ]; then
   echo "previous attempt did not finish -> GOP (kill switch on, one-shots cleared)"; touch "$OFF"
   rm -f "$MARK" "$DESKTOP"; nvram -d phxfb-boot; nvram -d phxfb-squat; sync
-  [ $SQUAT = 1 ] && { echo "squat boot: rebooting onto IONDRV"; shutdown -r now; }
-  exit 0
+  [ $SQUAT = 1 ] || exit 0
+  squat_reboot "squat boot: rebooting onto IONDRV"
+  SAFE=1
+elif [ $STUCK = 1 ] && [ -e "$FAILF" ]; then
+  echo "stuck squat after a failed attempt ($FAILF)"; SAFE=1
+fi
+if [ $SAFE = 1 ]; then
+  rm -f "$MARK"
+  [ $HUNG = 1 ] && [ -e "$SAFEF" ] && headless "the safe desktop did not finish last boot"
+  touch "$SAFEF"; sync
+  echo "safe desktop on the stuck squat: CPU copy at the boot mode (no pipe-0 modes, GPU present, flip, M7, b15, VCN); rm $OFF and $FAILF for the full desktop"
 fi
 
 DESK=0; { [ -e "$DESKTOP" ] || [ $SQUAT = 1 ]; } && DESK=1
@@ -424,7 +455,7 @@ fi
 aoc_modes(){ { [ -e "$G/phxboot-m7-aocmodes" ] || [ -e "$G/phxboot-m7-aoc144" ]; } || return 0
   if sysctl -w debug.phxpipe0_modes=1 >/dev/null 2>&1; then echo "aoc: head-0 mode list armed (debug.phxpipe0_modes=1)"
   else echo "aoc: no debug.phxpipe0_modes (kext < b101): head 0 keeps one mode"; fi; }
-[ "${PHXBOOT_NO_AOC:-0}" = 1 ] || aoc_modes
+[ "${PHXBOOT_NO_AOC:-0}" = 1 ] || [ $SAFE = 1 ] || aoc_modes
 # 1440p high refresh (2026-11-20, the XTX machine): with $G/phxboot-p0modes the pipe-0 engine is switched on and PhxAMDFB
 # head 0 lists the modes of the plan family OTG0 runs (the LG's 2560x1440 at 60/120/144 Hz), so System Settings can pick
 # one; it reads phx-pipe0-modes once, at the claim below. Needs VermilionBoot b128 (the 1440p plans: its pipe-0 stat has
@@ -435,7 +466,7 @@ p0modes_boot(){ [ -e "$G/phxboot-p0modes" ] || return 0
   local o1 o2 r1 r2; o1=$(sysctl -w debug.phxpipe0_enable=1 2>&1); r1=$?; o2=$(sysctl -w debug.phxpipe0_modes=1 2>&1); r2=$?
   if [ $r1 = 0 ] && [ $r2 = 0 ]; then echo "p0modes: pipe-0 engine on, head-0 mode list armed (debug.phxpipe0_enable=1, debug.phxpipe0_modes=1)"
   else echo "p0modes: enable rc $r1, modes rc $r2 ($(echo "$o1 $o2" | tr '\n' ' ' | cut -c1-100)): head 0 may keep one mode"; fi; }
-[ "${PHXBOOT_NO_AOC:-0}" = 1 ] || p0modes_boot
+[ "${PHXBOOT_NO_AOC:-0}" = 1 ] || [ $SAFE = 1 ] || p0modes_boot
 WS0=$(wspid)                 # the first WindowServer (up since boot; it read com.apple.windowserver before this daemon ran)
 "$MB" claim 2>&1
 sysctl -w debug.phxbos_flush=0 >/dev/null 2>&1
@@ -448,6 +479,7 @@ echo "NMXAccel up"
 
 if [ $DESK = 1 ]; then
   rm -f "$DESKTOP"            # one-shot: exactly one desktop attempt per arm
+  [ $SAFE = 1 ] || rm -f "$SAFEF"   # a full attempt: a hang of this one is not the safe desktop's
   touch "$MARK"; sync         # in-progress: a hang before we finish -> next boot reverts
   # a clean restart or shutdown (launchd sends TERM; a hang never does) is not a failed attempt: clear the mark and
   # re-arm the next boot as SUCCESS would, so a restart from the login window during the watch keeps acceleration
@@ -474,7 +506,7 @@ if [ $DESK = 1 ]; then
   #     we touch nothing (no arm, no pipe) and revert clean.
   if who 2>/dev/null | grep -q . ; then m2_fail "a user is logged in before arming -- refusing (log out / stay on the login screen)"; fi
   # (the 11-02 scdclog boot hook was removed 11-03: its data is in)
-  m7_light
+  [ $SAFE = 1 ] || m7_light
   # 4) arm the display pipe now that the panel is ours and Metal is ready.
   #    same order as the hand-run test that reached the desktop (2026-10-24 17:55)
   # 10-29: debug.phxagdc exists only once PhxAMDFB::start has finished
@@ -498,8 +530,8 @@ if [ $DESK = 1 ]; then
   done
   [ "$agdc" = 1 ] || m2_fail "AGDC never armed (debug.phxagdc='$agdc' after 15s)"
   echo "armed at $(date '+%T'); agdc=$agdc"
-  m7_bind
-  aoc_boot   # boot rate: the AOC at 144 before the restart (flag ~/gpu/phxboot-aoc-rate)
+  [ $SAFE = 1 ] || m7_bind
+  [ $SAFE = 1 ] || aoc_boot   # boot rate: the AOC at 144 before the restart (flag ~/gpu/phxboot-aoc-rate)
   # 5) ONE clean WindowServer restart. Metal caches an empty device list per process if asked too early, so
   #    WindowServer -- up since boot -- never sees our device until it restarts fresh. Only at 0 interactive users.
   #    final 0-users guard IMMEDIATELY before the killall, nothing slow between arm-confirm and kill, so the
@@ -508,7 +540,7 @@ if [ $DESK = 1 ]; then
   # 5a) GPU present (2026-10-25): with $GPUPRESENT the plugin copies WindowServer's frames into VRAM slots on the GPU
   #     and flips HUBP0 itself (PhxBringup scanout, debug.phxscan); it needs the scanout allowed before WindowServer
   #     comes back, and phxfb's own flip left off (both would program HUBP0)
-  GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}
+  GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}; [ $SAFE = 1 ] && GPUPRESENT=""
   [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
   ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
   waitstep_boot   # the fence wait's timed step for the restarted WindowServer (flag ~/gpu/phxboot-waitstep)
@@ -530,7 +562,7 @@ if [ $DESK = 1 ]; then
   #     debug.nvaccel_iop_skipforeign; an older PhxAccel has no such sysctl and keeps copying)
   if [ -e "$GPUPRESENT" ]; then echo "phxfb flip left off (GPU present owns HUBP0)"
     sysctl -w debug.nvaccel_iop_skipforeign=1 >/dev/null 2>&1 && echo "display pipe copy skipped while GPU present scans (debug.nvaccel_iop_skipforeign=1)"
-  elif [ ! -e "$G/phxboot-noflip" ]; then sysctl -w debug.phxfb_flip=1 >/dev/null 2>&1 && echo "flip on (debug.phxfb_flip=1)"; fi
+  elif [ $SAFE = 0 ] && [ ! -e "$G/phxboot-noflip" ]; then sysctl -w debug.phxfb_flip=1 >/dev/null 2>&1 && echo "flip on (debug.phxfb_flip=1)"; fi
   before=$(ls "$DR" 2>/dev/null | grep -c '^WindowServer[-_]')   # baseline AFTER the clean restart: earlier crashes don't count
   # 11-03: a WindowServer crash often writes NO .ips (12 corpses, 0 files), so a WindowServer
   # pid change also counts (0 users here: no logout restarts it); the verdict uses the larger of the two counts
@@ -544,8 +576,9 @@ if [ $DESK = 1 ]; then
   echo "SUCCESS at $(date '+%T'): WindowServer pid $(pgrep -x WindowServer), frames=$(sysctl -n debug.nvaccel_iop_ok 2>/dev/null) -- accelerated desktop survived"
   # the session's shutdown TERM: login-window guard ON for the next boot's first loginwindow, then die of the TERM as before
   trap 'b21_on "shutdown (TERM)"; trap - TERM; kill -TERM $$' TERM; rm -f "$MARK"
-  rm -f "$FAILF"
-  if [ -e "$AUTO" ]; then rearm "phxboot-auto present"; fi
+  if [ $SAFE = 1 ]; then echo "safe desktop up (the stuck squat stays: $OFF / $FAILF kept, nothing re-armed)"
+  else rm -f "$FAILF"
+    if [ -e "$AUTO" ]; then rearm "phxboot-auto present"; fi; fi
   sync
 else
   release; all_apps " (WindowServer stays on firmware framebuffer)" ""
@@ -579,7 +612,7 @@ vcn_boot(){
 if [ "$M7LIT" = 1 ] && [ "$M7PHASE" != 1 ]; then
   [ -e "$G/phxboot-vcn" ] && echo "vcn: skipped: pipe 1 lit at boot (an SMU message then stalls the PMFW)"
 else
-  [ "${PHXBOOT_NO_VCN:-0}" = 1 ] || vcn_boot
+  [ "${PHXBOOT_NO_VCN:-0}" = 1 ] || [ $SAFE = 1 ] || vcn_boot
 fi
 
 # 10-28: with $G/phxboot-cg present, after "done": GFX clock gating as Linux enables it (gfx_cg.sh on). Without it the
@@ -605,7 +638,7 @@ b15_boot(){
   [ $DESK = 1 ] || { echo "b15: not a desktop boot: skip"; return 0; }
   [ -e "$G/b15_boot.sh" ] || { echo "b15: $G/b15_boot.sh missing"; return 0; }
   sh "$G/b15_boot.sh" & echo "b15: started (pid $!)"; }
-[ "${PHXBOOT_NO_B15:-0}" = 1 ] || b15_boot
+[ "${PHXBOOT_NO_B15:-0}" = 1 ] || [ $SAFE = 1 ] || b15_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes
@@ -624,7 +657,9 @@ watch_hangs(){ local base n now first=0 wsp p c silent=0 it=0
     n=$((n+base)); [ $n -gt $base ] || continue
     now=$(date +%s); [ $first = 0 ] && first=$now
     if [ $((n-base)) -ge 2 ]; then
-      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; touch "$FAILF"; nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$DESKTOP"; sync; shutdown -r now; return
+      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; touch "$FAILF"; nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$DESKTOP"; sync
+      [ $SQUAT = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: staying up after the hangs (no reboot can leave the squat)"; return; }; }
+      shutdown -r now; return
     fi
     [ $((now-first)) -gt 300 ] && { base=$(ls "$DR" 2>/dev/null | grep -c '^WindowServer-.*\.ips$'); silent=0; first=0; }
   done; }
