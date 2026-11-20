@@ -106,7 +106,7 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       default): publishes the range (48-240 Hz from the EDID) with the flag, answers 0x979, logs CoreDisplay's timing and
       `'vrr?'` calls; no hardware change. Host: head0_1440 41/41, mock 211/211. First install (21:14) booted 21:53
       without its sysctl: PhxAMDFB registers its sysctls at its own start (the claim), after the daemon's write; now
-      registered at kext load (_start). Reinstalled 22:05 (UUID 77557B85), flag `~/gpu/phxboot-vrrprobe` set.
+      registered at kext load (_start). Reinstalled 21:58 (UUID 77557B85), flag `~/gpu/phxboot-vrrprobe` set.
       **Rollback:** rm ~/gpu/phxboot-vrrprobe (the probe is then inert); PhxAccel copies in `~/vermilion-rollback/`.
       b140 verified 21:54: the login screen switched to 240 at 21:54:18, 4 s before it was shown.
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
