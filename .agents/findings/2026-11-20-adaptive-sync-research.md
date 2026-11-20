@@ -39,3 +39,19 @@ variable-refresh timing (inferred).
    `setDisplayMode` on that mode). Picking it sets the fixed mode. Shows whether System Settings offers "Variable".
 2. Linux capture of the OTG VRR registers (above).
 3. VermilionBoot: the range and the SDP as Linux writes them, when the variable mode is set.
+
+## Probe boot 1 (2026-11-20 22:00, the XTX machine)
+
+- The probe ran: `vrrprobe: IOFBTimingRange published: 48-240 Hz, 390-390 kHz, pixel clock to 1060 MHz, sync flags 0x11`,
+  and `IOFBTimingRange` is in the registry.
+- **macOS did nothing with it:** 0 `validateDetailedTiming` / `setDetailedTimings` / `'vrr?'` calls, no AGDC 0x979.
+  System Settings lists the same four 1440p rates (owner).
+- The 390-390 kHz line rate is what the LG's descriptor says (byte 4 = 0x0c: both horizontal rates + 255); the 1440p60
+  line rate is ~89 kHz. Whether CoreDisplay reads the line rates is unknown.
+- The parser read the EDID 1.4 offset bits in the wrong order (bit 0 / 1 instead of the 10 / 11 codes); same result for
+  the LG, fixed with tests.
+- The AGDC commands macOS sends here, mapped through Apple's jump tables (tool `~/vermilion-captures/tools/agdcmap.py`,
+  outside git): **0x925 `getPortStatus`**, **0x941 `getPortCapabilities`** (48 bytes, `getCapabilitiesOfPort`: two flag
+  words at +8 / +0xc built from link and controller feature queries), 0x921 `getLinkConfig`, 0x980 `getGpuCapability`.
+  0x3, 0x711 and 0x2001 are in a compare chain (not mapped). PhxAGDC refuses 0x925 and 0x941. Inferred: macOS reads
+  the port's VRR support from 0x941 (or 0x925) before it asks 0x979; which flag bit means VRR is not decoded yet.

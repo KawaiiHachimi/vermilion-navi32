@@ -227,8 +227,9 @@ inline bool edidListsStd(const uint8_t *e, uint32_t len, const HeadMode &m) {
 }
 // The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
 // VRR probe (2026-11-20): the EDID base block's display range limits descriptor (tag 0xFD), for the timing range head 0
-// publishes while debug.phxfb0_vrrprobe is on. Byte 4 bits 0 / 1 add 255 to the max / min vertical rate, bits 2 / 3 to
-// the max / min horizontal rate (EDID 1.4). false = no descriptor (nothing is published).
+// publishes while debug.phxfb0_vrrprobe is on. Byte 4 (EDID 1.4 rate offsets): bits 1:0 = 10 adds 255 to the max vertical
+// rate, 11 to the max and the min; bits 3:2 the same for the horizontal rates. false = no descriptor (nothing published).
+// The LG's byte 4 is 0x0c: 390-390 kHz horizontal, as its EDID says (inferred: a quirk of its descriptor).
 struct EdidRange { uint32_t minVHz, maxVHz, minHKHz, maxHKHz, maxPclkMHz; };
 inline bool edidRange(const uint8_t *e, uint32_t len, EdidRange *r) {
     if (!e || len < 128) return false;
@@ -236,8 +237,9 @@ inline bool edidRange(const uint8_t *e, uint32_t len, EdidRange *r) {
         const uint8_t *d = e + 54 + 18 * k;
         if (d[0] || d[1] || d[2] || d[3] != 0xFD) continue;
         const uint8_t f = d[4];
-        r->minVHz = d[5] + ((f & 2) ? 255u : 0u); r->maxVHz = d[6] + ((f & 1) ? 255u : 0u);
-        r->minHKHz = d[7] + ((f & 8) ? 255u : 0u); r->maxHKHz = d[8] + ((f & 4) ? 255u : 0u);
+        const bool vMax = (f & 3) >= 2, vMin = (f & 3) == 3, hMax = ((f >> 2) & 3) >= 2, hMin = ((f >> 2) & 3) == 3;
+        r->minVHz = d[5] + (vMin ? 255u : 0u); r->maxVHz = d[6] + (vMax ? 255u : 0u);
+        r->minHKHz = d[7] + (hMin ? 255u : 0u); r->maxHKHz = d[8] + (hMax ? 255u : 0u);
         r->maxPclkMHz = d[9] * 10u;
         return r->minVHz && r->maxVHz >= r->minVHz;
     }

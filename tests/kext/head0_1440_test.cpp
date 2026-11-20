@@ -112,9 +112,14 @@ int main() {
         EdidRange r{};
         CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minVHz == 48 && r.maxVHz == 240 && r.maxPclkMHz >= 1000);
         uint8_t e[128] = {};
-        e[54 + 18 * 2 + 3] = 0xFD; e[54 + 18 * 2 + 4] = 0x01; e[54 + 18 * 2 + 5] = 48; e[54 + 18 * 2 + 6] = 45;   // max 45 + 255
+        e[54 + 18 * 2 + 3] = 0xFD; e[54 + 18 * 2 + 4] = 0x02; e[54 + 18 * 2 + 5] = 48; e[54 + 18 * 2 + 6] = 45;   // 10: max 45 + 255
         e[54 + 18 * 2 + 7] = 30; e[54 + 18 * 2 + 8] = 200; e[54 + 18 * 2 + 9] = 60;
         CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 48 && r.maxVHz == 300 && r.minHKHz == 30 && r.maxHKHz == 200 && r.maxPclkMHz == 600);
+        CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minHKHz == 390 && r.maxHKHz == 390);   // the LG's 0x0c, as it says
+        e[54 + 18 * 2 + 4] = 0x0b; e[54 + 18 * 2 + 5] = 10;   // 11 vertical: min and max + 255; 10 horizontal: max + 255
+        CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 265 && r.maxVHz == 300 && r.minHKHz == 30 && r.maxHKHz == 455);
+        e[54 + 18 * 2 + 4] = 0x01;   // 01 is reserved: no offset
+        CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 10 && r.maxVHz == 45);
         uint8_t z[128] = {};
         CHECK(!edidRange(z, sizeof z, &r) && !edidRange(kLgEdid, 64, &r) && !edidRange(nullptr, 128, &r));
     }
