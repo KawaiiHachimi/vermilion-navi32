@@ -152,7 +152,10 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
     - [~] 2026-11-20 E1 research: Linux's 144 -> 240 mode set decoded (incl. AUX / DPCD); one pipe is a blank interim only,
           the picture runs on ODM 2:1 + DSC x2 + FEC. Build plan (generator, engine, flip on both HUBPs, head-0 row 240) in
           [240hz-plan](findings/2026-11-20-240hz-plan.md)
-    - [~] 2026-11-20 **E1 = VermilionBoot b131** (`debug.phxp0odm`: 1 survey, 2 = 240 Hz, 3 = back to 144; inert until root
+    - [x] 2026-11-20 08:08 **240 Hz works on hardware (b133): OSD 240 Hz, both halves correct** ([240hz-plan](findings/2026-11-20-240hz-plan.md)).
+          b131 / b132 tries: a FIFO wait Linux never ran, then OTG0's pixel-rate divider (both fixed). Next: 240 in System
+          Settings (head-0 row + PhxAccel -> debug.phxp0odm path), the way back on hardware, stability, then HDR. Notes:
+          **E1 = VermilionBoot b131** (`debug.phxp0odm`: 1 survey, 2 = 240 Hz, 3 = back to 144; inert until root
           writes it; not in System Settings yet). Host test p0odm 1203/1203. VermilionBoot sha256 `f462415c...`.
           **Test after the boot:** survey, then 2 (screen dark ~0.2 s, then 240 Hz: monitor OSD), then 3 (back to 144).
           After 2 or 3 the 120/144 switch in System Settings refuses until reboot (pipe 0 is on Linux's 2 ppc setup).
