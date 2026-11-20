@@ -141,6 +141,10 @@ constexpr unsigned agdcPosition(uint32_t ep, unsigned n) { return ep < n ? ep : 
 // b138: std = the mode may also be listed by the EDID's established / standard timings or a CTA video code (edidLists),
 // not only by a detailed timing.
 struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t std; };
+// HeadMode::std: 0 = a DTD / DisplayID mode of the boot size, 1 = b138's other sizes (EDID standard / established / VIC),
+// kStdVrrTwin = a variable-refresh twin (VRR probe), never an other-size mode
+constexpr uint8_t kStdVrrTwin = 2;
+constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin; }
 static const HeadMode kHead1Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125, 0},    // CEA 1080p60 (the 60 plan)
     {2, 1920, 1080, 144000, 32508, 2056, 1098, 0},   // the Acer KG241QS DTD 1 (the 144 plan)
@@ -171,6 +175,10 @@ static const HeadMode kHead0Modes[] = {
     {10, 800, 600, 60317, 4000, 1056, 628, 1},      // established / standard 800x600@60 (DMT)
     {11, 640, 480, 60000, 2520, 800, 525, 1},       // 640x480@60.00 (25.2 MHz; Linux lists it next to the DMT one)
     {12, 640, 480, 59940, 2518, 800, 525, 1},       // established / standard 640x480@60 (DMT 25.175 MHz)
+    // VRR probe (2026-11-20): the variable-refresh twin of id 6, offered only while head 0 publishes the VRR timing range
+    // (modeList vrr). The one mode whose timing carries verticalBlankingExtension: macOS folds every mode with one into
+    // its "Variable (48-240 Hz)" entry, so the fixed rates keep none. The pipe runs id 6's timing (same switch key).
+    {13, 2560, 1440, 239963, 105675, 2720, 1619, kStdVrrTwin},
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -271,13 +279,16 @@ inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool 
 }
 // The ids head `head` offers for a w x h surface, in table order (out holds kNMaxModes). b138: anySize (head 0 with
 // PhxBringup's phx-p0-keys, a 2560x1440 surface) also offers the rows of other sizes the EDID lists (the desktop resizes).
-inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out, bool anySize = false) {
+// VRR probe: vrr (head 0 publishes the VRR timing range) also offers the variable-refresh twins.
+inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out, bool anySize = false,
+                         bool vrr = false) {
     const ModeTable t = headModes(head);
     unsigned n = 0;
     for (unsigned i = 0; i < t.n; i++) {
         const bool any = anySize && head == 0 && w == 2560 && h == 1440;
         const bool size = t.m[i].w == w && t.m[i].h == h;
-        if ((size || (any && t.m[i].std)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
+        if (isVrrTwin(t.m[i]) && !(vrr && head == 0)) continue;
+        if ((size || (any && t.m[i].std == 1)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
     }
     return n;
 }
@@ -351,6 +362,7 @@ static const HeadSync kHead0Sync[] = {
     {10, 40, 128, 1, 4, true, true},
     {11, 16, 96, 10, 2, false, false},
     {12, 16, 96, 10, 2, false, false},
+    {13, 48, 32, 3, 5, true, false},  // VRR probe: id 6's
 };
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.

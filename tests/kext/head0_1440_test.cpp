@@ -74,6 +74,18 @@ int main() {
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids) == 3);   // without block 2: no 240
         uint8_t bad[384]; std::memcpy(bad, full, 384); bad[256 + 40] ^= 1;    // another active width: not offered
         CHECK(modeList(0, bad, sizeof bad, 2560, 1440, ids) == 3);
+        // VRR probe: the twin of 6 (id 13) only with vrr, after the fixed rates; its timing is 6's; the anySize list too
+        CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, false, true) == 5 && ids[3] == 6 && ids[4] == 13 && isVrrTwin(*headMode(0, 13)));
+        CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, true, false) == 11);   // no vrr: no twin (the 10 plus the 240 row)
+        const unsigned nv = modeList(0, full, sizeof full, 2560, 1440, ids, true, true);
+        CHECK(nv == 12 && ids[nv - 1] == 13);
+        CHECK(modeForTotals(0, 2720, 1619, ids, nv) == 6 && switchHz(*headMode(0, 13)) == 240 && switchKey(*headMode(0, 13), 2560, 1440) == 240);
+        DetailedTiming t13{};
+        CHECK(detailedTiming(0, 13, &t13) && detailedTiming(0, 6, &t) && t13.pixelHz == t.pixelHz && t13.vBlank == t.vBlank &&
+              t13.hSyncPos == t.hSyncPos && !t13.vSyncPos && vrrExtension(t13, 48) == 6474);
+        CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, true) == 3);   // no 240 timing: no twin
+        CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, false, true) == 2);   // the XT's AOC: unchanged
+        CHECK(modeList(1, full, sizeof full, 2560, 1440, ids, false, true) == 0);
     }
     // b138: the anySize offer (PhxBringup's phx-p0-keys) on the LG's 2560x1440 surface adds the EDID's established /
     // standard timings and VIC 63 (capture v3 edid: est 640x480 / 800x600 / 1024x768 / 1280x1024@75, std 1920x1080@60,

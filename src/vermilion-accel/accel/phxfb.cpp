@@ -896,7 +896,8 @@ public:
             d.verticalBlankingExtension = phxRotH0Vbe(fHead, (uint32_t)mode, fModeId);
             // VRR probe step 2: the 1440p modes carry the stretch to the EDID's minimum rate, as Apple's AMD driver's mode
             // validation hands them out (AGDC notifyModeValidation); rotation's own mark keeps priority
-            if (fVrrMinHz && !fHead && t.vActive == 1440 && !d.verticalBlankingExtension) {
+            const phxhead::HeadMode *vm = fHead ? nullptr : phxhead::headMode(0, (uint32_t)mode);
+            if (fVrrMinHz && vm && phxhead::isVrrTwin(*vm) && !d.verticalBlankingExtension) {
                 d.verticalBlankingExtension = phxhead::vrrExtension(t, fVrrMinHz);
                 if (mode > 0 && mode < 32 && !(fVrrSaid & (1u << mode))) {
                     fVrrSaid |= 1u << mode;
@@ -1446,7 +1447,10 @@ bool PhxAMDFB::start(IOService *provider)
                 fb->release();
             }
             PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
-            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize);
+            // VRR probe: the EDID's range decides here, before the list (the twin is offered only with the range published)
+            phxhead::EdidRange vr{};
+            fVrrMinHz = gPhxVrrProbe && phxhead::edidRange(fEdid, fEdidLen, &vr) ? vr.minVHz : 0;
+            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
             PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");
@@ -1458,7 +1462,7 @@ bool PhxAMDFB::start(IOService *provider)
         if (fNModes) PFBLOG("head 0 offer gate %s: %s", gHead0OfferOpen ? "open" : "CLOSED",
                             gHead0OfferOpen ? "every listed mode offered (-phxfb0open)" : "only the lit mode until debug.phxfb0_offer=1 (the daemon, before its restart)");
     }
-    if (!fHead && gPhxVrrProbe) {   // VRR probe: the timing range Apple's AMD driver publishes (reportCapabilities)
+    if (!fHead && fVrrMinHz) {   // VRR probe (the twin listed, above): the timing range Apple's AMD driver publishes (reportCapabilities)
         phxhead::EdidRange er{};
         if (phxhead::edidRange(fEdid, fEdidLen, &er)) {
             IODisplayTimingRangeV2 tr;
@@ -1474,7 +1478,6 @@ bool PhxAMDFB::start(IOService *provider)
             tr.charSizeHorizontalTotal = tr.charSizeVerticalTotal = 1;
             tr.maxNumLinks = 1;
             if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
-            fVrrMinHz = er.minVHz;
             PFBLOG("vrrprobe: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
                    er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
         } else PFBLOG("vrrprobe: the EDID has no range limits descriptor: nothing published");
