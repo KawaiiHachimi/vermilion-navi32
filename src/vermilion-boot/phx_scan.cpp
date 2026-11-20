@@ -133,7 +133,10 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->dcc_en = rreg(kHubpreq0SurfaceControl) & 1;
     // b138: the visible width is HUBP0's viewport (the replay plans write Linux's pitch, wider than the mode below 1440p:
     // 1920 -> 2048); with pitch == viewport, as on every mode before b138, this is the pitch as before
-    const uint32_t vpw = rreg(kHubp0PriViewportDim) & 0x3fff;
+    // b143: under ODM 2:1 (240 Hz, gP0OdmActive) HUBP0's viewport is the left half and HUBP1 scans the right half of the same
+    // surface: the plane is twice HUBP0's viewport. b138-b142 reported 1280 at 240, so GPU present never started when the
+    // first acquire came after a switch to 240 (b140+: the login screen's switch; box 2026-11-20 22:46, CPU copy at 240)
+    const uint32_t vpw = (rreg(kHubp0PriViewportDim) & 0x3fff) * (gP0OdmActive ? 2u : 1u);
     q->plane_w = q->h_active = vpw && vpw <= q->pitch_px ? vpw : q->pitch_px;
     q->plane_h = q->v_active = vbs > vbe ? vbs - vbe : 0;
     q->flags = ((rreg(kOtg0Control) & 1) ? PHXN_SCANQ_LIT : 0) | PHXN_SCANQ_NATIVE;
