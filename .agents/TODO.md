@@ -74,6 +74,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       copy (code). 22:55 `ws-cdcopy-hold` 1000 us: no change, 1.1 % of presents superseded; deleted (live test 5).
       Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
+- [ ] **TARGET (owner, restated 2026-11-20): the LG at every resolution and refresh rate it supports, incl. 2560x1440 at
+      240 Hz, with HDR and Adaptive Sync, all from System Settings.** Status 08:30: 1440p 60/120/144 in System Settings;
+      240 from `debug.phxp0odm` only; other rates / resolutions, HDR, VRR not started. Order: (1) 240 in System Settings,
+      (2) every EDID rate / resolution, (3) Adaptive Sync (needs a Linux capture with VRR on), (4) HDR (needs the probe and a
+      capture of SDP / regamma). No reboot while the owner is away (remote via T3 Code, autologin not yet seen on a boot)
 - [~] 2026-11-20 Automatic login (owner): the daemon owns loginwindow's autoLoginUser (deleted at daemon start / shutdown /
       revert to GOP, written right before the Metal WindowServer restart; flag `~/gpu/phxboot-autologin` = user name,
       password in /etc/kcpassword from `sysadminctl -autologin set`). Plain macOS autologin would log in before the arm,
