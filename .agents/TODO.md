@@ -74,6 +74,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       copy (code). 22:55 `ws-cdcopy-hold` 1000 us: no change, 1.1 % of presents superseded; deleted (live test 5).
       Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
+- [~] 2026-11-20 Automatic login (owner): the daemon owns loginwindow's autoLoginUser (deleted at daemon start / shutdown /
+      revert to GOP, written right before the Metal WindowServer restart; flag `~/gpu/phxboot-autologin` = user name,
+      password in /etc/kcpassword from `sysadminctl -autologin set`). Plain macOS autologin would log in before the arm,
+      which refuses with a user logged in. Mock 200/159. Installed 2026-11-20 08:18 (daemon `.prev` kept). Not yet seen on a
+      boot. **Rollback:** `rm ~/gpu/phxboot-autologin` (password login again); remove the password store with
+      `sudo sysadminctl -autologin off`
 - [ ] 240 Hz (Phase 3): research the Linux DC mode-set + DP link training sequence first, plan before any write
   - [x] 2026-11-19 Read-only survey on macOS ([findings](findings/2026-11-19-refresh-and-hdr.md)): GOP link on DP B is
         **HBR2 x4 at 12 bpc**; 120 Hz (10 bpc) and 144 Hz (8 bpc) fit it without retraining, 240 Hz needs HBR3 (or

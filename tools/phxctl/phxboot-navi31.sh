@@ -142,7 +142,25 @@ LWDOM=${PHXBOOT_LWDOM:-/Library/Preferences/com.apple.loginwindow}; B21ORIG=${PH
 b21_ok(){ [ "$(tr -d ' \t\r\n' 2>/dev/null <"$G/phxboot-b21guard")" != 0 ]; }   # 2> first: a missing flag file prints nothing
 b21_cfp(){ defaults read "$LWDOM" SHOWFULLNAME 2>/dev/null || echo absent; }               # what loginwindow reads
 b21_file(){ "$PB" -c "Print :SHOWFULLNAME" "$LWDOM.plist" 2>/dev/null || echo absent; }    # the plist on disk
-b21_on(){ b21_ok || return 0
+# Automatic login (2026-11-20, owner): macOS's autologin would log the user in before this daemon's arm, and the arm
+# refuses with a user logged in (no accelerated desktop). So the daemon owns loginwindow's autoLoginUser: deleted wherever the
+# login-window guard goes ON (daemon start, shutdown TERM, every revert to GOP), written right before the Metal WindowServer
+# restart, so the accelerated loginwindow logs the user in. ~/gpu/phxboot-autologin holds the user name; /etc/kcpassword (made
+# once by `sysadminctl -autologin set`) holds the password. Either missing = the key is only ever deleted (password login).
+KCPW=${PHXBOOT_KCPASSWORD:-/etc/kcpassword}
+al_user(){ tr -d ' \t\r\n' 2>/dev/null <"$G/phxboot-autologin"; }
+al_off(){ [ -e "$G/phxboot-autologin" ] || return 0
+  defaults delete "$LWDOM" autoLoginUser >/dev/null 2>&1
+  "$PB" -c "Delete :autoLoginUser" "$LWDOM.plist" >/dev/null 2>&1   # the plist too (cfprefsd may be gone at a TERM)
+  sync; echo "autologin: $(date '+%T') off ($1): autoLoginUser removed, a password login unless the daemon turns it on"; }
+al_on(){ [ -e "$G/phxboot-autologin" ] || return 0
+  local u; u=$(al_user)
+  [ -n "$u" ] || { echo "autologin: ~/gpu/phxboot-autologin is empty: no automatic login"; return 0; }
+  [ -s "$KCPW" ] || { echo "autologin: $KCPW missing (run sysadminctl -autologin set once): no automatic login"; return 0; }
+  defaults write "$LWDOM" autoLoginUser "$u" >/dev/null 2>&1
+  echo "autologin: $(date '+%T') on for '$u' before the Metal WindowServer restart (reads '$(defaults read "$LWDOM" autoLoginUser 2>/dev/null)')"; }
+b21_on(){ al_off "$1"
+  b21_ok || return 0
   local was o rec=earlier rc f how=""
   was=$(b21_cfp)
   if [ -e "$B21ORIG" ]; then o=$(cat "$B21ORIG")
@@ -166,7 +184,7 @@ b21_off(){ b21_ok || return 0
     echo "b21guard: $(date '+%T') OFF before the Metal WindowServer restart: SHOWFULLNAME back to the user's '$o' (rc $rc, reads '$now'): avatar on the accelerated login"
   else echo "b21guard: $(date '+%T') OFF FAILED: SHOWFULLNAME reads '$now', not the user's '$o' (rc $rc): name + password this login, the user's value kept in $B21ORIG"; fi; }
 if b21_ok; then b21_on "daemon start"
-else echo "b21guard: off (~/gpu/phxboot-b21guard = 0): SHOWFULLNAME not managed$([ -e "$B21ORIG" ] && echo " (a guard ON left by an earlier boot stays: the user's value '$(cat "$B21ORIG")' is in $B21ORIG)")"; fi
+else al_off "daemon start";  echo "b21guard: off (~/gpu/phxboot-b21guard = 0): SHOWFULLNAME not managed$([ -e "$B21ORIG" ] && echo " (a guard ON left by an earlier boot stays: the user's value '$(cat "$B21ORIG")' is in $B21ORIG)")"; fi
 # Squat detection (11-02): poll until PhxFBSquatter (squat boot) or an
 # IOFramebuffer (IONDRV/GOP boot) appears, up to 60 s. The old one-shot check ran before the squatter attached on fast
 # boots (no -v: the daemon starts ~4 s after the kernel), read 0, and wait_fb then waited 90 s for a framebuffer the
@@ -502,6 +520,7 @@ if [ $DESK = 1 ]; then
   offer_open   # every head-0 mode for the restarted WindowServer
   disp_ovr     # rotation rot15: the highest rate is the default at a new display set (read by the restarted WindowServer)
   b21_off      # login-window guard: the user's SHOWFULLNAME for the accelerated loginwindow the restart brings up
+  al_on        # automatic login by the accelerated loginwindow (flag ~/gpu/phxboot-autologin)
   echo "restarting WindowServer once (Metal ready, AGDC up) at $(date '+%T')"
   killall -9 WindowServer 2>/dev/null
   nap 6
