@@ -78,8 +78,6 @@ static void panelTiming(IOService *fb, uint32_t t[NVK5_TIMING_WORDS])
     t[NVK5_T_REFRESH_MHZ] = mhz; t[NVK5_T_HSYNCPOS] = 1; t[NVK5_T_VSYNCPOS] = 0;
 }
 
-extern int gPhxVrrProbe;   // phxfb.cpp: debug.phxfb0_vrrprobe
-
 IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned long *in, unsigned long inSize,
                                                     unsigned long *out, unsigned long *outSize, IOExternalMethodArguments *)
 {
@@ -138,13 +136,6 @@ IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned l
         if (gLogged < 40) { gLogged++; AGLOG("command %#x not answered (result %d, why %#x)", cmd, r, why); }
         if (r == NVK5_R_BADARG) return kIOReturnBadArgument;
         if (r == NVK5_R_NOTFOUND) return kIOReturnNotFound;
-    }
-    // VRR probe (2026-11-20, debug.phxfb0_vrrprobe, phxfb.cpp): Apple's AMD driver answers 0x979 with an AGDCVrrCapability_t
-    // (0x44 bytes) whose first dword is its capability query's result, the rest left zero
-    if (cmd == 0x979u && gPhxVrrProbe) {
-        const bool fits = out && outSize && *outSize >= 4;
-        AGLOG("vrrprobe: command 0x979 (VRR capability), in %lu bytes, out %lu bytes%s", inSize, outSize ? *outSize : 0ul, fits ? ": answered 1" : ": no out buffer, refused");
-        if (fits) { bzero(out, *outSize); *(uint32_t *)out = 1; return kIOReturnSuccess; }
     }
     OSAddAtomic64(1, &gRefused); gLastRefused = (int)cmd;
     if (gLogged < 40) { gLogged++; AGLOG("command %#x (in %lu bytes) -> Unsupported [%d/40]", cmd, inSize, gLogged); }

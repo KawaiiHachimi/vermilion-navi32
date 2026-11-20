@@ -30,40 +30,35 @@ The XTX is the same die with nothing disabled. These were checked against the XT
 | 5 | Metal core count 84 | `src/metal-plugin/nvmtl_corecount.c` | follow the profile | Cosmetic |
 | 6 | Docs say revision `0xCC` only | `README.md`, `docs/INSTALL.md`, `bringup_navi31.sh` | Name both | Cosmetic |
 
-## The bigger work: a 1440p monitor
+## A 1440p monitor (LG ULTRAGEAR+, 2560x1440 at up to 240 Hz)
 
-Upstream's display code is built around two 1080p monitors. On one 2560x1440 DisplayPort monitor:
+Upstream's display code is built around two 1080p monitors. On the XTX machine, with one 2560x1440 DisplayPort
+monitor, this works from System Settings > Displays (verified on the XTX machine, 2026-11-20):
 
-- **60 Hz should work as it is.** The GOP lights 1440p60, Vermilion keeps the mode, and PhxAMDFB takes its geometry
-  from the firmware framebuffer.
-- **Everything that changes the mode refuses cleanly** (zero writes). That covers the pipe-0 and pipe-2 engines,
-  the DP stream fix and the `b15`/`wm144`/`hubp_dlg`/`p0prefetch` scripts. They only accept OTG totals of upstream's
-  1080p modes.
-- **GPU present at 1440p needs VermilionBoot b126:** b125's scan slots are 8 MiB and a 1440p frame is 14.06 MiB, so
-  every frame was CPU-copied into phxfb's flip buffer B (which does fit). b126 gives frames over 8 MiB three slots at
-  256/288/320 MiB (`PhxScanLayout.h`; past BAR0, written by the GPU only); 1080p keeps the slots at 24/32/40 MiB.
-  GPU present at 1440p is unverified on hardware.
-- **The GOP mode on the XTX machine is 2560x1440 at 60 Hz** (kernel log, OTG0 totals 2720x1481, 2026-11-19).
-- **No DP link retraining.** 1440p at 144 Hz needs HBR2 x4, and 240 Hz needs HBR3 x4 or DSC. Vermilion can only
-  re-time the link the GOP trained.
-- **The EDID is read up to 256 bytes;** the LG's is 384. The 120/144 Hz modes are in the first 256 bytes; DisplayID
-  data in block 2 is lost.
-- **The GOP's DMCUB firmware version is hard-gated** (`0x07008742`). If the XFX VBIOS ships another version, every
-  DMUB-driven feature refuses. Unknown until the first macOS boot logs it.
+- **Every rate at 2560x1440: 60, 120, 144 and 240 Hz**, in any order. 240 Hz runs HBR3 with DSC and ODM 2:1, as Linux
+  drives it. VermilionBoot's replay engine (`PhxP0Odm.h`, b135+) replays Linux's own mode sets, captured on the same card
+  and monitor (`tools/capture/linux_display_capture.py`, `tools/capture/p0odm_from_trace.py`). Every switch goes through
+  Linux's 144 Hz and retrains the link at the lowest rate that fits.
+- **Every other mode the monitor lists:** 1920x1080 at 60 and 120 Hz, 1280x1024, 1024x768, 800x600 and 640x480. The
+  desktop resizes (PhxAccel reports each mode's own geometry with Linux's 256-pixel pitch, b138).
+- **The login screen comes up at the saved rate** (b140).
+- **Adaptive Sync:** System Settings offers "Variable (48-240 Hz)" next to the fixed rates (PhxAccel publishes the
+  timing range with Apple's VRR flag and a variable twin of the 240 Hz mode). Picking it turns on OTG0's V_TOTAL range
+  the way Linux's DCN 3.2 code does on a firmware without fw-assisted mclk switching, which the GOP's DMCUB build is
+  (b141-b144; `debug.phxvrr`, `debug.phxvrr_stat`). It works only at 2560x1440: the per-flip trigger that ends a frame
+  comes from GPU present, and the other sizes are drawn by the CPU copy. `~/gpu/phxboot-novrr` turns the offer off.
+- **GPU present** draws 2560x1440 at every rate (b126 slots, b143 under ODM 2:1). It runs only at the size it started at
+  (Metal plugin): the other sizes are drawn by the CPU copy. A size change gives the plane back first (b139).
 
-What 1440p high refresh needs, in order:
+Not done yet: HDR (the Linux traces are in capture v3), and Variable at the other sizes.
 
-1. Log the GOP state on the first macOS boot: DMCUB version (SCRATCH1), DP link rate and lane count, OTG totals,
-   DPCD.
-2. Capture on Linux, same card and monitor, as root: `amdgpu_dm_dtn_log` and the DCN registers per mode (OTG, HUBP
-   DLG/TTU, DCHUBBUB watermarks, DET, clocks, DIG/DP), DPCD from `/dev/drm_dp_aux*`, and an ftrace of the mode
-   changes.
-3. Code:
-   - scan slots for 1440p (b126, unverified);
-   - EDID segment pointer (384 bytes);
-   - mode matching by the EDID's own timings instead of two fixed 1080p entries;
-   - DP retraining on the GOP's connector;
-   - then 1440p plans for 120/144/165/240 Hz and their watermarks.
+What macOS needs for Adaptive Sync, and where each value comes from:
+[findings/2026-11-20-adaptive-sync-research.md](../.agents/findings/2026-11-20-adaptive-sync-research.md).
+
+**NVRAM:** `DisableVariableWrite` stays on (the installer hangs on this board without it), so macOS can't clear
+`phxfb-squat`. A failed accelerated boot used to reboot in a loop; since 2026-11-20 the boot daemon notices that the
+squat survived its reboot and brings up a safe desktop instead (`~/gpu/phxboot-nvstuck`). Reset NVRAM in the OpenCore
+picker clears the squat ([findings/2026-11-20-b138-freeze-and-squat-loop.md](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md)).
 
 ## First boot on the XTX
 

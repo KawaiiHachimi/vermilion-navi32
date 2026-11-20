@@ -228,3 +228,14 @@ squat: three reboots in a row on 2026-11-20 until Linux deleted it. A squat boot
 plain PhxAMDFB desktop is the only way to a picture without leaving macOS.
 **Revisit:** if `DisableVariableWrite` goes off, the first recovery reboot clears the squat as upstream designed and the
 safe desktop never runs.
+
+## 2026-11-20: Adaptive Sync through Linux's OTG register path, offered by default
+
+**Decision:** VRR on the XTX machine uses Linux's DCN 3.2 register path (OTG_V_TOTAL_MAX, MIN, CONTROL, and
+OTG_TRIGA_MANUAL_TRIG per flip), never the DMUB FAMS command, and PhxAccel offers "Variable" by default when the monitor
+and PhxBringup support it (opt-out `~/gpu/phxboot-novrr`).
+**Why:** Linux on this card used the DMUB FAMS command, but only because its own firmware reports fw-assisted mclk
+switching. The GOP's DMCUB build that runs on macOS reports none (`debug.phxdmub_caps`), so Linux's code would take the
+register path on it, and PhxDmub.h forbids FAMS commands to that firmware. Box-verified 2026-11-20 (OTG0 52-188 Hz with the
+content). Default on: the offer needs the LG's 240 Hz DisplayID timing, which the XT's monitors don't have.
+**Revisit:** if Linux's firmware ever runs on macOS, or for the CPU-copy sizes (no per-flip trigger there yet).

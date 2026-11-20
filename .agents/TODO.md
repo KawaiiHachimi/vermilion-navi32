@@ -129,7 +129,10 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Test:** restart; pick Variable, move windows (OSD follows), pick 144 (fixed 144), Variable again.
       **23:08 on the box: works** (owner: "Works amazingly"; log: Variable -> range on, 1080p120 / 1440p120 -> off, Variable
       -> on, 6057 triggers). Left: Variable for the other resolutions; the probe flag becomes the feature (rename,
-      docs); the CPU copy has no trigger (Variable needs GPU present: 1440p only today)
+      docs); the CPU copy has no trigger (Variable needs GPU present: 1440p only today).
+      2026-11-21 00:10 cleanup: the probe is the feature (`debug.phxfb0_vrr`, default 1; daemon opt-out
+      `~/gpu/phxboot-novrr`, off on the safe desktop); probe diagnostics removed; docs/XTX.md updated. Installed, not
+      booted (behaviour unchanged)
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)

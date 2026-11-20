@@ -121,29 +121,22 @@ static int phxfb0OfferSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb0_offer, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfb0OfferSysctl, "I",
             "head 0's offer gate: 1 = every listed mode offered, 0 = only the lit one (closed at start with a mode list); write 1 (root) to open it and drop the IOFBConfig cache");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_offer_opens, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0OfferOpens, "head 0: offer gate openings");
-// VRR probe (2026-11-20, findings 2026-11-20-adaptive-sync-research.md): read when head 0 starts. 1 = head 0 publishes
-// IOFBTimingRange with the EDID's range and Apple's AMD driver's VRR sync flag (0x10), PhxAGDC answers the VRR capability
-// command 0x979, and what CoreDisplay then calls (detailed timings, attributes) is logged. Nothing on the hardware
-// changes: proposed timings are refused as before. 0 (default) = none of it.
-int gPhxVrrProbe = 0;
-SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrprobe, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrrProbe, 0,
-           "VRR probe (read at head 0's start): 1 = publish the VRR timing range, answer AGDC 0x979, log CoreDisplay's timing calls");
-static SInt64 gVrrProbeCalls = 0;
-SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_vrrprobe_calls, CTLFLAG_RD | CTLFLAG_LOCKED, &gVrrProbeCalls, "VRR probe: CoreDisplay timing / attribute calls logged");
+// Adaptive Sync (findings 2026-11-20-adaptive-sync-research.md; works on the XTX machine 2026-11-20): read when head 0
+// starts. 1 (default) = when the EDID has a range limits descriptor, the 240 Hz DisplayID timing is listed and PhxBringup
+// switches the range ("phxVrrSet", property phx-vrr-fn, b144+), head 0 publishes IOFBTimingRange with Apple's AMD driver's
+// VRR sync flag (0x10) and offers the variable twin of 240 whose timing carries verticalBlankingExtension: System Settings
+// shows "Variable (48-240 Hz)" next to the fixed rates. 0 = none of it (the boot daemon's ~/gpu/phxboot-novrr, the safe
+// desktop). The XT machine's monitors have no such timing: its lists are unchanged (head0_1440_test).
+int gPhxVrr = 1;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrr, 1,
+           "Adaptive Sync on head 0 (read at its start): 1 = offer System Settings' Variable when the monitor and PhxBringup support it, 0 = never");
 // Registered when the kext loads (_start, nvrm-accel.cpp), not at PhxAMDFB's start like kFbOids: the boot daemon sets it
 // before the claim, and head 0 reads it before IOFramebuffer::start. Never in kFbOids too (a second registration panics).
 static bool gVrrOidsUp = false;
-void phxVrrProbeOids(bool up) {
+void phxVrrOids(bool up) {
     if (up == gVrrOidsUp) return;
-    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrrprobe); sysctl_register_oid(&sysctl__debug_phxfb0_vrrprobe_calls); }
-    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrprobe); sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrprobe_calls); }
+    if (up) sysctl_register_oid(&sysctl__debug_phxfb0_vrr); else sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr);
     gVrrOidsUp = up;
-}
-static void vrrLogTiming(const char *who, const IODetailedTimingInformationV2 *d) {
-    if (OSAddAtomic64(1, &gVrrProbeCalls) >= 64 || !d) return;
-    PFBLOG("vrrprobe: %s: %ux%u pclk %llu Hz hblank %u vblank %u vbe %u sigcfg 0x%x flags 0x%x bpc %u", who, d->horizontalActive,
-           d->verticalActive, (unsigned long long)d->pixelClock, d->horizontalBlanking, d->verticalBlanking, d->verticalBlankingExtension,
-           d->signalConfig, d->horizontalSyncConfig, d->bitsPerColorComponent);
 }
 static int phxfbResyncSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb_resync, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfbResyncSysctl, "I",
@@ -314,8 +307,8 @@ class PhxAMDFB : public IOFramebuffer {
     // b138: the boot console's geometry (the GOP's surface A, its VRAM and flip-B placement); fWidth / fHeight / fRowBytes
     // follow the lit mode once PhxBringup resizes the scan-out (head 0 with phx-p0-keys), else they stay these
     uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
-    uint32_t fVrrMinHz = 0;   // VRR probe: the EDID's minimum rate while the timing range is published (0 = off)
-    uint32_t fVrrSaid = 0;    // VRR probe: mode ids whose extension was logged (bit per id)
+    uint32_t fVrrMinHz = 0;   // Adaptive Sync: the EDID's minimum rate while Variable is offered (0 = not offered)
+    uint32_t fVrrSaid = 0;    // Adaptive Sync: mode ids whose extension was logged (bit per id)
     bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
     const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
         return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
@@ -894,14 +887,15 @@ public:
             // rot5 / rot9: while a head is gated, a head's other modes leave CoreDisplay's default-mode choice (phxrot::h0Vbe,
             // h1Vbe), so the current one stays the default at a new display set
             d.verticalBlankingExtension = phxRotH0Vbe(fHead, (uint32_t)mode, fModeId);
-            // VRR probe step 2: the 1440p modes carry the stretch to the EDID's minimum rate, as Apple's AMD driver's mode
-            // validation hands them out (AGDC notifyModeValidation); rotation's own mark keeps priority
+            // Adaptive Sync: the variable twin carries the stretch to the EDID's minimum rate, as Apple's AMD driver's mode
+            // validation hands it out (AGDC notifyModeValidation); macOS folds every mode with one into "Variable", so the
+            // fixed rates carry none; rotation's own mark keeps priority
             const phxhead::HeadMode *vm = fHead ? nullptr : phxhead::headMode(0, (uint32_t)mode);
             if (fVrrMinHz && vm && phxhead::isVrrTwin(*vm) && !d.verticalBlankingExtension) {
                 d.verticalBlankingExtension = phxhead::vrrExtension(t, fVrrMinHz);
                 if (mode > 0 && mode < 32 && !(fVrrSaid & (1u << mode))) {
                     fVrrSaid |= 1u << mode;
-                    PFBLOG("vrrprobe: mode %d %ux%u: verticalBlankingExtension %u (to %u Hz)", (int)mode, t.hActive, t.vActive,
+                    PFBLOG("vrr: mode %d %ux%u: verticalBlankingExtension %u (to %u Hz)", (int)mode, t.hActive, t.vActive,
                            d.verticalBlankingExtension, fVrrMinHz);
                 }
             }
@@ -912,16 +906,9 @@ public:
     IOItemCount getConnectionCount() override { return 1; }
     // rotation S1: CoreDisplay's rotated modes. Not gated = IOFramebuffer's own answers (unsupported), as before.
     IOReturn validateDetailedTiming(void *desc, IOByteCount size) override {
-        if (gPhxVrrProbe && !fHead && desc && size >= sizeof(IODetailedTimingInformationV2)) vrrLogTiming("validateDetailedTiming", (const IODetailedTimingInformationV2 *)desc);
         return phxRotGate(fHead) ? phxRotValidate(rotModes(), desc, size) : IOFramebuffer::validateDetailedTiming(desc, size);
     }
     IOReturn setDetailedTimings(OSArray *array) override {
-        if (gPhxVrrProbe && !fHead && array) {
-            PFBLOG("vrrprobe: setDetailedTimings: %u timing(s)", array->getCount());
-            for (unsigned i = 0; i < array->getCount(); i++)
-                if (OSData *t = OSDynamicCast(OSData, array->getObject(i)))
-                    if (t->getLength() >= sizeof(IODetailedTimingInformationV2)) vrrLogTiming("setDetailedTimings", (const IODetailedTimingInformationV2 *)t->getBytesNoCopy());
-        }
         if (phxRotGate(fHead)) return phxRotSetTimings(fRot, rotModes(), array);
         phxRotClear(fRot);
         return IOFramebuffer::setDetailedTimings(array);
@@ -1013,8 +1000,6 @@ public:
         return kIOPMAckImplied;
     }
     IOReturn setAttribute(IOSelect attribute, uintptr_t value) override {
-        if (gPhxVrrProbe && !fHead && attribute == kIOFBVariableRefreshRate && OSAddAtomic64(1, &gVrrProbeCalls) < 64)
-            PFBLOG("vrrprobe: setAttribute('vrr?', %lu)", (unsigned long)value);
         if (attribute == kIOWindowServerActiveAttribute) return kIOReturnSuccess;
         if (attribute == kIOPowerAttribute) {
             if (value) { IOReturn r = IOFramebuffer::setAttribute(attribute, value); handleEvent(kIOFBNotifyDidPowerOn);
@@ -1027,11 +1012,6 @@ public:
     }
     IOReturn getAttribute(IOSelect attribute, uintptr_t *value) override {
         if (attribute == kIOWindowServerActiveAttribute) { if (value) *value = 1; return kIOReturnSuccess; }
-        if (gPhxVrrProbe && !fHead && attribute == kIOFBVariableRefreshRate) {
-            const IOReturn r = IOFramebuffer::getAttribute(attribute, value);
-            if (OSAddAtomic64(1, &gVrrProbeCalls) < 64) PFBLOG("vrrprobe: getAttribute('vrr?') -> 0x%x value %lu", r, value ? (unsigned long)*value : 0ul);
-            return r;
-        }
         return IOFramebuffer::getAttribute(attribute, value);
     }
     IOReturn setAttributeForConnection(IOIndex idx, IOSelect attribute, uintptr_t value) override {
@@ -1430,6 +1410,7 @@ bool PhxAMDFB::start(IOService *provider)
     if (IOService *b = copyBringup("phx-pipe0-mode-fn")) {   // AOC at 144: the list must be complete before IOFramebuffer::start's first query (R0 D1)
         const bool armed = b->getProperty("phx-pipe0-modes") == kOSBooleanTrue;
         fAnySize = b->getProperty("phx-p0-keys") == kOSBooleanTrue;   // b138: PhxBringup b138+ resizes the scan-out
+        const bool vrrFn = b->getProperty("phx-vrr-fn") == kOSBooleanTrue;   // b144: PhxBringup switches the VRR range
         b->release();
         if (armed) {
             measureRefresh();
@@ -1447,9 +1428,9 @@ bool PhxAMDFB::start(IOService *provider)
                 fb->release();
             }
             PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
-            // VRR probe: the EDID's range decides here, before the list (the twin is offered only with the range published)
+            // Adaptive Sync: decided here, before the list (the twin is offered only with the range published)
             phxhead::EdidRange vr{};
-            fVrrMinHz = gPhxVrrProbe && phxhead::edidRange(fEdid, fEdidLen, &vr) ? vr.minVHz : 0;
+            fVrrMinHz = gPhxVrr && vrrFn && phxhead::edidRange(fEdid, fEdidLen, &vr) ? vr.minVHz : 0;
             const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
@@ -1462,7 +1443,7 @@ bool PhxAMDFB::start(IOService *provider)
         if (fNModes) PFBLOG("head 0 offer gate %s: %s", gHead0OfferOpen ? "open" : "CLOSED",
                             gHead0OfferOpen ? "every listed mode offered (-phxfb0open)" : "only the lit mode until debug.phxfb0_offer=1 (the daemon, before its restart)");
     }
-    if (!fHead && fVrrMinHz) {   // VRR probe (the twin listed, above): the timing range Apple's AMD driver publishes (reportCapabilities)
+    if (!fHead && fVrrMinHz) {   // Adaptive Sync (the twin listed, above): the timing range Apple's AMD driver publishes (reportCapabilities)
         phxhead::EdidRange er{};
         if (phxhead::edidRange(fEdid, fEdidLen, &er)) {
             IODisplayTimingRangeV2 tr;
@@ -1478,9 +1459,9 @@ bool PhxAMDFB::start(IOService *provider)
             tr.charSizeHorizontalTotal = tr.charSizeVerticalTotal = 1;
             tr.maxNumLinks = 1;
             if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
-            PFBLOG("vrrprobe: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
+            PFBLOG("vrr: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
                    er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
-        } else PFBLOG("vrrprobe: the EDID has no range limits descriptor: nothing published");
+        } else PFBLOG("vrr: the EDID has no range limits descriptor: nothing published");
     }
     if (!IOFramebuffer::start(provider)) { OSSafeReleaseNULL(fSurfMap); return false; }
     fVa = IORangeAllocator::withRange(kVaSize - 1, PAGE_SIZE, 0, IORangeAllocator::kLocking);

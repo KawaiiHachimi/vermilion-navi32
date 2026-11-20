@@ -113,9 +113,9 @@ extern "C" { KMOD_EXPLICIT_DECL(org.vermilion.accel, "0.1", _start, _stop) }
 #else
 extern "C" { KMOD_EXPLICIT_DECL(com.nullmoth.NVAccel, "0.1", _start, _stop) }
 #endif
-void phxVrrProbeOids(bool up);   // phxfb.cpp: debug.phxfb0_vrrprobe, set by the boot daemon before the claim
-extern "C" kern_return_t _start(kmod_info_t *ki, void *d) { phxVrrProbeOids(true); return KERN_SUCCESS; }
-extern "C" kern_return_t _stop(kmod_info_t *ki, void *d)  { phxVrrProbeOids(false); return KERN_SUCCESS; }
+void phxVrrOids(bool up);   // phxfb.cpp: debug.phxfb0_vrr, set by the boot daemon before the claim
+extern "C" kern_return_t _start(kmod_info_t *ki, void *d) { phxVrrOids(true); return KERN_SUCCESS; }
+extern "C" kern_return_t _stop(kmod_info_t *ki, void *d)  { phxVrrOids(false); return KERN_SUCCESS; }
 
 class NVEventMachine : public IOAccelEventMachineFast2 {
     OSDeclareDefaultStructors(NVEventMachine)
