@@ -149,6 +149,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
           status bits (dpb_retrain 69/69; VermilionBoot sha256 `0f2ceee9...`). Same test and rollback as b129 (OC.prev = b129)
     - [ ] D. 240 Hz SDR: retrain DP B to HBR3 (TRANSMITTER_CONTROL bytes from A, TPS4, extended caps), 2-pixel-per-cycle
           plan, head-0 row; fall back to HBR2 + the 60 Hz plan on any failure
+    - [~] 2026-11-20 E1 research: Linux's 144 -> 240 mode set decoded (incl. AUX / DPCD); one pipe is a blank interim only,
+          the picture runs on ODM 2:1 + DSC x2 + FEC. Build plan (generator, engine, flip on both HUBPs, head-0 row 240) in
+          [240hz-plan](findings/2026-11-20-240hz-plan.md)
     - [ ] E. 240 Hz HDR: FEC + DSC (+ ODM 2:1 as Linux) at 10 bpc
   - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
         `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
