@@ -129,7 +129,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
     - [ ] B. HDR at 60-144 Hz (no link change): 7a probe, then 10-bit scan-out + 10 bpc output + HDR infoframe + PQ path
     - [ ] C. DMUB on this card (asks the owner first): does DMCUB `0x07008748` answer Linux's QUERY_FEATURE_CAPS; gate
           gets `0x07008748` next to `0x07008742` (rev 0xC8 only)
-    - [~] 2026-11-20 **D1 / D2 = VermilionBoot b129** (owner OK for the DMUB ping + TRANSMITTER_CONTROL): `debug.phxdpb_retrain`
+    - [x] 2026-11-20 **D1 / D2 work on hardware (b130): DP B retrained HBR2 -> HBR3 -> HBR2, picture normal each time**
+          ([240hz-plan](findings/2026-11-20-240hz-plan.md)). Install notes:
+          **D1 / D2 = VermilionBoot b129** (owner OK for the DMUB ping + TRANSMITTER_CONTROL): `debug.phxdpb_retrain`
           1 survey, 2 retrain DP B at HBR2 x4, 3 at HBR3 x4 (falls back to HBR2). Inert until root writes it. Host test
           dpb_retrain 67/67; mock 193/159. Built on the Mac (VermilionBoot sha256 `5b61b345...`). Install with
           `efi/build.py install --stage vermilion` (OC.prev = the b128 EFI, booted 2026-11-20). **Installed 2026-11-20 07:16**
