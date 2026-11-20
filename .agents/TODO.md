@@ -104,11 +104,15 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       Apple's AMD driver: `IOFBTimingRange` with sync flag 0x10, the range per mode in `verticalBlankingExtension`, AGDC
       command 0x979 (VRR capability), an Adaptive Sync SDP. Probe (PhxAccel, flag `~/gpu/phxboot-vrrprobe`, off by
       default): publishes the range (48-240 Hz from the EDID) with the flag, answers 0x979, logs CoreDisplay's timing and
-      `'vrr?'` calls; no hardware change. Host: head0_1440 41/41, mock 211/211. Built, NOT installed.
+      `'vrr?'` calls; no hardware change. Host: head0_1440 41/41, mock 211/211. First install (21:14) booted 21:53
+      without its sysctl: PhxAMDFB registers its sysctls at its own start (the claim), after the daemon's write; now
+      registered at kext load (_start). Reinstalled 22:05 (UUID 77557B85), flag `~/gpu/phxboot-vrrprobe` set.
+      **Rollback:** rm ~/gpu/phxboot-vrrprobe (the probe is then inert); PhxAccel copies in `~/vermilion-rollback/`.
+      b140 verified 21:54: the login screen switched to 240 at 21:54:18, 4 s before it was shown.
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
-- [~] 2026-11-20 **b140: the login screen gets its saved rate** (installed 20:55, EFI `OC` = b140 sha 8b5ead5b, `OC.prev`
+- [x] 2026-11-20 **b140: the login screen gets its saved rate** (verified 21:54) (installed 20:55, EFI `OC` = b140 sha 8b5ead5b, `OC.prev`
       = b139; b138 kext in `~/vermilion-rollback/`). b139's login screen ran at the firmware's 60 Hz: its 240 Hz request
       (20:39:39) was refused "not ready" because the scanout lock only existed after GPU present's first acquire (20:39:46).
       **Test:** restart; the login screen at 240 (OSD). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`

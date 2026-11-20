@@ -130,6 +130,15 @@ SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrprobe, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhx
            "VRR probe (read at head 0's start): 1 = publish the VRR timing range, answer AGDC 0x979, log CoreDisplay's timing calls");
 static SInt64 gVrrProbeCalls = 0;
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_vrrprobe_calls, CTLFLAG_RD | CTLFLAG_LOCKED, &gVrrProbeCalls, "VRR probe: CoreDisplay timing / attribute calls logged");
+// Registered when the kext loads (_start, nvrm-accel.cpp), not at PhxAMDFB's start like kFbOids: the boot daemon sets it
+// before the claim, and head 0 reads it before IOFramebuffer::start. Never in kFbOids too (a second registration panics).
+static bool gVrrOidsUp = false;
+void phxVrrProbeOids(bool up) {
+    if (up == gVrrOidsUp) return;
+    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrrprobe); sysctl_register_oid(&sysctl__debug_phxfb0_vrrprobe_calls); }
+    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrprobe); sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrprobe_calls); }
+    gVrrOidsUp = up;
+}
 static void vrrLogTiming(const char *who, const IODetailedTimingInformationV2 *d) {
     if (OSAddAtomic64(1, &gVrrProbeCalls) >= 64 || !d) return;
     PFBLOG("vrrprobe: %s: %ux%u pclk %llu Hz hblank %u vblank %u vbe %u sigcfg 0x%x flags 0x%x bpc %u", who, d->horizontalActive,
