@@ -67,3 +67,32 @@ variable-refresh timing (inferred).
   the AGDC client during mode validation (inferred), and the timing range only says "capable".
 - Probe step 2 (PhxAccel, same flag): head 0's 1440p modes report the extension to the EDID minimum themselves
   (`phxhead::vrrExtension`: pixel clock / (H total x 48 Hz) - V total; 1440p60: 368 lines). Host: head0_1440 47/47.
+
+## Probe step 2 on the box (2026-11-20 22:12): System Settings offers "Variable (48-240 Hz)"
+
+- With the timing range (sync flag 0x10) **and** an extension on each 1440p mode (3: 368, 4: 2287, 5: 3031, 6: 6474
+  lines to 48 Hz), System Settings shows **Variable (48-240 Hz)** and nothing else for 2560x1440, and picked it itself
+  (mode 6). The hardware stays fixed: OTG0 measured 240.000 Hz. Still 0 `validateDetailedTiming` / `'vrr?'` calls and no
+  AGDC 0x979: macOS needs only the range flag and the per-mode extension.
+- macOS folds every 1440p mode that has an extension into the one "Variable" entry, so the fixed rates are gone from
+  the menu. Apple's Macs list "Variable" next to fixed rates: the fixed modes need no extension, and the variable entry
+  its own mode (the 240 timing with the extension; inferred).
+
+## The hardware side is in capture v3 after all: a DMUB command, not registers
+
+DCN 3.2 on this card sets the V_TOTAL range through the DMUB firmware: command type 0x4c (`FW_ASSISTED_MCLK_SWITCH`),
+subtype 0x01 (`FAMS_DRR_UPDATE`), header `0x0c00014c`, payload c1 = V_TOTAL max, c2 = V_TOTAL min (register values,
+lines - 1), c3.. = 0. In the traces (`trace-modeset.txt`, `dmubcmd1` lines):
+
+| Step | DRR_UPDATE (max, min) |
+|---|---|
+| plain 144 | 0x5eb, 0x5eb only (fixed, 578 times; one per frame with `0x0c00034c` = subtype 3 `SET_MANUAL_TRIGGER`) |
+| to-vrr-143.99 | 0x5eb, 0x5eb, once 0xc53 / 0xc53 (VRR inactive in the traced window) |
+| from-vrr-143.99 (VRR active, back at the hub) | **0x11c3 / 0x5eb, 85 times** (4548 lines = 48 Hz at the 144 timing; the probe's own extension 1516 + 3031 = 4547 + 1), and single equal pairs while ramping |
+| plain / vrr 240 | 0x652 / 0x652 (fixed); 240's mode sets also send `FAMS_SETUP` (0x3400004c, c1 = 1, c2 = 0xa13f4c, c3 = 0x2000101, c4 = 0x100) |
+
+So on the hardware, VRR on = `FAMS_DRR_UPDATE` with max = the 48 Hz V_TOTAL - 1 and min = the mode's V_TOTAL - 1;
+VRR off = max = min. Open: the replay plans drop every DMUB command but TRANSMITTER_CONTROL (`p0odm_from_trace.py`), so
+whether DMUB's FAMS is set up on macOS, and whether a DRR_UPDATE without Linux's `FAMS_SETUP` works, is not known.
+The Adaptive Sync SDP (VPG1 generic packet `0x13050700..`, `DP_SEC_CNTL 0x501111`) and DPCD 0x107 = 0x90 (MSA timing
+ignore, set in every step of the run) are the other pieces.
