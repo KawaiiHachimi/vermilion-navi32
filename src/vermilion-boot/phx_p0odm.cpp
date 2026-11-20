@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 // phx_p0odm.cpp: the pipe-0 replay engine's glue (PhxP0Odm.h): debug.phxp0odm + debug.phxp0odm_stat, and System Settings'
 // 1440p rates through phxPipe0SetMode (p0OdmRoute).
-//   debug.phxp0odm (int): root writes 1 = survey, a target rate (60, 120, 144, 240), or the b131 aliases 2 = 240, 3 = 144.
+//   debug.phxp0odm (int): root writes 1 = survey, a target rate (60, 120, 144, 240), or the b131 aliases 2 = 240, 3 = 144;
+//     b137: the other EDID modes as height * 1000 + Hz (1080060 1920x1080@60, 1080120, 1024075 1280x1024@75, 768060,
+//     600060, 480060, 480059 = 640x480@59.94). The other resolutions run under macOS's 2560x1440 desktop for now: the
+//     monitor gets the real mode and shows the desktop's top-left corner (PhxAccel does not resize the desktop yet).
 //     Reads return the last selector (-1 = never). Inert until written.
 // Under gP2Busy, the EDID/AUX lock and scanLock (no flip while a plan runs; the flip path then follows gP0OdmActive).
 // b135: one set of Linux replays for 60 / 120 / 144 / 240 through Linux's 144 (capture v3), replacing b134's 240-only
@@ -10,28 +13,66 @@
 
 #include "PhxP0Odm.h"
 #include "phx_p0odm_1440p240.inc"        // b133: the entry, macOS's 144 (one pixel per clock) -> 240 (capture v2)
-#include "phx_p0odm_1440p60_to.inc"      // b135: capture v3, Linux's 144 hub -> 60 and back
+// capture v3: Linux's 144 hub -> each mode and back (b135 the 1440p rates, b137 the other resolutions)
+#include "phx_p0odm_1440p60_to.inc"
 #include "phx_p0odm_1440p60_from.inc"
 #include "phx_p0odm_1440p120_to.inc"
 #include "phx_p0odm_1440p120_from.inc"
 #include "phx_p0odm_1440p240_to.inc"
 #include "phx_p0odm_1440p240_from.inc"
+#include "phx_p0odm_1080p60_to.inc"
+#include "phx_p0odm_1080p60_from.inc"
+#include "phx_p0odm_1080p120_to.inc"
+#include "phx_p0odm_1080p120_from.inc"
+#include "phx_p0odm_1024p75_to.inc"
+#include "phx_p0odm_1024p75_from.inc"
+#include "phx_p0odm_768p60_to.inc"
+#include "phx_p0odm_768p60_from.inc"
+#include "phx_p0odm_600p60_to.inc"
+#include "phx_p0odm_600p60_from.inc"
+#include "phx_p0odm_480p60_to.inc"
+#include "phx_p0odm_480p60_from.inc"
+#include "phx_p0odm_480p59_to.inc"
+#include "phx_p0odm_480p59_from.inc"
 
-#define PHX_ODM_PLAN(sym, nm, hz, v, rate) {sym, sizeof sym / sizeof sym[0], nm, hz, v, rate}
-static const phxodm::Plan kOdmEntry = PHX_ODM_PLAN(kPhxP0odm_1440p240, "1440p240-entry", 240, 0x652, 0x1e);
-static const phxodm::Plan kOdm60To = PHX_ODM_PLAN(kPhxP0odm_1440p60_to, "1440p60-to", 60, 0x5c8, 0x0a);
-static const phxodm::Plan kOdm60From = PHX_ODM_PLAN(kPhxP0odm_1440p60_from, "1440p60-from", 144, 0x5eb, 0x14);
-static const phxodm::Plan kOdm120To = PHX_ODM_PLAN(kPhxP0odm_1440p120_to, "1440p120-to", 120, 0x5f4, 0x14);
-static const phxodm::Plan kOdm120From = PHX_ODM_PLAN(kPhxP0odm_1440p120_from, "1440p120-from", 144, 0x5eb, 0x14);
-static const phxodm::Plan kOdm240To = PHX_ODM_PLAN(kPhxP0odm_1440p240_to, "1440p240-to", 240, 0x652, 0x1e);
-static const phxodm::Plan kOdm240From = PHX_ODM_PLAN(kPhxP0odm_1440p240_from, "1440p240-from", 144, 0x5eb, 0x14);
+#define PHX_ODM_PLAN(sym, nm, hz, v, rate, lanes) {sym, sizeof sym / sizeof sym[0], nm, hz, v, rate, lanes}
+#define PHX_ODM_BACK(sym, nm) PHX_ODM_PLAN(sym, nm, 144, 0x5eb, 0x14, 4)
+static const phxodm::Plan kOdmEntry = PHX_ODM_PLAN(kPhxP0odm_1440p240, "1440p240-entry", 240, 0x652, 0x1e, 4);
+static const phxodm::Plan kOdm60To = PHX_ODM_PLAN(kPhxP0odm_1440p60_to, "1440p60-to", 60, 0x5c8, 0x0a, 4);
+static const phxodm::Plan kOdm60From = PHX_ODM_BACK(kPhxP0odm_1440p60_from, "1440p60-from");
+static const phxodm::Plan kOdm120To = PHX_ODM_PLAN(kPhxP0odm_1440p120_to, "1440p120-to", 120, 0x5f4, 0x14, 4);
+static const phxodm::Plan kOdm120From = PHX_ODM_BACK(kPhxP0odm_1440p120_from, "1440p120-from");
+static const phxodm::Plan kOdm240To = PHX_ODM_PLAN(kPhxP0odm_1440p240_to, "1440p240-to", 240, 0x652, 0x1e, 4);
+static const phxodm::Plan kOdm240From = PHX_ODM_BACK(kPhxP0odm_1440p240_from, "1440p240-from");
+static const phxodm::Plan kOdm1080p60To = PHX_ODM_PLAN(kPhxP0odm_1080p60_to, "1080p60-to", 60, 0x464, 0x06, 4);
+static const phxodm::Plan kOdm1080p60From = PHX_ODM_BACK(kPhxP0odm_1080p60_from, "1080p60-from");
+static const phxodm::Plan kOdm1080p120To = PHX_ODM_PLAN(kPhxP0odm_1080p120_to, "1080p120-to", 120, 0x464, 0x0a, 4);
+static const phxodm::Plan kOdm1080p120From = PHX_ODM_BACK(kPhxP0odm_1080p120_from, "1080p120-from");
+static const phxodm::Plan kOdm1024p75To = PHX_ODM_PLAN(kPhxP0odm_1024p75_to, "1280x1024p75-to", 75, 0x429, 0x06, 4);
+static const phxodm::Plan kOdm1024p75From = PHX_ODM_BACK(kPhxP0odm_1024p75_from, "1280x1024p75-from");
+static const phxodm::Plan kOdm768p60To = PHX_ODM_PLAN(kPhxP0odm_768p60_to, "1024x768p60-to", 60, 0x325, 0x06, 2);
+static const phxodm::Plan kOdm768p60From = PHX_ODM_BACK(kPhxP0odm_768p60_from, "1024x768p60-from");
+static const phxodm::Plan kOdm600p60To = PHX_ODM_PLAN(kPhxP0odm_600p60_to, "800x600p60-to", 60, 0x273, 0x06, 1);
+static const phxodm::Plan kOdm600p60From = PHX_ODM_BACK(kPhxP0odm_600p60_from, "800x600p60-from");
+static const phxodm::Plan kOdm480p60To = PHX_ODM_PLAN(kPhxP0odm_480p60_to, "640x480p60-to", 60, 0x20c, 0x06, 1);
+static const phxodm::Plan kOdm480p60From = PHX_ODM_BACK(kPhxP0odm_480p60_from, "640x480p60-from");
+static const phxodm::Plan kOdm480p59To = PHX_ODM_PLAN(kPhxP0odm_480p59_to, "640x480p59.94-to", 60, 0x20c, 0x06, 1);
+static const phxodm::Plan kOdm480p59From = PHX_ODM_BACK(kPhxP0odm_480p59_from, "640x480p59.94-from");
+#undef PHX_ODM_BACK
 #undef PHX_ODM_PLAN
-// Linux's totals per rate (capture v3 regs.txt); the link rate Linux trained for each.
+// Linux's totals per mode (capture v3 regs.txt) and the link Linux trained for each (rate, lanes).
 static const phxodm::Mode kOdmModes[] = {
-    {60, 0x5c8, 0, 0x0a, &kOdm60To, &kOdm60From},
-    {120, 0x5f4, 0, 0x14, &kOdm120To, &kOdm120From},
-    {144, 0x5eb, 0, 0x14, nullptr, nullptr},   // the hub
-    {240, 0x652, 1, 0x1e, &kOdm240To, &kOdm240From},
+    {60, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &kOdm60To, &kOdm60From},
+    {120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &kOdm120To, &kOdm120From},
+    {144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x14, 4, nullptr, nullptr},   // the hub
+    {240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, &kOdm240To, &kOdm240From},
+    {1080060, 1920, 1080, 60, 0x897, 0x464, 0, 0x06, 4, &kOdm1080p60To, &kOdm1080p60From},
+    {1080120, 1920, 1080, 120, 0x897, 0x464, 0, 0x0a, 4, &kOdm1080p120To, &kOdm1080p120From},
+    {1024075, 1280, 1024, 75, 0x697, 0x429, 0, 0x06, 4, &kOdm1024p75To, &kOdm1024p75From},
+    {768060, 1024, 768, 60, 0x53f, 0x325, 0, 0x06, 2, &kOdm768p60To, &kOdm768p60From},
+    {600060, 800, 600, 60, 0x41f, 0x273, 0, 0x06, 1, &kOdm600p60To, &kOdm600p60From},
+    {480060, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p60To, &kOdm480p60From},
+    {480059, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p59To, &kOdm480p59From},
 };
 static const phxodm::Set kOdmSet = {kOdmModes, sizeof kOdmModes / sizeof kOdmModes[0], 2, &kOdmEntry, 3};
 
@@ -99,7 +140,7 @@ static int phxP0OdmSysctl SYSCTL_HANDLER_ARGS {
          : r == phxodm::kTimeout ? ETIMEDOUT : EIO;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxp0odm, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxP0OdmSysctl, "I",
-            "b135 root: 1 survey, or the 1440p rate 60 / 120 / 144 / 240 (2 = 240, 3 = 144); reads the last selector");
+            "b137 root: 1 survey, the 1440p rate 60 / 120 / 144 / 240 (2 = 240, 3 = 144), or another mode as height * 1000 + Hz (1080060, 1080120, 1024075, 768060, 600060, 480060, 480059); reads the last selector");
 
 static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;

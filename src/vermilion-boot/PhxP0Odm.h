@@ -51,13 +51,15 @@ static const char *const kResName[] = {"none", "refused", "surveyed", "DONE", "F
 constexpr int kResMax = kSame;
 enum Where : int { kMac = 0, kLinux = 1 };
 
-// One replay plan; hz / vTotal / rate = the mode it lands on and its link rate.
-struct Plan { const phx_p0odm_step *s; unsigned n; const char *name; uint32_t hz, vTotal; uint8_t rate; };
-// One mode of the set: to = hub -> this mode, from = this mode -> hub (both nullptr for the hub).
-struct Mode { uint32_t hz, vTotal; uint8_t odm, rate; const Plan *to, *from; };
+// One replay plan; hz / vTotal / rate / lanes = the mode it lands on and its link.
+struct Plan { const phx_p0odm_step *s; unsigned n; const char *name; uint32_t hz, vTotal; uint8_t rate, lanes; };
+// One mode of the set: to = hub -> this mode, from = this mode -> hub (both nullptr for the hub). key = the selector that
+// names it (b137): the 1440p rates by their Hz (60, 120, 144, 240: the b131-b136 selectors and phxPipe0SetMode's
+// target_hz), every other resolution as height * 1000 + Hz (1080060 = 1920x1080 at 60, 480059 = 640x480 at 59.94).
+struct Mode { uint32_t key, w, h, hz, hTotal, vTotal; uint8_t odm, rate, lanes; const Plan *to, *from; };
 // The set: modes, the hub's index, the entry from mac (lands on mode entryMode).
 struct Set { const Mode *m; unsigned n, hub; const Plan *entry; unsigned entryMode; };
-constexpr unsigned kMaxModes = 8;
+constexpr unsigned kMaxModes = 16;
 
 // Never written by a plan whatever it says: the DMCUB block, DENTIST, the DAL mailbox, MMVM semaphores, other pipes.
 inline bool denied(uint32_t r) {
@@ -77,7 +79,7 @@ static const Fp kFp[] = {
     {0x0012F, 0x00000ff8u, "OTG_PIXEL_RATE_DIV(OTG1-3)"},
 };
 static constexpr unsigned kNFp = sizeof kFp / sizeof kFp[0];
-constexpr uint32_t kHubp1Cntl = 0x03B8F, kMpcc1Opp = 0x09017, kDscTop0 = 0x064C0, kDscTop1 = 0x0651C, kOdmSrc = 0x04F8B,
+constexpr uint32_t kOtg0H = 0x04FEA, kHubp1Cntl = 0x03B8F, kMpcc1Opp = 0x09017, kDscTop0 = 0x064C0, kDscTop1 = 0x0651C, kOdmSrc = 0x04F8B,
                    kOdmTwo = 0x00100001u, kOdmOne = 0xfff00000u, kOtg0V = 0x04FEF, kOtg0Frame = 0x0500C, kHubp0Cntl = 0x03AB3,
                    kOdm1Global = 0x04F9A;
 constexpr uint32_t kDphyCntl = 0x056D7, kHubp1Clk = 0x03B90, kDom1Status = 0x03543;
@@ -109,7 +111,7 @@ struct Run {
     int trc;
     uint32_t fp[kNFp];
     uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
-    uint32_t postDet0, postDet1, postCompbuf;
+    uint32_t postDet0, postDet1, postCompbuf, postH;
 };
 
 inline int refuse(Run &r, const char *why) { r.res = kRefused; r.why = r.lastRefusal = why; r.refusals++; return kRefused; }
@@ -270,11 +272,13 @@ inline const char *readSink(const phxdpb::Aux &aux, phxdpb::Run &g, uint8_t minR
     return nullptr;
 }
 
-inline int findMode(const Set &s, uint32_t hz) {
-    for (unsigned i = 0; i < s.n; i++) if (s.m[i].hz == hz) return static_cast<int>(i);
+inline int findMode(const Set &s, uint32_t key) {
+    for (unsigned i = 0; i < s.n; i++) if (s.m[i].key == key) return static_cast<int>(i);
     return -1;
 }
-inline uint32_t curHz(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? s.m[r.cur].hz : 0; }
+inline const Mode *curMode(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? &s.m[r.cur] : nullptr; }
+inline uint32_t curHz(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->hz : 0; }
+inline uint32_t curKey(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->key : 0; }
 inline bool odmActive(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n && s.m[r.cur].odm; }
 inline bool setOk(const Set &s) {
     if (!s.m || !s.n || s.n > kMaxModes || s.hub >= s.n || s.entryMode >= s.n || !s.entry || !s.entry->n) return false;
@@ -282,13 +286,14 @@ inline bool setOk(const Set &s) {
         const bool hub = i == s.hub;
         if (hub != !s.m[i].to || hub != !s.m[i].from) return false;
         if (!hub && (!s.m[i].to->n || !s.m[i].from->n)) return false;
+        for (unsigned j = 0; j < i; j++) if (s.m[j].key == s.m[i].key) return false;
     }
     return true;
 }
 
 // Pipe 0 is on mode m of the set as a replay left it (reads only).
 inline const char *stateOf(const Env &e, const Mode &m) {
-    if (rd(e, kOtg0V) != m.vTotal) return "pipe 0 is not on the mode the engine set (V_TOTAL)";
+    if (rd(e, kOtg0V) != m.vTotal || rd(e, kOtg0H) != m.hTotal) return "pipe 0 is not on the mode the engine set (H / V_TOTAL)";
     if (rd(e, kOdmSrc) != (m.odm ? kOdmTwo : kOdmOne)) return "pipe 0 is not on the mode the engine set (ODM select)";
     if (!(rd(e, phxdpb::kR.vidStream) & phxdpl::kStreamStatus)) return "DP1 stream not running";
     if (!(rd(e, phxdpb::kR.pixFmt) & phxdpb::kPix2ppc)) return "DP1 not two pixels per clock (not Linux's setup)";
@@ -345,14 +350,14 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
 // After a plan: pipe 0 on mode m (frame rate, V_TOTAL, the stream twice 0.5 s apart, no underflow).
 inline bool post(const Env &e, Run &r, const Mode &m) {
     r.postHz = measureHz(e);
-    r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
+    r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postH = rd(e, kOtg0H); r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
     r.postStream = rd(e, phxdpb::kR.vidStream); r.postDphy = rd(e, kDphyCntl);
     e.io.delayUs(e.io.c, 500000);   // b133: the stream once went off after the first read (box b132)
     r.postStream2 = rd(e, phxdpb::kR.vidStream); r.postPixFmt = rd(e, phxdpb::kR.pixFmt); r.postPixDiv = rd(e, phxdpb::kPixDiv);
     r.postDet0 = rd(e, kDet0); r.postDet1 = rd(e, kDet1); r.postCompbuf = rd(e, kCompbuf);
     // b136: +-4 Hz on top of 5 %: measureHz counts whole frames in 250 ms (60 Hz reads 56 or 60 by phase)
     const uint32_t lo = m.hz * 95 / 100 - 4, hi = m.hz * 105 / 100 + 4;
-    return detApplied(r.postDet0) && detApplied(r.postDet1) && (r.postDet0 & 0x1fu) && !(r.postCompbuf & kCompbufErr) && r.postHz >= lo && r.postHz <= hi && r.postV == m.vTotal && r.postOdm == (m.odm ? kOdmTwo : kOdmOne) &&
+    return detApplied(r.postDet0) && detApplied(r.postDet1) && (r.postDet0 & 0x1fu) && !(r.postCompbuf & kCompbufErr) && r.postHz >= lo && r.postHz <= hi && r.postV == m.vTotal && r.postH == m.hTotal && r.postOdm == (m.odm ? kOdmTwo : kOdmOne) &&
            (r.postStream & phxdpl::kStreamStatus) && (r.postStream2 & phxdpl::kStreamStatus) && !(r.postHubp0 & phxp2::kUnderflow) &&
            !(m.odm && (r.postHubp1 & phxp2::kUnderflow));
 }
@@ -391,7 +396,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
     const uint32_t target = sel == kSel240 ? 240u : sel == kSelBack ? 144u : sel == kSelSurvey ? 0u : static_cast<uint32_t>(sel);
     r.target = target;
     const int ti = target ? findMode(s, target) : -1;
-    if (sel != kSelSurvey && (ti < 0 || sel <= 0)) return refuse(r, "target: 1 survey, or a rate of the set (60, 120, 144, 240)");
+    if (sel != kSelSurvey && (ti < 0 || sel <= 0)) return refuse(r, "target: 1 survey, or a mode of the set (1440p 60 / 120 / 144 / 240, or height * 1000 + Hz)");
     if (ti >= 0 && r.fbCount[ti] >= 2) return refuse(r, "this rate fell back twice in this boot");
     const char *g = gates(e, st, r, restartDone, aux, s, ti);
     if (g) return refuse(r, g);
@@ -465,8 +470,9 @@ inline int stat(const Run &r, const Set &s, char *b, int n) {
     PHXODM_OUT("result=%s target=%u phase=%s why=%s plans=%s,%s fallback=%s\n", kResName[r.res >= 0 && r.res <= kResMax ? r.res : 0],
                r.target, ph[r.phase >= 0 && r.phase <= 4 ? r.phase : 0], r.why ? r.why : "-", r.plan1 ? r.plan1 : "-",
                r.plan2 ? r.plan2 : "-", r.fbPlan ? r.fbPlan : "-");
-    PHXODM_OUT("state: where=%s now=%u Hz failed=%d attempts=%u dones=%u fell_backs=%u sames=%u refusals=%u last_refusal=%s\n",
-               r.where == kLinux ? "linux" : "mac", curHz(r, s), r.failed, r.attempts, r.dones, r.fellBacks, r.sames, r.refusals,
+    PHXODM_OUT("state: where=%s now=%ux%u@%u (key %u) failed=%d attempts=%u dones=%u fell_backs=%u sames=%u refusals=%u last_refusal=%s\n",
+               r.where == kLinux ? "linux" : "mac", curMode(r, s) ? curMode(r, s)->w : 0, curMode(r, s) ? curMode(r, s)->h : 0, curHz(r, s),
+               curKey(r, s), r.failed, r.attempts, r.dones, r.fellBacks, r.sames, r.refusals,
                r.lastRefusal ? r.lastRefusal : "-");
     PHXODM_OUT("last_fail: target=%u plan=%s step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x dal_resp=0x%x why=%s\n",
                r.last.target, r.last.plan ? r.last.plan : "-", r.last.step, r.last.line, r.last.op, r.last.reg, r.last.val, r.last.got,

@@ -103,9 +103,9 @@ SYM_RATE = {16200: 0x06, 27000: 0x0A, 54000: 0x14, 81000: 0x1E}
 
 
 def auto_bounds(trace, nm):
-    """(until, rate): the mode set = the first two write bursts (> 20 ms apart, per-frame flip / lock noise ignored);
+    """(until, rate): the mode set = the first two write bursts (> 50 ms apart; 800x600 -> 144 has a 20 ms pause inside link training, per-frame flip / lock noise ignored);
     until = the first OTG0_OTG_MASTER_UPDATE_LOCK = 0 after the second burst; rate = the ENABLE symbol clock."""
-    ev, locks, rate = [], [], None
+    ev, locks, rate, lanes = [], [], None, None
     for l in open(trace):
         m = re.search(r"\s([\d.]+): amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
         d = re.search(r"\s([\d.]+): dmubcmd\d*: .*?c0=0x([0-9a-f]+) c1=0x([0-9a-f]+) c2=0x([0-9a-f]+)", l)
@@ -114,6 +114,7 @@ def auto_bounds(trace, nm):
             if sym not in SYM_RATE:
                 sys.exit(f"auto rate: ENABLE symbol clock {sym} not known")
             rate = SYM_RATE[sym]
+            lanes = int(d.group(3), 16) >> 24
         if not m:
             continue
         t, n, v = float(m.group(1)), nm.get(int(m.group(2), 16), "?"), int(m.group(3), 16)
@@ -123,7 +124,7 @@ def auto_bounds(trace, nm):
             ev.append(t)
     bursts = [[ev[0], ev[0]]]
     for t in ev[1:]:
-        if t - bursts[-1][1] > 0.02:
+        if t - bursts[-1][1] > 0.05:
             bursts.append([t, t])
         bursts[-1][1] = t
     if len(bursts) < 2:
@@ -134,7 +135,9 @@ def auto_bounds(trace, nm):
         sys.exit("auto until: no OTG0 unlock between the mode set and the next burst")
     if rate is None:
         sys.exit("auto rate: no TRANSMITTER_CONTROL ENABLE")
-    return after[0], rate
+    if lanes not in (1, 2, 4):
+        sys.exit(f"auto lanes: ENABLE lane count {lanes}")
+    return after[0], rate, lanes
 
 
 def main():
@@ -146,18 +149,22 @@ def main():
     ap.add_argument("--source", required=True)
     ap.add_argument("--rate", default="auto", help="LINKUP link rate (DPCD 0x100 value); auto = from Linux's "
                     "TRANSMITTER_CONTROL ENABLE symbol clock (16200 RBR, 27000 HBR, 54000 HBR2, 81000 HBR3)")
+    ap.add_argument("--lanes", default="auto", help="LINKUP lane count; auto = Linux's TRANSMITTER_CONTROL ENABLE (needs --rate auto or --until auto)")
     ap.add_argument("--hdr", default="/Users/dnanu/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h")
     a = ap.parse_args()
     nm = names(a.hdr)
     nm2a = {v: k for k, v in nm.items()}
     nm.update({0x1628A: "DAL_MSG", 0x16273: "DAL_ARG", 0x16274: "DAL_RESP"})
     if a.until == "auto" or a.rate == "auto":
-        u, rt = auto_bounds(a.trace, nm)
+        u, rt, ln_ = auto_bounds(a.trace, nm)
+        if a.lanes == "auto":
+            a.lanes = str(ln_)
         if a.until == "auto":
             a.until = u
         if a.rate == "auto":
             a.rate = hex(rt)
     a.until = float(a.until)
+    lanes = 4 if a.lanes == "auto" else int(a.lanes)
     out, stats, prev = [], {}, {}
     def emit(op, line, reg, val, mask, arg, note):
         out.append((OPS[op], line, reg, val, mask, arg, note))
@@ -216,7 +223,7 @@ def main():
             prev[n] = v
             continue
         if state == "mid" and n == "DP1_DP_CONFIG":
-            state = "linkup"; emit("LINKUP", ln, 0, int(a.rate, 0), 1, 4, f"link rate {a.rate} x4 with FEC_READY, CR + EQ, FEC on (Linux window)")
+            state = "linkup"; emit("LINKUP", ln, 0, int(a.rate, 0), 1, lanes, f"link rate {a.rate} x{lanes} with FEC_READY, CR + EQ, FEC on (Linux window)")
         if state == "linkup":
             if (n, v) == LINK_UP_END:
                 state = "post"

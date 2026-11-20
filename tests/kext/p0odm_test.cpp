@@ -15,6 +15,20 @@
 #include "phx_p0odm_1440p120_from.inc"
 #include "phx_p0odm_1440p240_to.inc"
 #include "phx_p0odm_1440p240_from.inc"
+#include "phx_p0odm_1080p60_to.inc"
+#include "phx_p0odm_1080p60_from.inc"
+#include "phx_p0odm_1080p120_to.inc"
+#include "phx_p0odm_1080p120_from.inc"
+#include "phx_p0odm_1024p75_to.inc"
+#include "phx_p0odm_1024p75_from.inc"
+#include "phx_p0odm_768p60_to.inc"
+#include "phx_p0odm_768p60_from.inc"
+#include "phx_p0odm_600p60_to.inc"
+#include "phx_p0odm_600p60_from.inc"
+#include "phx_p0odm_480p60_to.inc"
+#include "phx_p0odm_480p60_from.inc"
+#include "phx_p0odm_480p59_to.inc"
+#include "phx_p0odm_480p59_from.inc"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -28,14 +42,27 @@ static int fails, checks;
 #define N(a) (sizeof a / sizeof a[0])
 
 using namespace phxodm;
-#define PL(sym, hz, v, rate) {sym, N(sym), #sym, hz, v, rate}
-static const Plan kEntry = PL(kPhxP0odm_1440p240, 240, 0x652, 0x1e);
-static const Plan k60To = PL(kPhxP0odm_1440p60_to, 60, 0x5c8, 0x0a), k60From = PL(kPhxP0odm_1440p60_from, 144, 0x5eb, 0x14);
-static const Plan k120To = PL(kPhxP0odm_1440p120_to, 120, 0x5f4, 0x14), k120From = PL(kPhxP0odm_1440p120_from, 144, 0x5eb, 0x14);
-static const Plan k240To = PL(kPhxP0odm_1440p240_to, 240, 0x652, 0x1e), k240From = PL(kPhxP0odm_1440p240_from, 144, 0x5eb, 0x14);
+#define PL(sym, hz, v, rate, lanes) {sym, N(sym), #sym, hz, v, rate, lanes}
+#define BK(sym) PL(sym, 144, 0x5eb, 0x14, 4)
+static const Plan kEntry = PL(kPhxP0odm_1440p240, 240, 0x652, 0x1e, 4);
+static const Plan k60To = PL(kPhxP0odm_1440p60_to, 60, 0x5c8, 0x0a, 4), k60From = BK(kPhxP0odm_1440p60_from);
+static const Plan k120To = PL(kPhxP0odm_1440p120_to, 120, 0x5f4, 0x14, 4), k120From = BK(kPhxP0odm_1440p120_from);
+static const Plan k240To = PL(kPhxP0odm_1440p240_to, 240, 0x652, 0x1e, 4), k240From = BK(kPhxP0odm_1440p240_from);
+static const Plan kA = PL(kPhxP0odm_1080p60_to, 60, 0x464, 0x06, 4), kAf = BK(kPhxP0odm_1080p60_from);
+static const Plan kB = PL(kPhxP0odm_1080p120_to, 120, 0x464, 0x0a, 4), kBf = BK(kPhxP0odm_1080p120_from);
+static const Plan kC = PL(kPhxP0odm_1024p75_to, 75, 0x429, 0x06, 4), kCf = BK(kPhxP0odm_1024p75_from);
+static const Plan kD = PL(kPhxP0odm_768p60_to, 60, 0x325, 0x06, 2), kDf = BK(kPhxP0odm_768p60_from);
+static const Plan kE = PL(kPhxP0odm_600p60_to, 60, 0x273, 0x06, 1), kEf = BK(kPhxP0odm_600p60_from);
+static const Plan kF = PL(kPhxP0odm_480p60_to, 60, 0x20c, 0x06, 1), kFf = BK(kPhxP0odm_480p60_from);
+static const Plan kG = PL(kPhxP0odm_480p59_to, 60, 0x20c, 0x06, 1), kGf = BK(kPhxP0odm_480p59_from);
+// = phx_p0odm.cpp's set
 static const Mode kModes[] = {
-    {60, 0x5c8, 0, 0x0a, &k60To, &k60From}, {120, 0x5f4, 0, 0x14, &k120To, &k120From},
-    {144, 0x5eb, 0, 0x14, nullptr, nullptr}, {240, 0x652, 1, 0x1e, &k240To, &k240From},
+    {60, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &k60To, &k60From}, {120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &k120To, &k120From},
+    {144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x14, 4, nullptr, nullptr}, {240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, &k240To, &k240From},
+    {1080060, 1920, 1080, 60, 0x897, 0x464, 0, 0x06, 4, &kA, &kAf}, {1080120, 1920, 1080, 120, 0x897, 0x464, 0, 0x0a, 4, &kB, &kBf},
+    {1024075, 1280, 1024, 75, 0x697, 0x429, 0, 0x06, 4, &kC, &kCf}, {768060, 1024, 768, 60, 0x53f, 0x325, 0, 0x06, 2, &kD, &kDf},
+    {600060, 800, 600, 60, 0x41f, 0x273, 0, 0x06, 1, &kE, &kEf}, {480060, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kF, &kFf},
+    {480059, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kG, &kGf},
 };
 static const Set kSet = {kModes, N(kModes), 2, &kEntry, 3};
 constexpr uint64_t kFb = 0x8000000000ull, kRing = 0x1000000;
@@ -95,7 +122,7 @@ struct Hw {
         if (whole >= 1) applyDet();
     }
     bool linkUp() {
-        return phyRate && phyRate == dpcd[0x100] * 2700u && (dpcd[0x101] & 0x1f) == 4 && !(failHbr3 && phyRate == 81000) && phyRate != failRate;
+        return phyRate && phyRate == dpcd[0x100] * 2700u && ((dpcd[0x101] & 0x1f) == 4 || (dpcd[0x101] & 0x1f) == 2 || (dpcd[0x101] & 0x1f) == 1) && !(failHbr3 && phyRate == 81000) && phyRate != failRate;
     }
     uint32_t rd(uint32_t a) {
         const uint32_t v = r[a];
@@ -205,7 +232,7 @@ static bool wrote(const Hw &h, uint32_t a, uint8_t v) { for (auto &w : h.dpcdW) 
 
 int main() {
     // ---- the plans themselves ----
-    for (const Plan *p : {&kEntry, &k60To, &k60From, &k120To, &k120From, &k240To, &k240From}) {
+    for (const Plan *p : {&kEntry, &k60To, &k60From, &k120To, &k120From, &k240To, &k240From, &kA, &kAf, &kB, &kBf, &kC, &kCf, &kD, &kDf, &kE, &kEf, &kF, &kFf, &kG, &kGf}) {
         unsigned off = 0, up = 0, bad = 0, dal = 0, waits = 0, linkups = 0;
         for (unsigned i = 0; i < p->n; i++) {
             const phx_p0odm_step &s = p->s[i];
@@ -214,7 +241,7 @@ int main() {
             if (s.op == kW && (s.reg == 0x03540 || s.reg == 0x00124 || (s.reg >= 0x03600 && s.reg <= 0x036FF))) bad++;
             if (s.op == kDal) { dal++; if ((s.val >> 16) != 8 && (s.val >> 16) != 9) bad++; }
             if (s.op == kLinkOff) off = i + 1;
-            if (s.op == kLinkUp) { up = i + 1; linkups++; if (s.val != p->rate || s.arg != 4 || !(s.mask & 1)) bad++; }
+            if (s.op == kLinkUp) { up = i + 1; linkups++; if (s.val != p->rate || s.arg != p->lanes || !(s.mask & 1)) bad++; }
             if (s.op == kWait) waits++;
             if (s.op < kW || s.op > kSWait) bad++;
         }
@@ -259,29 +286,36 @@ int main() {
         // the same rate again: nothing written
         size_t nw = h.writes.size();
         CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kSame && h.writes.size() == nw);
-        // every ordered pair, twice round
-        struct Want { uint32_t hz, v, sym; } W[] = {{60, 0x5c8, 27000}, {120, 0x5f4, 54000}, {144, 0x5eb, 54000}, {240, 0x652, 81000}};
-        const uint32_t order[] = {60, 120, 60, 144, 60, 240, 120, 144, 120, 240, 144, 240, 60, 120, 240, 144, 60};
+        // every ordered pair of modes (every mode to every other, then a second round in another order)
+        std::vector<uint32_t> order;
+        for (unsigned i = 0; i < N(kModes); i++) for (unsigned j = 0; j < N(kModes); j++) if (i != j) { order.push_back(kModes[i].key); order.push_back(kModes[j].key); }
+        for (unsigned i = N(kModes); i-- > 0;) order.push_back(kModes[i].key);
+        unsigned pairs = 0;
         for (uint32_t t : order) {
-            const uint32_t from = curHz(r, kSet);
+            const uint32_t from = curKey(r, kSet);
+            if (from == t) continue;
+            pairs++;
             nw = h.writes.size();
             const int rr = run(e, st, r, static_cast<int>(t), 0, aux(h), kSet);
-            const Want *w = nullptr; for (auto &x : W) if (x.hz == t) w = &x;
-            CHECK(rr == kDone && curHz(r, kSet) == t && h.r[0x04FEF] == w->v && h.phyRate == w->sym && h.writes.size() > nw);
-            CHECK(r.postHz >= t * 95 / 100 - 4 && r.postHz <= t * 105 / 100 + 4 && (h.r[0x056D7] & 0x30) == 0x30);
+            const Mode &m = kModes[findMode(kSet, t)];
+            CHECK(rr == kDone && curKey(r, kSet) == t && h.r[0x04FEF] == m.vTotal && h.r[0x04FEA] == m.hTotal && h.writes.size() > nw);
+            CHECK(h.phyRate == m.rate * 2700u && (h.dpcd[0x101] & 0x1f) == m.lanes);   // Linux's link for the mode
+            CHECK(r.postHz >= m.hz * 95 / 100 - 4 && r.postHz <= m.hz * 105 / 100 + 4 && (h.r[0x056D7] & 0x30) == 0x30);
             CHECK(odmActive(r, kSet) == (t == 240) && h.r[0x04F8B] == (t == 240 ? 0x00100001u : 0xfff00000u));
             CHECK(!!(h.r[0x064C0] & 1) == (t == 240));                            // DSC0 only at 240
             CHECK(r.plan1 == (from == 144 ? nullptr : kModes[findMode(kSet, from)].from->name));
-            CHECK(r.plan2 == (t == 144 ? nullptr : kModes[findMode(kSet, t)].to->name));
+            CHECK(r.plan2 == (t == 144 ? nullptr : m.to->name));
             if (rr != kDone) std::printf("  %u -> %u: %s phase %d step %u line %u op %u reg 0x%x got 0x%x det 0x%x 0x%x comp 0x%x sw_to %u hz %u v 0x%x\n", from, t, r.why, r.phase, r.step, r.line, r.op, r.reg, r.got, r.postDet0, r.postDet1, r.postCompbuf, r.swaitTimeouts, r.postHz, r.postV);
             CHECK(h.r[0x03540] == 0 && h.r[0x05101] == 0 && h.r[0x05081] == 0x200);
             // b136: the buffer segments landed (box b135: DET1 kept 9 after 240 -> 144, CONFIG_ERROR, pipe 0 dark)
-            CHECK(!h.compErr && h.detCur[1] == (t == 240 ? 9u : 0u) && h.detCur[0] == (t == 240 ? 9u : 4u) && r.swaitTimeouts == 0);
+            CHECK(!h.compErr && h.detCur[0] == (h.r[0x0397B] & 0x1f) && h.detCur[1] == (h.r[0x0397C] & 0x1f) && h.detCur[0] && r.swaitTimeouts == 0);
+            CHECK(h.detCur[1] == (t == 240 ? 9u : 0u));
         }
+        CHECK(pairs > 100);
         for (auto &wr : h.writes) CHECK(!denied(wr.first) || wr.first == phxdmub::kInbox1Wptr);
-        CHECK(!r.failed && r.fellBacks == 0 && r.dones == 1 + N(order));
+        CHECK(!r.failed && r.fellBacks == 0 && r.dones == 1 + pairs);
         char b[2048];
-        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "result=DONE") && std::strstr(b, "where=linux now=60"));
+        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "result=DONE") && std::strstr(b, "where=linux now=2560x1440@60"));
     }
     // ---- HBR3 fails: the entry falls back to 144, not latched; 60 still works; 240 fails twice, then refused ----
     {
