@@ -121,6 +121,21 @@ static int phxfb0OfferSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb0_offer, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfb0OfferSysctl, "I",
             "head 0's offer gate: 1 = every listed mode offered, 0 = only the lit one (closed at start with a mode list); write 1 (root) to open it and drop the IOFBConfig cache");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_offer_opens, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0OfferOpens, "head 0: offer gate openings");
+// VRR probe (2026-11-20, findings 2026-11-20-adaptive-sync-research.md): read when head 0 starts. 1 = head 0 publishes
+// IOFBTimingRange with the EDID's range and Apple's AMD driver's VRR sync flag (0x10), PhxAGDC answers the VRR capability
+// command 0x979, and what CoreDisplay then calls (detailed timings, attributes) is logged. Nothing on the hardware
+// changes: proposed timings are refused as before. 0 (default) = none of it.
+int gPhxVrrProbe = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrprobe, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrrProbe, 0,
+           "VRR probe (read at head 0's start): 1 = publish the VRR timing range, answer AGDC 0x979, log CoreDisplay's timing calls");
+static SInt64 gVrrProbeCalls = 0;
+SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_vrrprobe_calls, CTLFLAG_RD | CTLFLAG_LOCKED, &gVrrProbeCalls, "VRR probe: CoreDisplay timing / attribute calls logged");
+static void vrrLogTiming(const char *who, const IODetailedTimingInformationV2 *d) {
+    if (OSAddAtomic64(1, &gVrrProbeCalls) >= 64 || !d) return;
+    PFBLOG("vrrprobe: %s: %ux%u pclk %llu Hz hblank %u vblank %u vbe %u sigcfg 0x%x flags 0x%x bpc %u", who, d->horizontalActive,
+           d->verticalActive, (unsigned long long)d->pixelClock, d->horizontalBlanking, d->verticalBlanking, d->verticalBlankingExtension,
+           d->signalConfig, d->horizontalSyncConfig, d->bitsPerColorComponent);
+}
 static int phxfbResyncSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb_resync, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfbResyncSysctl, "I",
             "head 0 (root): 1 = take the mode OTG0 runs now as current (after a kext-only pipe-0 set); reads the last result: the id now current, 0 never run, -1 no head 0, -2 no mode list, -3 OTG0 at no listed mode (nothing changed), -4 busy");
@@ -875,9 +890,16 @@ public:
     IOItemCount getConnectionCount() override { return 1; }
     // rotation S1: CoreDisplay's rotated modes. Not gated = IOFramebuffer's own answers (unsupported), as before.
     IOReturn validateDetailedTiming(void *desc, IOByteCount size) override {
+        if (gPhxVrrProbe && !fHead && desc && size >= sizeof(IODetailedTimingInformationV2)) vrrLogTiming("validateDetailedTiming", (const IODetailedTimingInformationV2 *)desc);
         return phxRotGate(fHead) ? phxRotValidate(rotModes(), desc, size) : IOFramebuffer::validateDetailedTiming(desc, size);
     }
     IOReturn setDetailedTimings(OSArray *array) override {
+        if (gPhxVrrProbe && !fHead && array) {
+            PFBLOG("vrrprobe: setDetailedTimings: %u timing(s)", array->getCount());
+            for (unsigned i = 0; i < array->getCount(); i++)
+                if (OSData *t = OSDynamicCast(OSData, array->getObject(i)))
+                    if (t->getLength() >= sizeof(IODetailedTimingInformationV2)) vrrLogTiming("setDetailedTimings", (const IODetailedTimingInformationV2 *)t->getBytesNoCopy());
+        }
         if (phxRotGate(fHead)) return phxRotSetTimings(fRot, rotModes(), array);
         phxRotClear(fRot);
         return IOFramebuffer::setDetailedTimings(array);
@@ -969,6 +991,8 @@ public:
         return kIOPMAckImplied;
     }
     IOReturn setAttribute(IOSelect attribute, uintptr_t value) override {
+        if (gPhxVrrProbe && !fHead && attribute == kIOFBVariableRefreshRate && OSAddAtomic64(1, &gVrrProbeCalls) < 64)
+            PFBLOG("vrrprobe: setAttribute('vrr?', %lu)", (unsigned long)value);
         if (attribute == kIOWindowServerActiveAttribute) return kIOReturnSuccess;
         if (attribute == kIOPowerAttribute) {
             if (value) { IOReturn r = IOFramebuffer::setAttribute(attribute, value); handleEvent(kIOFBNotifyDidPowerOn);
@@ -981,6 +1005,11 @@ public:
     }
     IOReturn getAttribute(IOSelect attribute, uintptr_t *value) override {
         if (attribute == kIOWindowServerActiveAttribute) { if (value) *value = 1; return kIOReturnSuccess; }
+        if (gPhxVrrProbe && !fHead && attribute == kIOFBVariableRefreshRate) {
+            const IOReturn r = IOFramebuffer::getAttribute(attribute, value);
+            if (OSAddAtomic64(1, &gVrrProbeCalls) < 64) PFBLOG("vrrprobe: getAttribute('vrr?') -> 0x%x value %lu", r, value ? (unsigned long)*value : 0ul);
+            return r;
+        }
         return IOFramebuffer::getAttribute(attribute, value);
     }
     IOReturn setAttributeForConnection(IOIndex idx, IOSelect attribute, uintptr_t value) override {
@@ -1407,6 +1436,26 @@ bool PhxAMDFB::start(IOService *provider)
         gHead0OfferOpen = phxoffer::closedAtStart(fNModes, PE_parse_boot_argn("-phxfb0open", a, sizeof a)) ? 0 : 1;
         if (fNModes) PFBLOG("head 0 offer gate %s: %s", gHead0OfferOpen ? "open" : "CLOSED",
                             gHead0OfferOpen ? "every listed mode offered (-phxfb0open)" : "only the lit mode until debug.phxfb0_offer=1 (the daemon, before its restart)");
+    }
+    if (!fHead && gPhxVrrProbe) {   // VRR probe: the timing range Apple's AMD driver publishes (reportCapabilities)
+        phxhead::EdidRange er{};
+        if (phxhead::edidRange(fEdid, fEdidLen, &er)) {
+            IODisplayTimingRangeV2 tr;
+            bzero(&tr, sizeof tr);
+            tr.version = kIOTimingRangeV2;
+            tr.minPixelClock = 25000000ull; tr.maxPixelClock = (uint64_t)er.maxPclkMHz * 1000000ull;
+            tr.supportedSyncFlags = kIORangeSupportsSeparateSyncs | 0x10;   // 0x10: Apple's AMD driver's VRR bit (no SDK name)
+            tr.minFrameRate = er.minVHz; tr.maxFrameRate = er.maxVHz;
+            tr.minLineRate = er.minHKHz * 1000; tr.maxLineRate = er.maxHKHz * 1000;
+            tr.maxHorizontalTotal = 8192; tr.maxVerticalTotal = 8192;
+            tr.charSizeHorizontalActive = tr.charSizeHorizontalBlanking = tr.charSizeHorizontalSyncOffset = tr.charSizeHorizontalSyncPulse = 1;
+            tr.charSizeVerticalActive = tr.charSizeVerticalBlanking = tr.charSizeVerticalSyncOffset = tr.charSizeVerticalSyncPulse = 1;
+            tr.charSizeHorizontalTotal = tr.charSizeVerticalTotal = 1;
+            tr.maxNumLinks = 1;
+            if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
+            PFBLOG("vrrprobe: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
+                   er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
+        } else PFBLOG("vrrprobe: the EDID has no range limits descriptor: nothing published");
     }
     if (!IOFramebuffer::start(provider)) { OSSafeReleaseNULL(fSurfMap); return false; }
     fVa = IORangeAllocator::withRange(kVaSize - 1, PAGE_SIZE, 0, IORangeAllocator::kLocking);

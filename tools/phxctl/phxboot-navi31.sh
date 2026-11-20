@@ -467,6 +467,13 @@ p0modes_boot(){ [ -e "$G/phxboot-p0modes" ] || return 0
   if [ $r1 = 0 ] && [ $r2 = 0 ]; then echo "p0modes: pipe-0 engine on, head-0 mode list armed (debug.phxpipe0_enable=1, debug.phxpipe0_modes=1)"
   else echo "p0modes: enable rc $r1, modes rc $r2 ($(echo "$o1 $o2" | tr '\n' ' ' | cut -c1-100)): head 0 may keep one mode"; fi; }
 [ "${PHXBOOT_NO_AOC:-0}" = 1 ] || [ $SAFE = 1 ] || p0modes_boot
+# VRR probe (2026-11-20, findings 2026-11-20-adaptive-sync-research.md): with $G/phxboot-vrrprobe, PhxAMDFB head 0 publishes
+# the EDID's range with Apple's VRR flag, PhxAGDC answers the VRR capability query, and CoreDisplay's timing calls are
+# logged. No hardware change. Read once, when head 0 starts at the claim below. Rollback: rm ~/gpu/phxboot-vrrprobe.
+vrrprobe_boot(){ [ -e "$G/phxboot-vrrprobe" ] || return 0
+  if sysctl -w debug.phxfb0_vrrprobe=1 >/dev/null 2>&1; then echo "vrrprobe: on (debug.phxfb0_vrrprobe=1): head 0 publishes the VRR timing range"
+  else echo "vrrprobe: no debug.phxfb0_vrrprobe (PhxAccel without the probe): nothing armed"; fi; }
+[ $SAFE = 1 ] || vrrprobe_boot
 WS0=$(wspid)                 # the first WindowServer (up since boot; it read com.apple.windowserver before this daemon ran)
 "$MB" claim 2>&1
 sysctl -w debug.phxbos_flush=0 >/dev/null 2>&1

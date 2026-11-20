@@ -108,6 +108,16 @@ int main() {
         CHECK(detailedTiming(0, 8, &t8) && t8.pixelHz == 135000000ull && t8.hBlank == 408 && t8.vBlank == 42 && t8.hSyncPos && t8.vSyncPos);
         CHECK(detailedTiming(0, 9, &t8) && t8.hSyncWidth == 136 && !t8.hSyncPos && !t8.vSyncPos);
     }
+    {   // VRR probe: the LG's range limits descriptor (48-240 Hz), the offsets bits, and no descriptor at all
+        EdidRange r{};
+        CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minVHz == 48 && r.maxVHz == 240 && r.maxPclkMHz >= 1000);
+        uint8_t e[128] = {};
+        e[54 + 18 * 2 + 3] = 0xFD; e[54 + 18 * 2 + 4] = 0x01; e[54 + 18 * 2 + 5] = 48; e[54 + 18 * 2 + 6] = 45;   // max 45 + 255
+        e[54 + 18 * 2 + 7] = 30; e[54 + 18 * 2 + 8] = 200; e[54 + 18 * 2 + 9] = 60;
+        CHECK(edidRange(e, sizeof e, &r) && r.minVHz == 48 && r.maxVHz == 300 && r.minHKHz == 30 && r.maxHKHz == 200 && r.maxPclkMHz == 600);
+        uint8_t z[128] = {};
+        CHECK(!edidRange(z, sizeof z, &r) && !edidRange(kLgEdid, 64, &r) && !edidRange(nullptr, 128, &r));
+    }
     std::printf("head0_1440_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }

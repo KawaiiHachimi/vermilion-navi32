@@ -226,6 +226,24 @@ inline bool edidListsStd(const uint8_t *e, uint32_t len, const HeadMode &m) {
     return false;
 }
 // The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
+// VRR probe (2026-11-20): the EDID base block's display range limits descriptor (tag 0xFD), for the timing range head 0
+// publishes while debug.phxfb0_vrrprobe is on. Byte 4 bits 0 / 1 add 255 to the max / min vertical rate, bits 2 / 3 to
+// the max / min horizontal rate (EDID 1.4). false = no descriptor (nothing is published).
+struct EdidRange { uint32_t minVHz, maxVHz, minHKHz, maxHKHz, maxPclkMHz; };
+inline bool edidRange(const uint8_t *e, uint32_t len, EdidRange *r) {
+    if (!e || len < 128) return false;
+    for (unsigned k = 0; k < 4; k++) {
+        const uint8_t *d = e + 54 + 18 * k;
+        if (d[0] || d[1] || d[2] || d[3] != 0xFD) continue;
+        const uint8_t f = d[4];
+        r->minVHz = d[5] + ((f & 2) ? 255u : 0u); r->maxVHz = d[6] + ((f & 1) ? 255u : 0u);
+        r->minHKHz = d[7] + ((f & 8) ? 255u : 0u); r->maxHKHz = d[8] + ((f & 4) ? 255u : 0u);
+        r->maxPclkMHz = d[9] * 10u;
+        return r->minVHz && r->maxVHz >= r->minVHz;
+    }
+    return false;
+}
+
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;

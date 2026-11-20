@@ -100,6 +100,14 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       1280x1024@75, 1024x768@60, 800x600@60, 640x480 at 59.94 / 60. No freeze. The boot itself went black: macOS applied
       the saved 1280x1024 at login, the plugin kept the 1440p plane, the CPU copy skipped every frame as foreign;
       `debug.phxscan=0` gave the plane back (fix: b139 kernel)
+- [~] 2026-11-20 **Adaptive Sync, step 1: the macOS side mapped, PhxAccel probe built** ([findings](findings/2026-11-20-adaptive-sync-research.md)).
+      Apple's AMD driver: `IOFBTimingRange` with sync flag 0x10, the range per mode in `verticalBlankingExtension`, AGDC
+      command 0x979 (VRR capability), an Adaptive Sync SDP. Probe (PhxAccel, flag `~/gpu/phxboot-vrrprobe`, off by
+      default): publishes the range (48-240 Hz from the EDID) with the flag, answers 0x979, logs CoreDisplay's timing and
+      `'vrr?'` calls; no hardware change. Host: head0_1440 41/41, mock 211/211. Built, NOT installed.
+      **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
+      does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
+      capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
 - [~] 2026-11-20 **b140: the login screen gets its saved rate** (installed 20:55, EFI `OC` = b140 sha 8b5ead5b, `OC.prev`
       = b139; b138 kext in `~/vermilion-rollback/`). b139's login screen ran at the firmware's 60 Hz: its 240 Hz request
       (20:39:39) was refused "not ready" because the scanout lock only existed after GPU present's first acquire (20:39:46).
