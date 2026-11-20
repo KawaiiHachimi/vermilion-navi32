@@ -41,6 +41,11 @@ static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* b138: the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
 static int g_scan_geom_wait;
+/* b139: the size GPU present first ran at (the boot mode). 2026-11-20 on the XTX machine, b138 froze the whole machine
+   ~0.5 s after a switch to 1280x1024, the one place where GPU present could restart at another size (Linux's pitch equals
+   the width there) and the first use of the small slot layout on that card (findings 2026-11-20-b138-freeze-and-squat-loop.md).
+   Until that is understood, GPU present runs only at this size; every other size is drawn by the CPU copy. */
+static uint32_t g_scan_first_w, g_scan_first_h;
 
 static void nvmtl_scan_off_locked(const char *why)
 {
@@ -116,6 +121,11 @@ static int nvmtl_scan_start_locked(uint32_t w, uint32_t h, uint32_t pitch)
                                                     q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
         g_scan_geom_wait = 1;   /* these retries are not plane losses: they do not count toward the 50 restarts */
         g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
+    if (g_scan_first_w && (w != g_scan_first_w || h != g_scan_first_h)) {
+        static unsigned saidSize; if (saidSize++ < 8) nvlog("ws gpu present: surface %ux%u is not the first size %ux%u - CPU copy (b139: GPU present only at the first size)",
+                                                            w, h, g_scan_first_w, g_scan_first_h);
+        g_scan_geom_wait = 1;
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
     g_scan_geom_wait = 0;
     uint64_t console = 0, frame = 0;
     if ((r = g_scan.acquire(g_dev, &console, &frame))) { nvlog("ws gpu present: acquire -> %d (debug.phxscan=1 and debug.phxfb_flip=0 needed)", r);
@@ -123,6 +133,7 @@ static int nvmtl_scan_start_locked(uint32_t w, uint32_t h, uint32_t pitch)
         if (g_scan.restarts && g_scan.restarts < 50) { g_scan.restarts++; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
         g_scan.state = -1; return -1; }
     g_scan.state = 1;
+    if (!g_scan_first_w) { g_scan_first_w = w; g_scan_first_h = h; }
     const VkDeviceSize size = (VkDeviceSize)pitch * h;
     for (int k = 0; k < 3; k++) {
         VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,

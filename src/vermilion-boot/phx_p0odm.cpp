@@ -87,6 +87,11 @@ static int odmRunLocked(int sel, int *err) {
     if (!p2I2cLock(gPhx, 1)) { OSCompareAndSwap(1, 0, &gP2Busy); *err = EBUSY; return -1; }
     gOdmLast = sel;
     IOLockLock(gPhx->scanLockForEngines());
+    {   // b139: a size change first takes the plane back from GPU present (sel: 1 survey, 2 = 240, 3 = 144, else a key)
+        const uint32_t key = sel == 2 ? 240u : sel == 3 ? 144u : static_cast<uint32_t>(sel);
+        const int mi = sel == 1 ? -1 : phxodm::findMode(kOdmSet, key);
+        if (mi >= 0) gPhx->scanYieldForModeLocked(kOdmSet.m[mi].h);
+    }
     const phxdpb::Aux aux{nullptr, dplAuxRd, dplAuxWr};
     const int r = phxodm::run(p2Env(), gP2, gOdm, sel, gDmubRs.done, aux, kOdmSet);
     gP0OdmActive = phxodm::odmActive(gOdm, kOdmSet) ? 1 : 0;

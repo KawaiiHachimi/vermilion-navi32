@@ -151,6 +151,20 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->otg = 0;
 }
 
+// b139: before a mode change to another size, with scanLock held: a GPU-present acquisition's slots have the old size,
+// so HUBP0 goes back to the console surface A now (the same flip a release does) and the CPU copy draws the new mode.
+// 2026-11-20 on the XTX machine: macOS applied a saved 1280x1024 at login, the plugin never saw a frame at the new size,
+// kept the plane, and the CPU copy skipped every frame as foreign: a black screen until debug.phxscan=0. A rate change
+// at the same size keeps the acquisition (the slots stay valid). The owner keeps its handle; its next call is refused
+// (not acquired) and the plugin treats that as a lost plane. true = a restore ran.
+bool PhxBringup::scanYieldForModeLocked(uint32_t targetH) {
+    if (!mmio || !scan.acquired || !targetH || targetH == scan.planeH)
+        return false;
+    IOLog("PhxBringup: scanout given back before a mode change (%ux%u -> height %u)\n", scan.pitchPx, scan.planeH, targetH);
+    scanRestoreLocked();
+    return true;
+}
+
 // b126: the slot layout for a frame of `bytes` (PhxScanLayout.h) against the VRAM size and the display's FB window as the
 // registers read now. Register reads only.
 int PhxBringup::scanLayoutFor(uint64_t bytes, phxscanlay::Layout *l) const {

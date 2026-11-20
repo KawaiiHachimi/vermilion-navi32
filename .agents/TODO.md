@@ -95,6 +95,24 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         plane check passes; the b138 note "below 1440p GPU present stays off" is wrong for 1280x1024 and 1024x768),
         on the small slot layout (VRAM 24/32/40 MiB), never used before on the XTX. Next b138 attempt: keep GPU present
         to the boot size (plugin), and log the kext's scan acquire to a file the next boot can read
+- [x] 2026-11-20 **Every LG mode from System Settings, the desktop resizes** (owner, 20:05-20:20, b138 kext + b139
+      plugin, GPU present off for the session: CPU copy): 1080p at 60 / 120, 2560x1440 at 60 / 120 / 144 / 240,
+      1280x1024@75, 1024x768@60, 800x600@60, 640x480 at 59.94 / 60. No freeze. The boot itself went black: macOS applied
+      the saved 1280x1024 at login, the plugin kept the 1440p plane, the CPU copy skipped every frame as foreign;
+      `debug.phxscan=0` gave the plane back (fix: b139 kernel)
+- [~] 2026-11-20 **b139 installed** (EFI `OC` = b139 sha 50c846bf, `OC.prev` = b138; b137 kext in
+      `~/vermilion-rollback/VermilionBoot.kext.b137`): before a size change the kernel gives the plane back from GPU
+      present. **Test:** after the restart GPU present on at 2560x1440 (smooth); switch to 1080p and back, 1280x1024 and
+      back, a rate change at 1440p (GPU present stays on). **Rollback:** black screen: from T3, `sudo sysctl -w
+      debug.phxscan=0`; boot trouble: OpenCore > OC.prev is not offered by the picker, so from macOS / Linux swap
+      `EFI/OC` and `EFI/OC.prev`
+- [x] 2026-11-20 **b138 retry with the b139 plugin: GPU present only at its first size** (the suspected freeze path off;
+      every other resolution on the CPU copy). Plugin built (sha 851310a0; a HEAD build = the installed 4296d4eb), EFI
+      back to b138 (`OC.bad` -> `OC`, b137 -> `OC.prev`). `phxfb-squat` set from Linux (stays set), kill switch off.
+      **Test:** 1920x1080 first (always CPU copy), then 1280x1024, 1024x768, 800x600, 640x480, back to 2560x1440 144/240.
+      **Rollback:** a freeze: hold power, power on, macOS: the daemon reboots once, then the safe desktop comes up by
+      itself (stuck squat). Then: EFI `OC` -> `OC.bad`, `OC.prev` (b137) -> `OC`; plugin back from
+      `~/vermilion-rollback/NVMTLDriver.b138` (or `NVMTLDriver.pre-b138`); rm ~/gpu/phxboot-off ~/gpu/phxboot-failed
 - [~] 2026-11-20 **b138: the other resolutions from System Settings, the desktop resizes** (built, host-tested; booted
       16:37, froze at 1280x1024, see above; EFI back on b137):
       VermilionBoot b138 (Linux's HUBP0 pitch per mode, phxPipe0SetMode takes keys, phx-p0-keys), PhxAccel b138 (head 0
