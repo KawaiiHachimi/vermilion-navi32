@@ -75,6 +75,39 @@ int main() {
         uint8_t bad[384]; std::memcpy(bad, full, 384); bad[256 + 40] ^= 1;    // another active width: not offered
         CHECK(modeList(0, bad, sizeof bad, 2560, 1440, ids) == 3);
     }
+    // b138: the anySize offer (PhxBringup's phx-p0-keys) on the LG's 2560x1440 surface adds the EDID's established /
+    // standard timings and VIC 63 (capture v3 edid: est 640x480 / 800x600 / 1024x768 / 1280x1024@75, std 1920x1080@60,
+    // 1024x768, 800x600, 640x480, CTA VIC 63); the XT's lists and the plain offer stay as they were
+    {
+        const unsigned na = modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, true);
+        const uint32_t want[] = {1, 3, 4, 5, 7, 8, 9, 10, 11, 12};
+        bool same = na == sizeof want / sizeof want[0];
+        for (unsigned i = 0; same && i < na; i++) same = ids[i] == want[i];
+        CHECK(same);
+        if (!same) { std::printf("  anySize:"); for (unsigned i = 0; i < na; i++) std::printf(" %u", ids[i]); std::printf("\n"); }
+        CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, true) == 2);   // anySize only acts on a 2560x1440 surface
+        CHECK(modeList(1, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, true) == 0);
+        uint8_t noStd[256]; std::memcpy(noStd, kLgEdid, 256);
+        for (unsigned o = 35; o < 54; o++) noStd[o] = o < 38 ? 0 : 1;   // no established / standard timings
+        const unsigned nn = modeList(0, noStd, sizeof noStd, 2560, 1440, ids, true);
+        CHECK(nn == 4 && ids[3] == 7);   // the 1440p DTDs and VIC 63 only
+        // the keys PhxBringup b137 takes, the rows' pitch, and the totals shared by two rates
+        CHECK(switchKey(*headMode(0, 3), 2560, 1440) == 60 && switchKey(*headMode(0, 6), 2560, 1440) == 240);
+        CHECK(switchKey(*headMode(0, 1), 2560, 1440) == 1080060 && switchKey(*headMode(0, 7), 2560, 1440) == 1080120);
+        CHECK(switchKey(*headMode(0, 8), 2560, 1440) == 1024075 && switchKey(*headMode(0, 9), 2560, 1440) == 768060);
+        CHECK(switchKey(*headMode(0, 10), 2560, 1440) == 600060 && switchKey(*headMode(0, 11), 2560, 1440) == 480060);
+        CHECK(switchKey(*headMode(0, 12), 2560, 1440) == 480059 && switchKey(*headMode(0, 1), 1920, 1080) == 60);   // the XT: Hz
+        CHECK(modeRowBytes(*headMode(0, 3), 2560, 1440, 10240) == 10240 && modeRowBytes(*headMode(0, 1), 2560, 1440, 10240) == 8192);
+        CHECK(modeRowBytes(*headMode(0, 8), 2560, 1440, 10240) == 5120 && modeRowBytes(*headMode(0, 10), 2560, 1440, 10240) == 4096);
+        CHECK(modeRowBytes(*headMode(0, 12), 2560, 1440, 10240) == 3072 && modeRowBytes(*headMode(0, 1), 1920, 1080, 7680) == 7680);
+        const unsigned nb = modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, true);
+        CHECK(modeForTotalsHz(0, 2200, 1125, 119990, ids, nb) == 7 && modeForTotalsHz(0, 2200, 1125, 60010, ids, nb) == 1);
+        CHECK(modeForTotalsHz(0, 800, 525, 59940, ids, nb) == 12 && modeForTotalsHz(0, 800, 525, 60000, ids, nb) == 11);
+        CHECK(modeForTotalsHz(0, 2720, 1516, 143000, ids, nb) == 5 && modeForTotalsHz(0, 1, 1, 60000, ids, nb) == 0);
+        DetailedTiming t8{};
+        CHECK(detailedTiming(0, 8, &t8) && t8.pixelHz == 135000000ull && t8.hBlank == 408 && t8.vBlank == 42 && t8.hSyncPos && t8.vSyncPos);
+        CHECK(detailedTiming(0, 9, &t8) && t8.hSyncWidth == 136 && !t8.hSyncPos && !t8.vSyncPos);
+    }
     std::printf("head0_1440_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }

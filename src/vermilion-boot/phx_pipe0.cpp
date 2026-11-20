@@ -176,7 +176,11 @@ static void p0PairCounts(uint32_t *postFails, uint32_t *rollbacks) { *postFails 
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m) {
     if (!m || m->version != PHX_PIPE0_SETMODE_VERSION) return kIOReturnBadArgument;
     m->result = -1; m->stage = 0; m->cur_hz = 0; m->flags = 0; m->why[0] = 0;
-    if (m->target_hz != 60 && m->target_hz != 120 && m->target_hz != 144 && m->target_hz != 240) { strlcpy(m->why, "bad target (60, 120, 144 or 240)", sizeof m->why); return kIOReturnBadArgument; }
+    // b138: or a key of the replay set (height * 1000 + Hz, PhxAccel b138 with phx-p0-keys: another resolution)
+    if (m->target_hz != 60 && m->target_hz != 120 && m->target_hz != 144 && m->target_hz != 240 && !p0OdmKnows(m->target_hz)) {
+        strlcpy(m->why, "bad target (60, 120, 144, 240 or a replay-set key)", sizeof m->why);
+        return kIOReturnBadArgument;
+    }
     IOReturn odmRet;
     if (p0OdmRoute(m, &odmRet)) return odmRet;   // b134: 240 Hz and the states after it (phx_p0odm.cpp)
     phxp0::MacOut o{};

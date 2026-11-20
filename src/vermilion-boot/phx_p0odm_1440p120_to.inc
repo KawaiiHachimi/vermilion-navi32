@@ -521,6 +521,7 @@ static const struct phx_p0odm_step kPhxP0odm_1440p120_to[] = {
   {1, 1499, 0x03AB0, 0x05a00a00, 0xffffffff, 0},  /* HUBP0_DCSURF_SEC_VIEWPORT_DIMENSION_C */
   {1, 1500, 0x03AAF, 0x00000000, 0xffffffff, 0},  /* HUBP0_DCSURF_SEC_VIEWPORT_START_C */
   {1, 1509, 0x0900D, 0x00000014, 0xffffffff, 0},  /* MPCC0_MPCC_MEM_PWR_CTRL */
+  {1, 1521, 0x03AC7, 0x09ff09ff, 0xffffffff, 0},  /* HUBPREQ0_DCSURF_SURFACE_PITCH */
   {1, 1534, 0x03AB3, 0x000f040a, 0xffffffff, 0},  /* HUBP0_DCHUBP_CNTL */
   {1, 1544, 0x04CFF, 0x00000000, 0xffffffff, 0},  /* FMT0_FMT_DYNAMIC_EXP_CNTL */
   {1, 1545, 0x04CFF, 0x00000011, 0xffffffff, 0},  /* FMT0_FMT_DYNAMIC_EXP_CNTL */

@@ -229,7 +229,7 @@ def main():
                 state = "post"
             prev[n] = v
             continue
-        if COPY.search(n):
+        if COPY.search(n) and n != "HUBPREQ0_DCSURF_SURFACE_PITCH":   # b138: pipe 0's pitch is Linux's (PhxAccel's rows follow it)
             if PIPE1.match(n):
                 src = n
                 for p1, p0 in P1TO0:

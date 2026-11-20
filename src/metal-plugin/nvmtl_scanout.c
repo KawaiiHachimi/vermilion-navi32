@@ -39,6 +39,9 @@ static struct {
 } g_scan;
 static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* b138: the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
+static int g_scan_geom_wait;
+
 static void nvmtl_scan_off_locked(const char *why)
 {
     if (g_scan.state == 1 && g_scan.release) { uint64_t o[2] = { 0, 0 }; g_scan.release(g_dev, o);
@@ -107,8 +110,13 @@ static int nvmtl_scan_start_locked(uint32_t w, uint32_t h, uint32_t pitch)
     struct nvmtl_scan_query q;
     int r = g_scan.query(g_dev, &q);
     if (r || q.plane_w != w || q.plane_h != h || q.pitch_px * 4 != pitch) {
-        nvlog("ws gpu present: plane %ux%u pitch %u vs surface %ux%u pitch %u (query %d)", q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
-        nvmtl_scan_off_locked("the display surface does not match the plane"); return -1; }
+        /* b138: the plane may follow later (a resolution change: the kext's pitch is Linux's, wider than WindowServer's
+           rows below 1440p, so those modes run on the CPU copy). Not off for the session: query again in 2 s (cheap). */
+        static unsigned said; if (said++ < 8) nvlog("ws gpu present: plane %ux%u pitch %u vs surface %ux%u pitch %u (query %d) - CPU copy, trying again in 2 s",
+                                                    q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
+        g_scan_geom_wait = 1;   /* these retries are not plane losses: they do not count toward the 50 restarts */
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
+    g_scan_geom_wait = 0;
     uint64_t console = 0, frame = 0;
     if ((r = g_scan.acquire(g_dev, &console, &frame))) { nvlog("ws gpu present: acquire -> %d (debug.phxscan=1 and debug.phxfb_flip=0 needed)", r);
         /* a restart may find the console still busy (a flip pending): try again later */
@@ -180,11 +188,18 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
       if (g < 0) { nvmtl_scan_off_locked("head map stall"); goto out; }
       if (g == 0) { ret = 1; goto out; } }
     if (g_scan.state == 0 && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= g_scan.retryAt) {
-        if (g_scan.retryAt) { g_scan.restarts++; nvlog("ws gpu present: restart %d after the plane was lost", g_scan.restarts); }
+        if (g_scan.retryAt && !g_scan_geom_wait) { g_scan.restarts++; nvlog("ws gpu present: restart %d after the plane was lost", g_scan.restarts); }
         nvmtl_scan_start_locked(w, h, pitch);
     }
     if (g_scan.state != 1) goto out;
-    if (w != g_scan.w || h != g_scan.h || pitch != g_scan.pitch) { nvmtl_scan_off_locked("the display surface changed size"); goto out; }
+    if (w != g_scan.w || h != g_scan.h || pitch != g_scan.pitch) {
+        /* b138: a resolution change (PhxAccel resizes head 0): give the plane back, free the slots, start again at the new
+           size in 0.5 s (was: off until WindowServer restarts, so 1440p stayed on the CPU copy after visiting 1080p) */
+        nvmtl_scan_off_locked("the display surface changed size");
+        nvmtl_scan_teardown_locked();
+        g_scan_geom_wait = 1;
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 500000000ull;
+        goto out; }
     nvk_buffer *src = NULL;
     /* WindowServer frees its BGRA display surfaces and makes l10r ones that can get the same id at the same address.
        An entry matched by id and address alone then kept the old import: the freed surface's pages, still wired, so

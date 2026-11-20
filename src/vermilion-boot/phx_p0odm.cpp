@@ -104,9 +104,12 @@ static int odmRunLocked(int sel, int *err) {
 //   macOS's own state (the GOP's / the pipe-0 engine's): 60 / 120 / 144 stay with the pipe-0 engine; 240 = the pipe-0
 //   engine to 144 first when needed (the entry plan's start), then the entry.
 //   After the first 240 (Linux's state): every rate here, through Linux's 144.
+//   b138: PhxAccel's other resolutions (keys height * 1000 + Hz): from macOS's state the entry first, then the key.
+static bool p0OdmKnows(uint32_t key) { return phxodm::findMode(kOdmSet, key) >= 0; }
 static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret) {
     const uint32_t t = m->target_hz;
-    if (gOdm.where == phxodm::kMac && t != 240) return false;   // the pipe-0 engine's own business
+    // macOS's own 60 / 120 / 144 stay with the pipe-0 engine; 240 and (b138) every other resolution start with the entry
+    if (gOdm.where == phxodm::kMac && (t == 60 || t == 120 || t == 144)) return false;
     int err = 0;
     *ret = kIOReturnSuccess;
     if (gOdm.where == phxodm::kMac && phxp2::rd(p2Env(), phxodm::kOtg0V) != kOdmModes[2].vTotal) {   // 60 / 120 -> 144 first
@@ -119,7 +122,13 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret) {
             return true;
         }
     }
-    const int r = odmRunLocked(static_cast<int>(t), &err);
+    int r;
+    if (gOdm.where == phxodm::kMac && t != 240) {   // b138: another resolution from macOS's state: the entry (240) first
+        r = odmRunLocked(240, &err);
+        if (r == phxodm::kDone || (r == phxodm::kFellBack && gOdm.where == phxodm::kLinux)) r = odmRunLocked(static_cast<int>(t), &err);
+    } else {
+        r = odmRunLocked(static_cast<int>(t), &err);
+    }
     if (r < 0) { strlcpy(m->why, err == EBUSY ? "busy" : "not ready", sizeof m->why); *ret = err == EBUSY ? kIOReturnBusy : kIOReturnNotReady; return true; }
     m->result = r == phxodm::kDone ? phxp0::kDone : r == phxodm::kSame ? phxp0::kSame : r == phxodm::kRefused ? phxp0::kRefused
               : r == phxodm::kFellBack ? phxp0::kFellBack : phxp0::kDark;

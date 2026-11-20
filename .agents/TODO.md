@@ -80,6 +80,16 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       started. Capture v3 (2026-11-20 130351, all 12 EDID modes from the 144 hub, VRR and HDR at 60/120/144/240) is in
       `~/vermilion-captures/capture/` (outside git). Order: (1) b135 every 1440p rate both ways, (2) the other EDID
       resolutions (needs PhxAccel surface sizes), (3) Adaptive Sync from the vrr-* traces, (4) HDR from the hdr-* traces
+- [~] 2026-11-20 **b138: the other resolutions from System Settings, the desktop resizes** (built, host-tested, NOT booted):
+      VermilionBoot b138 (Linux's HUBP0 pitch per mode, phxPipe0SetMode takes keys, phx-p0-keys), PhxAccel b138 (head 0
+      offers the EDID's established / standard / VIC modes on the 2560x1440 surface, per-mode geometry with Linux's
+      256-pixel pitch, flip B placed by the boot size), Metal plugin (a size change restarts GPU present instead of
+      ending it; below 1440p GPU present stays off: CPU copy). Rollback copies: `~/vermilion-rollback/` (PhxAccel
+      `VermilionAccel.kext.b137-*`, plugin `NVMTLDriver.pre-b138`), EFI OC.prev = b137.
+      **Test:** System Settings > Displays > the resolution list (or "Show all resolutions"): 1920x1080, then 1280x1024,
+      1024x768, 800x600, 640x480, then back to 2560x1440 at 144 / 240. **If the desktop breaks at login (macOS
+      re-applies a saved small mode):** boot OC.prev (b137: no phx-p0-keys, PhxAccel then lists only the 1440p rates and
+      macOS falls back), then roll back PhxAccel / the plugin from the copies
 - [x] 2026-11-20 **b137: the other EDID resolutions, kext side: every mode works on the box** (16:22-16:30, owner read
       the OSD: 1920x1080@60/120, 1280x1024@75, 1024x768@60, 800x600@60, 640x480@60/59.94, then back to 1440p144; 9 runs 9
       done, 0 fall-backs, 0 soft-wait timeouts, training ok at RBR x1/x2/x4 and HBR x4). Installed 16:15, OC.prev = b136. 1920x1080@60/120, 1280x1024@75, 1024x768@60, 800x600@60, 640x480@60/59.94 as Linux's

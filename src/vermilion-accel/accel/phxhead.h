@@ -138,27 +138,39 @@ constexpr unsigned agdcPosition(uint32_t ep, unsigned n) { return ep < n ? ep : 
 // Behind debug.phxfb1_modes=1 (read at head-1 start; macOS caches the list, it must be complete from the first query):
 // the pipe-1 plans PhxBringup has compiled (b92 debug.phxpipe2_switch 60 / 144, head 1 1920x1080), each offered only
 // when the monitor's EDID has a DTD with its exact timing. ids are fixed per plan.
-struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; };
+// b138: std = the mode may also be listed by the EDID's established / standard timings or a CTA video code (edidLists),
+// not only by a detailed timing.
+struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t std; };
 static const HeadMode kHead1Modes[] = {
-    {1, 1920, 1080, 60000, 14850, 2200, 1125},    // CEA 1080p60 (the 60 plan)
-    {2, 1920, 1080, 144000, 32508, 2056, 1098},   // the Acer KG241QS DTD 1 (the 144 plan)
-    {3, 1920, 1080, 165000, 38096, 2080, 1110},   // acc165: the Acer CTA DTD 1, HDMI 2.0 (the kext b108 165 plan; Linux runs it at 164.80 Hz)
+    {1, 1920, 1080, 60000, 14850, 2200, 1125, 0},    // CEA 1080p60 (the 60 plan)
+    {2, 1920, 1080, 144000, 32508, 2056, 1098, 0},   // the Acer KG241QS DTD 1 (the 144 plan)
+    {3, 1920, 1080, 165000, 38096, 2080, 1110, 0},   // acc165: the Acer CTA DTD 1, HDMI 2.0 (the kext b108 165 plan; Linux runs it at 164.80 Hz)
 };
 constexpr unsigned kNHead1Modes = sizeof kHead1Modes / sizeof kHead1Modes[0];
 // Head 0's (the AOC on DP, pipe 0; AOC at 144): the pipe-0 plans PhxBringup
 // b101 has compiled (PhxPipe0.h phx_p0_plan_1080p60.inc / _1080p144.inc, switched by "phxPipe0SetMode"), offered behind the
 // kext's debug.phxpipe0_modes=1 (property phx-pipe0-modes, read when head 0 starts) and only for the DTDs the EDID has.
 static const HeadMode kHead0Modes[] = {
-    {1, 1920, 1080, 60000, 14850, 2200, 1125},    // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464)
-    {2, 1920, 1080, 144000, 32567, 2056, 1100},   // the AOC 24G2W1G4 CTA DTD at 0xa7 (the 144 plan, OTG0 0x807/0x44b)
+    {1, 1920, 1080, 60000, 14850, 2200, 1125, 1}, // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464;
+                                                  // b138: the LG's standard timing 1920x1080@60, PhxBringup b138's 1080060)
+    {2, 1920, 1080, 144000, 32567, 2056, 1100, 0},   // the AOC 24G2W1G4 CTA DTD at 0xa7 (the 144 plan, OTG0 0x807/0x44b)
     // b128 (the XTX machine's LG ULTRAGEAR+, DP B): PhxBringup b128's 1440p plan family; offered only for a 2560x1440 surface
     // and only for the DTDs the EDID has (the LG's base DTD and its two CTA DTDs; capture 2026-11-20)
-    {3, 2560, 1440, 59951, 24150, 2720, 1481},    // base DTD (the GOP's mode; plan 1440p60, OTG0 0xa9f/0x5c8)
-    {4, 2560, 1440, 119998, 49775, 2720, 1525},   // CTA DTD 2 (plan 1440p120, 10 bpc; OTG0 0xa9f/0x5f4)
-    {5, 2560, 1440, 143991, 59375, 2720, 1516},   // CTA DTD 1 (plan 1440p144, 8 bpc; OTG0 0xa9f/0x5eb)
+    {3, 2560, 1440, 59951, 24150, 2720, 1481, 0},    // base DTD (the GOP's mode; plan 1440p60, OTG0 0xa9f/0x5c8)
+    {4, 2560, 1440, 119998, 49775, 2720, 1525, 0},   // CTA DTD 2 (plan 1440p120, 10 bpc; OTG0 0xa9f/0x5f4)
+    {5, 2560, 1440, 143991, 59375, 2720, 1516, 0},   // CTA DTD 1 (plan 1440p144, 8 bpc; OTG0 0xa9f/0x5eb)
     // b134 (PhxBringup b134+): the LG's DisplayID Type I timing in EDID block 2 (1056.75 MHz, 2720x1619, 239.963 Hz):
     // PhxBringup's ODM 2:1 plan (DSC + FEC over HBR3, debug.phxp0odm; OTG0 0xa9f/0x652), works on the box 2026-11-20
-    {6, 2560, 1440, 239963, 105675, 2720, 1619},
+    {6, 2560, 1440, 239963, 105675, 2720, 1619, 0},
+    // b138 (PhxBringup b137+ replay set, keys height * 1000 + Hz): the LG's other EDID modes as Linux drove them (capture v3
+    // 2026-11-20: OTG0 totals, DP_DTO0_PHASE x 2 = the pixel clock); listed by the EDID's established / standard timings
+    // and CTA video codes. Offered only when PhxBringup publishes phx-p0-keys (it then resizes the desktop's scan-out).
+    {7, 1920, 1080, 120000, 29700, 2200, 1125, 1},  // CTA VIC 63 (OTG0 0x897/0x464, 297 MHz)
+    {8, 1280, 1024, 75025, 13500, 1688, 1066, 1},   // established 1280x1024@75 (DMT)
+    {9, 1024, 768, 60004, 6500, 1344, 806, 1},      // established / standard 1024x768@60 (DMT)
+    {10, 800, 600, 60317, 4000, 1056, 628, 1},      // established / standard 800x600@60 (DMT)
+    {11, 640, 480, 60000, 2520, 800, 525, 1},       // 640x480@60.00 (25.2 MHz; Linux lists it next to the DMT one)
+    {12, 640, 480, 59940, 2518, 800, 525, 1},       // established / standard 640x480@60 (DMT 25.175 MHz)
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -181,12 +193,45 @@ inline bool didT1Is(const uint8_t *d, const HeadMode &m) {
     const uint32_t lo = m.pclk10kHz - m.pclk10kHz / 500, hi = m.pclk10kHz + m.pclk10kHz / 500;
     return pc >= lo && pc <= hi && ha == m.w && va == m.h && ha + hb == m.hTotal && va + vb == m.vTotal;
 }
+// b138: the EDID lists m's size and rate (rounded Hz) outside the detailed timings: an established timing (bytes 35-36),
+// a standard timing (bytes 38-53) or a CTA-861 short video descriptor (VIC 1 / 16 / 63). Only for rows marked std.
+struct StdEntry { uint16_t w, h, hz; uint8_t byte, bit, vic; };
+static const StdEntry kStdTable[] = {
+    {640, 480, 60, 35, 0x20, 1}, {800, 600, 60, 35, 0x01, 0}, {1024, 768, 60, 36, 0x08, 0}, {1280, 1024, 75, 36, 0x01, 0},
+    {1920, 1080, 60, 0, 0, 16}, {1920, 1080, 120, 0, 0, 63},
+};
+inline bool edidListsStd(const uint8_t *e, uint32_t len, const HeadMode &m) {
+    if (!m.std || len < 128) return false;
+    const uint32_t hz = (m.milliHz + 500) / 1000;
+    for (const StdEntry &t : kStdTable) if (t.w == m.w && t.h == m.h && t.hz == hz && t.byte && (e[t.byte] & t.bit)) return true;
+    for (unsigned o = 38; o < 54; o += 2) {   // standard timings: (w / 8 - 31), aspect << 6 | (Hz - 60)
+        const uint8_t a = e[o], b = e[o + 1];
+        if ((a == 1 && b == 1) || !a) continue;
+        const uint32_t w = (a + 31u) * 8u, r = b >> 6;
+        const uint32_t h = r == 0 ? w * 10 / 16 : r == 1 ? w * 3 / 4 : r == 2 ? w * 4 / 5 : w * 9 / 16;
+        if (w == m.w && h == m.h && (b & 0x3fu) + 60u == hz) return true;
+    }
+    for (uint32_t b = 128; b + 128 <= len; b += 128) {   // CTA-861 data blocks: video (tag 2) short descriptors
+        const uint8_t *x = e + b;
+        if (x[0] != 0x02 || x[2] < 4 || x[2] > 127) continue;
+        for (unsigned o = 4; o < x[2];) {
+            const unsigned tag = x[o] >> 5, n = x[o] & 31;
+            if (o + 1 + n > x[2]) break;
+            if (tag == 2)
+                for (unsigned i = 1; i <= n; i++)
+                    for (const StdEntry &t : kStdTable) if (t.vic && t.vic == (x[o + i] & 0x7f) && t.w == m.w && t.h == m.h && t.hz == hz) return true;
+            o += 1 + n;
+        }
+    }
+    return false;
+}
 // The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
-inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m) {
+inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
     for (unsigned i = 0; i < 8; i++) if (e[i] != kHdr[i]) return false;
     for (unsigned o = 54; o <= 108; o += 18) if (dtdIs(e + o, m)) return true;
+    if (allowStd && edidListsStd(e, len, m)) return true;   // b138: only for the anySize offer
     for (uint32_t b = 128; b + 128 <= len; b += 128) {
         const uint8_t *x = e + b;
         if (x[0] == 0x70) {   // b134: DisplayID extension: section header x[1..4], data blocks from x[5] (tag, rev, length)
@@ -204,17 +249,43 @@ inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m) {
     }
     return false;
 }
-// The ids head `head` offers for a w x h surface, in table order (out holds kNMaxModes).
-inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out) {
+// The ids head `head` offers for a w x h surface, in table order (out holds kNMaxModes). b138: anySize (head 0 with
+// PhxBringup's phx-p0-keys, a 2560x1440 surface) also offers the rows of other sizes the EDID lists (the desktop resizes).
+inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out, bool anySize = false) {
     const ModeTable t = headModes(head);
     unsigned n = 0;
-    for (unsigned i = 0; i < t.n; i++) if (t.m[i].w == w && t.m[i].h == h && edidHasMode(edid, len, t.m[i])) out[n++] = t.m[i].id;
+    for (unsigned i = 0; i < t.n; i++) {
+        const bool any = anySize && head == 0 && w == 2560 && h == 1440;
+        const bool size = t.m[i].w == w && t.m[i].h == h;
+        if ((size || (any && t.m[i].std)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
+    }
     return n;
+}
+// b138: what phxPipe0SetMode's target_hz carries for m: its rounded Hz when m has the boot surface's size (as before; the
+// 1440p rates are keyed by Hz in PhxBringup too), else PhxBringup b137's key height * 1000 + whole Hz (1080060, 480059).
+constexpr uint32_t switchKey(const HeadMode &m, uint32_t bootW, uint32_t bootH) {
+    return m.w == bootW && m.h == bootH ? (m.milliHz + 500) / 1000 : m.h * 1000 + m.milliHz / 1000;
+}
+// b138: the bytes per row of m's scan-out: the boot surface's own for its size, else Linux's pitch (the width rounded up to
+// 256 pixels, capture v3: 1920 -> 2048, 800 -> 1024, 640 -> 768), which PhxBringup b138's plans write into HUBP0.
+constexpr uint32_t modeRowBytes(const HeadMode &m, uint32_t bootW, uint32_t bootH, uint32_t bootRowBytes) {
+    return m.w == bootW && m.h == bootH ? bootRowBytes : ((m.w + 255u) & ~255u) * 4u;
 }
 inline const HeadMode *headMode(unsigned head, uint32_t id) {
     const ModeTable t = headModes(head);
     for (unsigned i = 0; i < t.n; i++) if (t.m[i].id == id) return &t.m[i];
     return nullptr;
+}
+// b138: the listed mode with these totals and (when two share them: 1080p 60 / 120, 640x480 60 / 59.94) the nearest rate.
+inline uint32_t modeForTotalsHz(unsigned head, uint32_t hTotal, uint32_t vTotal, uint32_t milliHz, const uint32_t *ids, unsigned n) {
+    uint32_t best = 0, bestD = 0xffffffffu;
+    for (unsigned i = 0; i < n; i++) {
+        const HeadMode *m = headMode(head, ids[i]);
+        if (!m || m->hTotal != hTotal || m->vTotal != vTotal) continue;
+        const uint32_t d = m->milliHz > milliHz ? m->milliHz - milliHz : milliHz - m->milliHz;
+        if (d < bestD) { bestD = d; best = m->id; }
+    }
+    return best;
 }
 // The listed mode whose timing has these totals (OTG H/V_TOTAL + 1), 0 = none. Exact, unlike a 200 ms frame count, which
 // is +-1 frame = +-3.5 % at 144 Hz (boot 10-30 21:19: 28 frames -> 139.218 Hz, no mode, the list was dropped).
@@ -253,6 +324,13 @@ static const HeadSync kHead0Sync[] = {
     {4, 48, 32, 3, 5, true, false},
     {5, 48, 32, 3, 5, true, false},
     {6, 48, 32, 3, 5, true, false},  // b134 DisplayID Type I: H offset 48 (+), sync 32, V offset 3 (-), sync 5
+    // b138: as Linux drove them (capture v3 OTG0 H/V_BLANK_START, H/V_SYNC_A and their polarity bits)
+    {7, 88, 44, 4, 5, true, true},
+    {8, 16, 144, 1, 3, true, true},
+    {9, 24, 136, 3, 6, false, false},
+    {10, 40, 128, 1, 4, true, true},
+    {11, 16, 96, 10, 2, false, false},
+    {12, 16, 96, 10, 2, false, false},
 };
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.

@@ -131,7 +131,10 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->hubp_format = rreg(kHubp0SurfaceConfig) & 0x7f;
     q->sw_mode = rreg(kHubp0TilingConfig) & 0x1f;
     q->dcc_en = rreg(kHubpreq0SurfaceControl) & 1;
-    q->plane_w = q->h_active = q->pitch_px;
+    // b138: the visible width is HUBP0's viewport (the replay plans write Linux's pitch, wider than the mode below 1440p:
+    // 1920 -> 2048); with pitch == viewport, as on every mode before b138, this is the pitch as before
+    const uint32_t vpw = rreg(kHubp0PriViewportDim) & 0x3fff;
+    q->plane_w = q->h_active = vpw && vpw <= q->pitch_px ? vpw : q->pitch_px;
     q->plane_h = q->v_active = vbs > vbe ? vbs - vbe : 0;
     q->flags = ((rreg(kOtg0Control) & 1) ? PHXN_SCANQ_LIT : 0) | PHXN_SCANQ_NATIVE;
     const uint64_t bytes = static_cast<uint64_t>(q->pitch_px) * 4 * q->plane_h;

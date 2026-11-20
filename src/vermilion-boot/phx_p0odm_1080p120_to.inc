@@ -528,6 +528,7 @@ static const struct phx_p0odm_step kPhxP0odm_1080p120_to[] = {
   {1, 1455, 0x03AB0, 0x04380780, 0xffffffff, 0},  /* HUBP0_DCSURF_SEC_VIEWPORT_DIMENSION_C */
   {1, 1456, 0x03AAF, 0x00000000, 0xffffffff, 0},  /* HUBP0_DCSURF_SEC_VIEWPORT_START_C */
   {1, 1465, 0x0900D, 0x00000014, 0xffffffff, 0},  /* MPCC0_MPCC_MEM_PWR_CTRL */
+  {1, 1477, 0x03AC7, 0x07ff07ff, 0xffffffff, 0},  /* HUBPREQ0_DCSURF_SURFACE_PITCH */
   {1, 1490, 0x03AB3, 0x000f040a, 0xffffffff, 0},  /* HUBP0_DCHUBP_CNTL */
   {1, 1500, 0x04CFF, 0x00000000, 0xffffffff, 0},  /* FMT0_FMT_DYNAMIC_EXP_CNTL */
   {1, 1501, 0x04CFF, 0x00000011, 0xffffffff, 0},  /* FMT0_FMT_DYNAMIC_EXP_CNTL */

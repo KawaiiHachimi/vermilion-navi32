@@ -56,6 +56,9 @@ bool PhxBringup::start(IOService *provider) {
     setProperty("phx-build", PHX_KEXT_BUILD, 32);
     setProperty("phx-edid-fn", kOSBooleanTrue);   // b79: PhxAMDFB may call the "phxEdidRead" platform function
     setProperty("phx-edid-full-fn", kOSBooleanTrue);   // b134: ... and "phxEdidReadFull" (out = 512 bytes)
+    // b138: phxPipe0SetMode takes the replay set's keys (height * 1000 + Hz) and its plans write Linux's HUBP0 pitch per mode:
+    // PhxAccel b138 then offers the EDID's other resolutions on head 0 and resizes its scan-out geometry
+    setProperty("phx-p0-keys", kOSBooleanTrue);
     setProperty("phx-edid-req", kOSBooleanTrue);  // b81: ...and ask it for a source (param4 in, phxddc::resolveSource)
     setProperty("phx-pipe2-mode-fn", kOSBooleanTrue);   // b93: PhxAMDFB head 1 may call "phxPipe2SetMode" (PhxSwitchABI.h)
     setProperty("phx-pipe2-gamma-fn", kOSBooleanTrue);  // b98: ...and "phxPipe2SetGamma" (PhxGamma.h; writes only with debug.phxgamma=1)

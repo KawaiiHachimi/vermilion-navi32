@@ -310,6 +310,8 @@ int main() {
             // b136: the buffer segments landed (box b135: DET1 kept 9 after 240 -> 144, CONFIG_ERROR, pipe 0 dark)
             CHECK(!h.compErr && h.detCur[0] == (h.r[0x0397B] & 0x1f) && h.detCur[1] == (h.r[0x0397C] & 0x1f) && h.detCur[0] && r.swaitTimeouts == 0);
             CHECK(h.detCur[1] == (t == 240 ? 9u : 0u));
+            // b138: pipe 0's pitch is Linux's for the mode (the width rounded up to 256 pixels)
+            CHECK((h.r[0x03AC7] & 0x3fff) + 1 == ((m.w + 255u) & ~255u));
         }
         CHECK(pairs > 100);
         for (auto &wr : h.writes) CHECK(!denied(wr.first) || wr.first == phxdmub::kInbox1Wptr);

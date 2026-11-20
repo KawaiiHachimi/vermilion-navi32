@@ -287,6 +287,19 @@ class PhxAMDFB : public IOFramebuffer {
     bool fBeside = false;   // another framebuffer (the firmware's IONDRV one) already drives this GPU: not the console
     IOPhysicalAddress fBase = 0;
     uint32_t fWidth = 0, fHeight = 0, fRowBytes = 0;
+    // b138: the boot console's geometry (the GOP's surface A, its VRAM and flip-B placement); fWidth / fHeight / fRowBytes
+    // follow the lit mode once PhxBringup resizes the scan-out (head 0 with phx-p0-keys), else they stay these
+    uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
+    bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
+    const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
+        return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
+    }
+    uint32_t modeW(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->w : fWidth; }
+    uint32_t modeH(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->h : fHeight; }
+    uint32_t modeRow(IODisplayModeID mode) const {
+        const phxhead::HeadMode *m = modeOf(mode);
+        return m && fAnySize ? phxhead::modeRowBytes(*m, fBootW, fBootH, fBootRowBytes) : fRowBytes;
+    }
     static constexpr uint64_t kFrameNs = 16666667ull;   // 60 Hz, when the refresh cannot be measured
     uint64_t fFrameNs = kFrameNs;
     uint32_t fRefreshMilliHz = 60000, fHTotal = 0, fVTotal = 0;
@@ -603,6 +616,9 @@ class PhxAMDFB : public IOFramebuffer {
         if (fFlipOk) return true;
         if (!fMmio || !fSurfMap || !fRowBytes || !fHeight) return false;
         const uint64_t size = (uint64_t)fRowBytes * fHeight;
+        // b138: B sits past A's boot-sized surface and is mapped at that size, whatever the lit mode: a frame copied with the
+        // geometry from before a resize still fits it
+        const uint64_t bootSize = fBootRowBytes && fBootH ? (uint64_t)fBootRowBytes * fBootH : size;
         uint64_t barStart = 0, barLen = 0;
         for (uint32_t i = 0; i < fPCI->getDeviceMemoryCount(); i++) {
             IODeviceMemory *dm = fPCI->getDeviceMemoryWithIndex(i);
@@ -612,18 +628,18 @@ class PhxAMDFB : public IOFramebuffer {
         }
         const uint64_t aVram = fBase - barStart, fbMc = (uint64_t)(R(kRegFbBase) & 0xffffff) << 24;
         fAmc = ((uint64_t)(R(fFR.addrHi) & 0xffff) << 32) | R(fFR.addrLo);
-        uint64_t bVram = (aVram + size + 0x1fffff) & ~0x1fffffull;
+        uint64_t bVram = (aVram + bootSize + 0x1fffff) & ~0x1fffffull;
         const phxhead::Range bw = phxhead::flipBRange(fHead);
         if (bVram < bw.lo) bVram = bw.lo;
         const uint32_t pitchPx = (R(fFR.pitch) & 0x3fff) + 1;
         PFBLOG("flip: A at VRAM 0x%llx (MC 0x%llx, FB base 0x%llx), pitch %u px, B at VRAM 0x%llx, %llu bytes, BAR 0x%llx+0x%llx",
                aVram, fAmc, fbMc, pitchPx, bVram, size, barStart, barLen);
-        if (!barLen || fAmc - fbMc != aVram || pitchPx * 4 != fRowBytes || bVram + size > bw.hi || bVram + size > barLen) {
+        if (!barLen || fAmc - fbMc != aVram || pitchPx * 4 != fRowBytes || bVram + bootSize > bw.hi || bVram + bootSize > barLen) {
             PFBLOG("flip: layout does not fit the double buffer - staying on the copy");
             return false;
         }
         if (!fBackMap)
-            if (IODeviceMemory *dm = IODeviceMemory::withRange(barStart + bVram, size)) { fBackMap = dm->map(kIOMapWriteCombineCache); dm->release(); }
+            if (IODeviceMemory *dm = IODeviceMemory::withRange(barStart + bVram, bootSize)) { fBackMap = dm->map(kIOMapWriteCombineCache); dm->release(); }
         if (!fBackMap) { PFBLOG("flip: B would not map"); return false; }
         const volatile uint64_t *a = (const volatile uint64_t *)fSurfMap->getVirtualAddress();
         volatile uint64_t *b = (volatile uint64_t *)fBackMap->getVirtualAddress();
@@ -792,7 +808,7 @@ public:
         if (phxRotOwns(fRot, fHead, mode)) return phxRotInfo(fRot, fHead, mode, info, rotModes().single);
         if (!listed(mode) || !info) return kIOReturnBadArgument;
         bzero(info, sizeof(*info));
-        info->maxDepthIndex = 0; info->nominalWidth = fWidth; info->nominalHeight = fHeight;
+        info->maxDepthIndex = 0; info->nominalWidth = modeW(mode); info->nominalHeight = modeH(mode);   // b138: per mode
         const phxhead::HeadMode *hm = fNModes ? phxhead::headMode(fHead, (uint32_t)mode) : nullptr;
         const uint32_t mhz = hm ? hm->milliHz : fRefreshMilliHz;
         info->refreshRate = (IOFixed1616)(((uint64_t)mhz << 16) / 1000); info->flags = modeFlags(mode);
@@ -803,11 +819,11 @@ public:
         if (phxRotOwns(fRot, fHead, mode)) return phxRotPixelInfo(fRot, mode, depth, aperture, pi);
         if (!listed(mode) || depth != 0 || aperture != kIOFBSystemAperture || !pi) return kIOReturnUnsupportedMode;
         bzero(pi, sizeof(*pi));
-        pi->bytesPerRow = fRowBytes; pi->bitsPerPixel = 32; pi->pixelType = kIORGBDirectPixels;
+        pi->bytesPerRow = modeRow(mode); pi->bitsPerPixel = 32; pi->pixelType = kIORGBDirectPixels;   // b138: per mode
         pi->componentCount = 3; pi->bitsPerComponent = 8;
         pi->componentMasks[0] = 0x00FF0000; pi->componentMasks[1] = 0x0000FF00; pi->componentMasks[2] = 0x000000FF;
         strlcpy(pi->pixelFormat, IO32BitDirectPixels, sizeof(pi->pixelFormat));
-        pi->activeWidth = fWidth; pi->activeHeight = fHeight;
+        pi->activeWidth = modeW(mode); pi->activeHeight = modeH(mode);
         return kIOReturnSuccess;
     }
     IOReturn getCurrentDisplayMode(IODisplayModeID *mode, IOIndex *depth) override {
@@ -1316,6 +1332,7 @@ bool PhxAMDFB::start(IOService *provider)
         return false;
     }
     fWidth = (uint32_t)v.v_width; fHeight = (uint32_t)v.v_height; fRowBytes = (uint32_t)v.v_rowBytes;
+    fBootW = fWidth; fBootH = fHeight; fBootRowBytes = fRowBytes;   // b138
     // once the video console is up, the platform expert hands out the console's kernel mapping, not the physical
     // address. The GOP surface sits in one of the GPU's BARs (VRAM aperture): find the BAR whose start holds the same
     // pixels as the console mapping. (A descriptor over the mapping would need prepare(): getPhysicalSegment on an
@@ -1361,6 +1378,7 @@ bool PhxAMDFB::start(IOService *provider)
     fNModes = 0; gHead0NModes = 0; gHead0Mode = 0;
     if (IOService *b = copyBringup("phx-pipe0-mode-fn")) {   // AOC at 144: the list must be complete before IOFramebuffer::start's first query (R0 D1)
         const bool armed = b->getProperty("phx-pipe0-modes") == kOSBooleanTrue;
+        fAnySize = b->getProperty("phx-p0-keys") == kOSBooleanTrue;   // b138: PhxBringup b138+ resizes the scan-out
         b->release();
         if (armed) {
             measureRefresh();
@@ -1378,7 +1396,7 @@ bool PhxAMDFB::start(IOService *provider)
                 fb->release();
             }
             PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
-            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids);
+            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
             PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");
@@ -1681,7 +1699,11 @@ IOReturn PhxAMDFB::switchHead1Mode(IODisplayModeID id)
 void PhxAMDFB::head0ModeRate()
 {
     if (fHead != 0 || !fNModes || !fHTotal) return;
-    const uint32_t id = phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes);
+    // b138: the lit id when its totals are OTG0's (1080p 60 / 120 share theirs), else the listed mode of those totals nearest
+    // the measured rate
+    const phxhead::HeadMode *lit = phxhead::headMode(0, fModeId);
+    const uint32_t id = lit && lit->hTotal == fHTotal && lit->vTotal == fVTotal ? fModeId
+                      : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes);
     const phxhead::HeadMode *m = id ? phxhead::headMode(0, id) : nullptr;
     if (!m) return;
     fRefreshMilliHz = m->milliHz;
@@ -1700,7 +1722,8 @@ int PhxAMDFB::head0Resync()
     const uint64_t oldNs = fFrameNs;
     fHTotal = fVTotal = 0;
     measureRefresh();
-    const uint32_t now = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes) : 0;
+    uint32_t now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
+    if (now && (phxhead::headMode(0, now)->w != fWidth || phxhead::headMode(0, now)->h != fHeight)) now = 0;   // b138: no resize here
     if (!now) {
         PFBLOG("head 0 resync: OTG0 %ux%u totals are no listed mode: id %u kept", fHTotal, fVTotal, fModeId);
         fHTotal = oldH; fVTotal = oldV; fRefreshMilliHz = oldMhz; fFrameNs = oldNs;
@@ -1736,7 +1759,9 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     const bool flips = gFlipOn[0] != 0;
     if (flips) flipEnable(0);   // HUBP0 back on A while pipe 0 is re-timed (the engine blanks HUBP0, never moves its address)
     phx_pipe0_setmode req = {};
-    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = phxhead::switchHz(*hm);   /* b128: rounded (the LG 59.951 Hz = 60) */ req.result = -1;
+    // b128: rounded (the LG 59.951 Hz = 60); b138: another size = PhxBringup b137's key (height * 1000 + Hz)
+    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = fAnySize ? phxhead::switchKey(*hm, fBootW, fBootH) : phxhead::switchHz(*hm);
+    req.result = -1;
     const IOReturn r = bringup->callPlatformFunction("phxPipe0SetMode", false, &req, nullptr, nullptr, nullptr);
     bringup->release();
     gHead0Switches++;
@@ -1748,8 +1773,20 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     if (act != phxhead::kActRefused) {
         fHTotal = fVTotal = 0;
         measureRefresh();   // OTG0's totals now (OTG0 not running after a dark: the old rate stays)
-        now = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes) : 0;
-        if (now) { fModeId = now; head0ModeRate(); }
+        now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
+        if (now == (uint32_t)id || (now && phxhead::headMode(0, now)->hTotal == hm->hTotal && phxhead::headMode(0, now)->vTotal == hm->vTotal &&
+                                    act == phxhead::kActDone))
+            now = (uint32_t)id;   // b138: PhxBringup lit the asked mode (totals shared by two rates: its answer decides)
+        if (now) {
+            fModeId = now;
+            head0ModeRate();
+            if (fAnySize) {   // b138: the scan-out's geometry follows the lit mode (flipping is off until the end of this switch)
+                const phxhead::HeadMode *lm = phxhead::headMode(0, now);
+                fWidth = lm->w; fHeight = lm->h; fRowBytes = phxhead::modeRowBytes(*lm, fBootW, fBootH, fBootRowBytes);
+                fFlipOk = false;   // flipSetupLocked checks HUBP0's pitch against the new rows and refills B at the next enable
+                setProperty("PhxFBWidth", fWidth, 32); setProperty("PhxFBHeight", fHeight, 32);
+            }
+        }
         nanoseconds_to_absolutetime(fFrameNs, &gPhxFrameAbs);   // the VBL tick's new period is read at its next fire
         setProperty("PhxFBRefreshMilliHz", fRefreshMilliHz, 32);
         if (fHTotal) { setProperty("PhxFBHTotal", fHTotal, 32); setProperty("PhxFBVTotal", fVTotal, 32); }
@@ -1758,8 +1795,8 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     gHead0Mode = (int)fModeId; gHead0Refresh = (int)fRefreshMilliHz;
     if (ret != kIOReturnSuccess) gHead0SwitchFails++;
     if (flips && act != phxhead::kActDark) flipEnable(1);
-    PFBLOG("head 0 switch to id %d (%u Hz): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz",
-           (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz);
+    PFBLOG("head 0 switch to id %d (target %u): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz %ux%u row %u",
+           (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz, fWidth, fHeight, fRowBytes);
     return ret;
 }
 
