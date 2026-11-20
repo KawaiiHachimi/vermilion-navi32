@@ -118,3 +118,12 @@ the source; Linux never ran on this firmware). On macOS OTG0_OTG_V_TOTAL_MIN / M
 TRIGA_MANUAL_TRIG read 0 (no range). The DCN 3.2 register path never writes OTG_TRIGA_CNTL (only DCN 2's
 `optc2_setup_manual_trigger` sets its source to 21); whether the manual trigger ends a frame with TRIGA_CNTL = 0 is what
 b142 shows.
+
+## Adaptive Sync works on the box (b143, 2026-11-20 22:56)
+
+GPU present at 240 again (plane 2560x1440, acquired). `debug.phxvrr=1` at 2560x1440 240 (ODM 2:1, DSC, HBR3):
+V_TOTAL_MIN 0x652, MAX 0x1f9e, CONTROL 0x00020003. Nearly still: ~25 triggers/s, OTG0 52-56 Hz; moving windows: OTG0 188 Hz,
+1537 triggers; the owner: "VRR works now, I can tell", picture normal. So on the GOP firmware Linux's DCN 3.2 register
+path works as is, OTG_TRIGA_CNTL left at 0 (the manual trigger ends the frame without a TRIGA source). No Adaptive Sync
+SDP is sent; the LG runs variable anyway (its VRR setting on). Open: the CPU copy fires no trigger (frames stretch to
+48 Hz without GPU present), and System Settings' Variable entry does not switch it yet.
