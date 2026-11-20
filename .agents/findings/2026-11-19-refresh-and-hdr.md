@@ -316,3 +316,17 @@ Linux 7.2.15 amdgpu, Hyprland 0.56.2, LG ULTRAGEAR+ on DP-3. Header layout and e
   shows DSC on, 10 bpc, HDR preset, i.e. the earlier `hdr-240` state with 239 fps. The forced `dsc_clock_en = 2` did not
   change the mode (inferred: it only applies at the next full link training, and Hyprland did not retrain for an identical mode).
   Whether Linux can light 240 Hz without DSC is therefore unanswered; 8 bpc without DSC at HBR3 stays the inference from the 240 Hz research.
+
+## Linux capture v3 (2026-11-20): every mode, Adaptive Sync, HDR
+
+`linux_display_capture.py --all-modes` (EFI copy of the tool) ran to the end on the same machine (Linux 7.2.15, Hyprland 0.56.2, LG on DP-3).
+Output: EFI partition `/boot/vermilion/capture/display-20261120-*/` (newest; 42 steps, not in git). Every step set its mode; none failed.
+
+- Modes Hyprland listed (12): 2560x1440 at 239.97 / 143.99 / 120.00 / 59.95; 1920x1080 at 120.00 / 119.88 / 60.00; 1280x1024@75.03;
+  1024x768@60.00; 800x600@60.32; 640x480@60.00 and @59.94. No 165 Hz mode is offered.
+- Steps: `hub` (2560x1440@144), `to-<mode>` / `from-<mode>` for each other mode (hub first, back to the hub after), then `to-vrr-<rate>`
+  (vrr 1) and `to-hdr-<rate>` (10 bpc, cm hdr) with their `from-` steps for the four 1440p rates.
+- DMUB commands per step (kprobe `dmub_srv_fb_cmd_queue`) are > 0 in every step. Every `to-` step at 1440p 144/120/240 Hz and every
+  `from-` step back to the hub carries the usual ~1000-2000; the low-rate modes (60 Hz and the 1080p/legacy modes) ~470-600.
+  The decode of the TRANSMITTER_CONTROL sequence per step was not done this time.
+- Not checked: whether `vrr 1` actually enabled Adaptive Sync on the panel (only the commands were captured).
