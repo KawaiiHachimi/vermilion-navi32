@@ -86,3 +86,14 @@ on `dmub_srv_cmd_queue` (16 dwords per DMUB command, `phxcap/dmubcmd*` lines in 
    81000 for HBR3), DP_AUX_ACCESS (DPCD 0x100-0x103 writes, 0x120 FEC, 0x160 DSC, TRAINING_LANEx_SET), anything else
    by name from Linux `dmub_cmd.h`. Same table for `240-nodsc` if it lit. Mark inferred fields.
 4. Then as before: commit the note (not the capture), push, owner powers off fully, macOS.
+
+## Capture v3 (2026-11-20): every mode, Adaptive Sync, HDR (owner goal: all of them in macOS)
+
+macOS will drive every mode the way 240 Hz already works: Linux's own mode set replayed, always from 144 Hz. That needs one
+trace per mode, from the 144 hub and back. As root, Hyprland running, the LG on DP:
+   `python3 tools/capture/linux_display_capture.py /boot/vermilion/capture --all-modes`
+It reads Hyprland's `availableModes`, then for every mode: hub (2560x1440@144) -> mode -> hub, then VRR on (vrr 1) and HDR
+(cm hdr, 10 bpc) at every 1440p rate, each from the hub and back. Takes roughly 10 s per step; the screen switches a lot.
+Needs >= 512 MiB free on the EFI partition. Check in summary.txt that every `to-*` step shows DMUB commands > 0 when the
+link rate changes, and note any mode Hyprland could not set. No decode needed this time: commit nothing but a short note
+(which steps ran / failed) in the findings, push, owner powers off fully, macOS.

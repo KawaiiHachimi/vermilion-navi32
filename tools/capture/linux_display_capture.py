@@ -47,7 +47,7 @@ FIXED = {
     0x039C4: "ARB_FCLK_PSTATE_WATERMARK_A", 0x036A4: "DMCUB_SCRATCH1", 0x03AA5: "HUBP0_DCSURF_SURFACE_CONFIG",
     0x03AB3: "HUBP0_DCHUBP_CNTL", 0x04F8A: "ODM0_OPTC_INPUT_GLOBAL_CONTROL", 0x039EE: "VTG0_CONTROL",
 }
-STEPS = {   # name: (refresh Hz or None, bpc, link "auto"/"hbr2", hdr)
+STEPS = {   # name: (refresh Hz, or a "WxH@rate" mode string, or None; bpc; link "auto"/"hbr2"/"nodsc"; hdr[; vrr])
     "base": (None, None, "auto", False),
     "60": (60, 8, "auto", False), "120": (120, 8, "auto", False), "144": (144, 8, "auto", False), "240": (240, 8, "auto", False),
     "hbr2-60": (60, 8, "hbr2", False), "hbr2-120": (120, 8, "hbr2", False), "hbr2-144": (144, 8, "hbr2", False),
@@ -265,11 +265,14 @@ class Cap:
 
     # ---- one step ----
     def step(self, name, out):
-        hz, bpc, link, hdr = STEPS[name]
+        ent = STEPS[name]
+        hz, bpc, link, hdr = ent[:4]
+        vrr = ent[4] if len(ent) > 4 else 0
         d = os.path.join(out, name)
         rule = None
         if hz:
-            rule = f"{self.cname},2560x1440@{hz},0x0,1,vrr,0" + (f",bitdepth,{bpc}" if bpc and bpc > 8 else "") + (",cm,hdr" if hdr else "")
+            mode = hz if isinstance(hz, str) else f"2560x1440@{hz}"
+            rule = f"{self.cname},{mode},0x0,1,vrr,{vrr}" + (f",bitdepth,{bpc}" if bpc and bpc > 8 else "") + (",cm,hdr" if hdr else "")
         self.say(f"== {name}: {rule or 'no switch'}{' (link forced HBR2 x4)' if link == 'hbr2' else ''}")
         if self.dry:
             return
@@ -333,6 +336,34 @@ class Cap:
         self.say(f"   now: {m.get('width')}x{m.get('height')} @ {m.get('refreshRate')} Hz; OTG0 frames/s {(f1 - f0) & 0xffffffff}; "
                  f"lanes {(cfg & 3) + 1 if isinstance(cfg, int) else '?'}; VID_M/N 0x{mv:x}/0x{nv:x}; DP_PIXEL_FORMAT 0x{pf:08x}")
 
+    def all_modes(self):
+        """v3 (2026-11-20): every mode the monitor offers, each from the 144 Hz hub and back, then Adaptive Sync (vrr 1) and
+        HDR at every 1440p rate, each from the hub and back. Step names: to-<mode> / from-<mode> (the hub after it)."""
+        m = self.monitor()
+        modes = []
+        for x in m.get("availableModes", []):
+            x = x.replace("Hz", "").strip()
+            if re.match(r"^\d+x\d+@[\d.]+$", x) and x not in modes:
+                modes.append(x)
+        self.say(f"available modes ({len(modes)}): {' '.join(modes)}")
+        hub = "2560x1440@144"
+        rates = sorted({x.split("@")[1] for x in modes if x.startswith("2560x1440@")}, key=float)
+        steps = ["base", "hub"]
+        STEPS["hub"] = (hub, 8, "auto", False, 0)
+        def pair(name, ent):
+            STEPS["to-" + name] = ent
+            STEPS["from-" + name] = (hub, 8, "auto", False, 0)
+            steps.extend(["to-" + name, "from-" + name])
+        for x in modes:
+            if x.startswith("2560x1440@144"):
+                continue
+            pair(x, (x, 8, "auto", False, 0))
+        for r in rates:
+            pair(f"vrr-{r}", (f"2560x1440@{r}", 8, "auto", False, 1))
+        for r in rates:
+            pair(f"hdr-{r}", (f"2560x1440@{r}", 10, "auto", True, 0))
+        return steps
+
     def run(self):
         steps = self.a.steps.split(",") if self.a.steps else (DEFAULT + (HBR2 if self.a.hbr2 else []) + (HDR if self.a.hdr else [])
                                                              + (R240 if self.a.r240 else []))
@@ -350,10 +381,12 @@ class Cap:
         if os.geteuid() != 0:
             sys.exit("run as root (sudo)")
         self.find()
-        need = 64 << 20
+        if self.a.all_modes:
+            steps = self.all_modes()
+        need = (512 if self.a.all_modes else 64) << 20
         st = shutil.disk_usage(self.a.outdir if os.path.isdir(self.a.outdir) else os.path.dirname(self.a.outdir.rstrip("/")) or "/")
         if st.free < need:
-            sys.exit(f"{self.a.outdir}: less than 64 MiB free")
+            sys.exit(f"{self.a.outdir}: less than {need >> 20} MiB free")
         if not os.path.exists(f"{TRACE}/events/{EVENT}/enable"):
             sys.exit(f"no ftrace event {EVENT} (tracefs at {TRACE}?)")
         out = os.path.join(self.a.outdir, "display-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -389,6 +422,7 @@ def main():
     ap.add_argument("--hbr2", action="store_true", help="add the steps with the link forced to HBR2 x4")
     ap.add_argument("--hdr", action="store_true", help="add the HDR steps (Hyprland cm,hdr)")
     ap.add_argument("--r240", action="store_true", help="add 240-10, hdr-240 and 240-nodsc")
+    ap.add_argument("--all-modes", action="store_true", help="v3: every available mode from the 144 hub and back, VRR and HDR at every 1440p rate")
     ap.add_argument("--steps", help="comma list, overrides the default set")
     ap.add_argument("--dry-run", action="store_true")
     Cap(ap.parse_args()).run()
