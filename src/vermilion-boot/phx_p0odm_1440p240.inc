@@ -3,7 +3,8 @@
 /* source: Linux 7.2.15, capture 2026-11-20 065140, 144 -> 240; until t = 246.5262 */
 /* ops: 1 W (reg, val, mask: RMW), 2 COPY (reg = live value of register `val`), 3 WAIT (reg & mask == val, arg = us),
    4 DAL (SetHardMinByFreq, val = arg), 5 DPCDW (reg = DPCD address, val = byte), 6 LINKOFF, 7 LINKUP (val = rate,
-   mask 1 = FEC, arg = lanes), 8 DELAY (arg = us); line = the trace line */
+   mask 1 = FEC, arg = lanes), 8 DELAY (arg = us), 9 SWAIT (as WAIT; a timeout is counted, not a failure: Linux's
+   REG_WAIT only logs); line = the trace line */
 #ifndef PHX_P0ODM_TYPES
 #define PHX_P0ODM_TYPES
 struct phx_p0odm_step { uint8_t op; uint32_t line, reg, val, mask, arg; };
@@ -39,6 +40,7 @@ static const struct phx_p0odm_step kPhxP0odm_1440p240[] = {
   {1, 62, 0x09002, 0x0000000f, 0xffffffff, 0},  /* MPCC0_MPCC_OPP_ID */
   {1, 63, 0x09005, 0x0000000f, 0xffffffff, 0},  /* MPCC0_MPCC_UPDATE_LOCK_SEL */
   {1, 64, 0x0504A, 0x00000000, 0xffffffff, 0},  /* OTG0_OTG_MASTER_UPDATE_LOCK */
+  {9, 64, 0x0397B, 0x00000000, 0x00001f00, 50000},  /* soft wait DCHUBBUB_DET0_CTRL SIZE_CURRENT == 0 (after the unlock) */
   {1, 65, 0x03AB3, 0x000f040b, 0xffffffff, 0},  /* HUBP0_DCHUBP_CNTL */
   {3, 65, 0x03AB3, 0x00000002, 0x00000002, 200},  /* wait HUBP0_DCHUBP_CNTL & 0x2 == 0x2 (<= 200 us) */
   {1, 66, 0x03AB6, 0x00000000, 0xffffffff, 0},  /* HUBP0_DCHUBP_MALL_CONFIG */
@@ -1112,6 +1114,8 @@ static const struct phx_p0odm_step kPhxP0odm_1440p240[] = {
   {1, 2200, 0x04D5A, 0x01000000, 0xffffffff, 0},  /* FMT1_FMT_CONTROL */
   {1, 2201, 0x04D5A, 0x01000000, 0xffffffff, 0},  /* FMT1_FMT_CONTROL */
   {1, 2202, 0x0504A, 0x00000000, 0xffffffff, 0},  /* OTG0_OTG_MASTER_UPDATE_LOCK */
+  {9, 2202, 0x0397B, 0x00000900, 0x00001f00, 50000},  /* soft wait DCHUBBUB_DET0_CTRL SIZE_CURRENT == 9 (after the unlock) */
+  {9, 2202, 0x0397C, 0x00000900, 0x00001f00, 50000},  /* soft wait DCHUBBUB_DET1_CTRL SIZE_CURRENT == 9 (after the unlock) */
   {1, 2203, 0x039BC, 0x00001002, 0xffffffff, 0},  /* DCHUBBUB_ARB_DRAM_STATE_CNTL */
   {1, 2208, 0x03AB6, 0x00000002, 0xffffffff, 0},  /* HUBP0_DCHUBP_MALL_CONFIG */
   {1, 2209, 0x03B92, 0x00000002, 0xffffffff, 0},  /* HUBP1_DCHUBP_MALL_CONFIG */

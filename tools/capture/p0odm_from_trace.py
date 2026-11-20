@@ -25,7 +25,8 @@
 import argparse, re, sys
 
 SEG = [0x12, 0xC0, 0x34C0, 0x9000]
-OPS = {"W": 1, "COPY": 2, "WAIT": 3, "DAL": 4, "DPCDW": 5, "LINKOFF": 6, "LINKUP": 7, "DELAY": 8}
+OPS = {"W": 1, "COPY": 2, "WAIT": 3, "DAL": 4, "DPCDW": 5, "LINKOFF": 6, "LINKUP": 7, "DELAY": 8, "SWAIT": 9}
+DET_CUR, COMPBUF_CUR, SOFT_US = 0x1F00, 0x1F00, 50000
 
 
 def names(hdr):
@@ -95,23 +96,74 @@ def wait_rules(n, v, prev, nm2a, nextv=0):
     return w
 
 
+NOISE = re.compile(r"VERTICAL_INTERRUPT|GLOBAL_SYNC_STATUS|STATIC_SCREEN|TRIGA_MANUAL_TRIG|DC_GPIO|_AUX_|SURFACE_ADDRESS|"
+                   r"FLIP_CONTROL|SURFACE_CONTROL|VMID|CURSOR|^CUR_|SURFACE_FLIP_INT|UCLK_PSTATE_FORCE|DMCUB|^AZ|AFMT|"
+                   r"DCCG_AUDIO|OTG0_OTG_GLOBAL_CONTROL2|OTG0_OTG_MASTER_UPDATE_LOCK")
+SYM_RATE = {16200: 0x06, 27000: 0x0A, 54000: 0x14, 81000: 0x1E}
+
+
+def auto_bounds(trace, nm):
+    """(until, rate): the mode set = the first two write bursts (> 20 ms apart, per-frame flip / lock noise ignored);
+    until = the first OTG0_OTG_MASTER_UPDATE_LOCK = 0 after the second burst; rate = the ENABLE symbol clock."""
+    ev, locks, rate = [], [], None
+    for l in open(trace):
+        m = re.search(r"\s([\d.]+): amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
+        d = re.search(r"\s([\d.]+): dmubcmd\d*: .*?c0=0x([0-9a-f]+) c1=0x([0-9a-f]+) c2=0x([0-9a-f]+)", l)
+        if d and int(d.group(2), 16) == 0x3C000180 and int(d.group(3), 16) & 0xFF00 == 0x0100 and rate is None:
+            sym = int(d.group(4), 16)
+            if sym not in SYM_RATE:
+                sys.exit(f"auto rate: ENABLE symbol clock {sym} not known")
+            rate = SYM_RATE[sym]
+        if not m:
+            continue
+        t, n, v = float(m.group(1)), nm.get(int(m.group(2), 16), "?"), int(m.group(3), 16)
+        if n == "OTG0_OTG_MASTER_UPDATE_LOCK" and v == 0:
+            locks.append(t)
+        if not NOISE.search(n):
+            ev.append(t)
+    bursts = [[ev[0], ev[0]]]
+    for t in ev[1:]:
+        if t - bursts[-1][1] > 0.02:
+            bursts.append([t, t])
+        bursts[-1][1] = t
+    if len(bursts) < 2:
+        sys.exit("auto until: fewer than two bursts")
+    end = bursts[1][1]
+    after = [t for t in locks if t > end]
+    if not after or (len(bursts) > 2 and after[0] > bursts[2][0]):
+        sys.exit("auto until: no OTG0 unlock between the mode set and the next burst")
+    if rate is None:
+        sys.exit("auto rate: no TRANSMITTER_CONTROL ENABLE")
+    return after[0], rate
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trace", required=True)
-    ap.add_argument("--until", type=float, required=True, help="trace time (s) after which nothing belongs to the mode set")
+    ap.add_argument("--until", default="auto", help="trace time (s) after which nothing belongs to the mode set; auto = the "
+                    "first OTG0 unlock after the mode set's main burst (bursts split at 20 ms gaps, per-frame noise ignored)")
     ap.add_argument("--name", required=True)
     ap.add_argument("--source", required=True)
-    ap.add_argument("--rate", default="0x1e", help="LINKUP link rate (DPCD 0x100 value)")
+    ap.add_argument("--rate", default="auto", help="LINKUP link rate (DPCD 0x100 value); auto = from Linux's "
+                    "TRANSMITTER_CONTROL ENABLE symbol clock (16200 RBR, 27000 HBR, 54000 HBR2, 81000 HBR3)")
     ap.add_argument("--hdr", default="/Users/dnanu/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h")
     a = ap.parse_args()
     nm = names(a.hdr)
     nm2a = {v: k for k, v in nm.items()}
     nm.update({0x1628A: "DAL_MSG", 0x16273: "DAL_ARG", 0x16274: "DAL_RESP"})
+    if a.until == "auto" or a.rate == "auto":
+        u, rt = auto_bounds(a.trace, nm)
+        if a.until == "auto":
+            a.until = u
+        if a.rate == "auto":
+            a.rate = hex(rt)
+    a.until = float(a.until)
     out, stats, prev = [], {}, {}
     def emit(op, line, reg, val, mask, arg, note):
         out.append((OPS[op], line, reg, val, mask, arg, note))
         stats[op] = stats.get(op, 0) + 1
     state, aux, dal_arg, div_set = "pre", None, 0, False
+    det, det_pend, compbuf = {}, set(), None   # DETn size last written, DETs written since the last OTG0 unlock
     nextw, last = {}, {}   # trace line -> the value of the next write to the same register (FIFO wait rule)
     for ln, l in enumerate(open(a.trace), 1):
         m = re.search(r"amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
@@ -192,7 +244,26 @@ def main():
             # (dccg32_set_pixel_rate_div; box b132 2026-11-20: without it OTG0 ran at half rate, 120 Hz, DIO FIFO errors).
             emit("W", ln, nm2a["OTG_PIXEL_RATE_DIV"], 0x2, 0x7, 0, "OTG_PIXEL_RATE_DIV OTG0 = 2 (2 ppc; not in Linux's trace)")
             div_set = True
+        md = re.match(r"DCHUBBUB_DET(\d)_CTRL$", n)
+        if n == "DCHUBBUB_COMPBUF_CTRL" and compbuf is not None and (v & 0x1F) > compbuf:
+            # hubbub32_program_compbuf_size: before the compressed buffer grows, REG_WAIT every DETn_SIZE_CURRENT ==
+            # the size programmed (box b135 2026-11-20: DET1 never released, COMPBUF CONFIG_ERROR, DET0 0, pipe 0 dark)
+            for k in sorted(det):
+                dn = f"DCHUBBUB_DET{k}_CTRL"
+                emit("SWAIT", ln, nm2a[dn], det[k] << 8, DET_CUR, SOFT_US, f"soft wait {dn} SIZE_CURRENT == {det[k]} (compbuf grows)")
         emit("W", ln, r, v, SHARED_MASK.get(n, 0xFFFFFFFF), 0, n)
+        if md:
+            det[int(md.group(1))] = v & 0x1F
+            det_pend.add(int(md.group(1)))
+        if n == "DCHUBBUB_COMPBUF_CTRL":
+            compbuf = v & 0x1F
+        if n == "OTG0_OTG_MASTER_UPDATE_LOCK" and v == 0 and det_pend:
+            # the DET sizes written under the lock apply at the next update; the next writes may blank and power-gate
+            # the pipe that gives segments back (Linux has a frame here; a replay has microseconds)
+            for k in sorted(det_pend):
+                dn = f"DCHUBBUB_DET{k}_CTRL"
+                emit("SWAIT", ln, nm2a[dn], det[k] << 8, DET_CUR, SOFT_US, f"soft wait {dn} SIZE_CURRENT == {det[k]} (after the unlock)")
+            det_pend.clear()
         for wr, wm, ww, wt in wait_rules(n, v, prev, nm2a, nextw.get(ln, 0)):
             emit("WAIT", ln, wr, ww, wm, wt, f"wait {nm.get(wr, hex(wr))} & 0x{wm:x} == 0x{ww:x} (<= {wt} us)")
         prev[n] = v
@@ -205,7 +276,8 @@ def main():
     p.write(f"/* source: {a.source}; until t = {a.until} */\n")
     p.write("/* ops: 1 W (reg, val, mask: RMW), 2 COPY (reg = live value of register `val`), 3 WAIT (reg & mask == val, arg = us),\n"
             "   4 DAL (SetHardMinByFreq, val = arg), 5 DPCDW (reg = DPCD address, val = byte), 6 LINKOFF, 7 LINKUP (val = rate,\n"
-            "   mask 1 = FEC, arg = lanes), 8 DELAY (arg = us); line = the trace line */\n")
+            "   mask 1 = FEC, arg = lanes), 8 DELAY (arg = us), 9 SWAIT (as WAIT; a timeout is counted, not a failure: Linux's\n"
+            "   REG_WAIT only logs); line = the trace line */\n")
     p.write("#ifndef PHX_P0ODM_TYPES\n#define PHX_P0ODM_TYPES\n"
             "struct phx_p0odm_step { uint8_t op; uint32_t line, reg, val, mask, arg; };\n#endif\n")
     p.write(f"static const struct phx_p0odm_step {sym}[] = {{\n")

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// p0odm_test.cpp: host test of the b131 240 Hz path (src/vermilion-boot/PhxP0Odm.h + the generated ODM plans) against a model
+// p0odm_test.cpp: host test of the replay engine (src/vermilion-boot/PhxP0Odm.h + the generated plans: b133's entry to 240,
+// b135's capture-v3 plans for 60 / 120 / 240 to and from Linux's 144) against a model
 // of the XTX machine: pipe 0 at the GOP's 1440p144 (macOS read 2026-11-20), pipe 1 dark, status bits that follow their
 // enables (OTG busy / clock on, ODM input clock, power-gating FSM, update lock, HUBP outstanding requests, DIG FIFO reset,
 // stream status), a frame counter from the DTO and the totals (two pixels per clock when DP_PIXEL_FORMAT bit 30 is set),
@@ -8,7 +9,13 @@
 //   c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o /tmp/p0odm_test tests/kext/p0odm_test.cpp && /tmp/p0odm_test
 #include "PhxP0Odm.h"
 #include "phx_p0odm_1440p240.inc"
-#include "phx_p0odm_1440p144odm.inc"
+#include "phx_p0odm_1440p60_to.inc"
+#include "phx_p0odm_1440p60_from.inc"
+#include "phx_p0odm_1440p120_to.inc"
+#include "phx_p0odm_1440p120_from.inc"
+#include "phx_p0odm_1440p240_to.inc"
+#include "phx_p0odm_1440p240_from.inc"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -21,8 +28,16 @@ static int fails, checks;
 #define N(a) (sizeof a / sizeof a[0])
 
 using namespace phxodm;
-static const Plan kTo = {kPhxP0odm_1440p240, N(kPhxP0odm_1440p240), "1440p240", 240, 0x652, 0x1e};
-static const Plan kBack = {kPhxP0odm_1440p144odm, N(kPhxP0odm_1440p144odm), "1440p144odm", 144, 0x5eb, 0x14};
+#define PL(sym, hz, v, rate) {sym, N(sym), #sym, hz, v, rate}
+static const Plan kEntry = PL(kPhxP0odm_1440p240, 240, 0x652, 0x1e);
+static const Plan k60To = PL(kPhxP0odm_1440p60_to, 60, 0x5c8, 0x0a), k60From = PL(kPhxP0odm_1440p60_from, 144, 0x5eb, 0x14);
+static const Plan k120To = PL(kPhxP0odm_1440p120_to, 120, 0x5f4, 0x14), k120From = PL(kPhxP0odm_1440p120_from, 144, 0x5eb, 0x14);
+static const Plan k240To = PL(kPhxP0odm_1440p240_to, 240, 0x652, 0x1e), k240From = PL(kPhxP0odm_1440p240_from, 144, 0x5eb, 0x14);
+static const Mode kModes[] = {
+    {60, 0x5c8, 0, 0x0a, &k60To, &k60From}, {120, 0x5f4, 0, 0x14, &k120To, &k120From},
+    {144, 0x5eb, 0, 0x14, nullptr, nullptr}, {240, 0x652, 1, 0x1e, &k240To, &k240From},
+};
+static const Set kSet = {kModes, N(kModes), 2, &kEntry, 3};
 constexpr uint64_t kFb = 0x8000000000ull, kRing = 0x1000000;
 
 struct Hw {
@@ -38,11 +53,38 @@ struct Hw {
     std::vector<std::pair<uint32_t, uint8_t>> dpcdW;
     uint32_t phyRate = 54000;
     bool failHbr3 = false;
+    uint32_t failRate = 0;          // link training at this symbol clock fails
+    unsigned dalNak = 0;            // the next n DAL messages answer 0xfe
     uint32_t touchOutsideAt = 0;   // after this many writes, OTG2 turns on by itself (a foreign change)
+    // b136: DET / compressed-buffer segments (20 in all, as the box: DET 9 + 9 + compbuf 2, or DET 4 + compbuf 16). A new
+    // size applies at the next frame (or at once with OTG0 off), never under the OTG0 lock; a DET gives segments back only
+    // while its HUBP is powered and clocked; a grow takes what is free (the compressed buffer flags CONFIG_ERROR when short).
+    uint32_t detCur[4] = {4, 0, 0, 0}, compCur = 16;
+    bool compErr = false, noDetModel = false;
+    bool hubpLive(unsigned n) {
+        if (n == 0) return true;
+        if (n == 1) return !(r[0x03542] & 0x100) && (r[0x03B90] & 1);
+        return false;
+    }
+    void applyDet() {
+        if (r[0x0504A] & 1) return;
+        for (unsigned n = 0; n < 4; n++) {
+            const uint32_t want = r[0x0397B + n] & 0x1f;
+            if (want < detCur[n] && hubpLive(n)) detCur[n] = want;
+        }
+        uint32_t used = compCur; for (unsigned n = 0; n < 4; n++) used += detCur[n];
+        for (unsigned n = 0; n < 4; n++) {
+            const uint32_t want = r[0x0397B + n] & 0x1f;
+            if (want > detCur[n] && want - detCur[n] <= 20 - used) { used += want - detCur[n]; detCur[n] = want; }
+        }
+        const uint32_t cw = r[0x0397A] & 0x1f;
+        if (cw < compCur) compCur = cw;
+        else if (cw > compCur) { const uint32_t add = std::min(cw - compCur, 20 - used); compCur += add; compErr = compCur != cw; }
+    }
     bool otgOn() { return r[0x05001] & 1; }
     void advance(uint32_t us) {
         t += us;
-        if (!otgOn()) return;
+        if (!otgOn()) { applyDet(); return; }
         const uint32_t div = r[0x0012F] & 7u;   // OTG0 field: 6 = the GOP's 1 ppc (DTO = pclk), 2 = 2 ppc (DTO = pclk / 2)
         const double pclk = (double)r[0x00141] * (div == 2 ? 2 : 1);
         const double rate = pclk / ((double)((r[0x04FEA] & 0x7fff) + 1) * ((r[0x04FEF] & 0x7fff) + 1));
@@ -50,9 +92,10 @@ struct Hw {
         const double whole = std::floor(frac);
         frames += static_cast<uint32_t>(whole);
         frac -= whole;
+        if (whole >= 1) applyDet();
     }
     bool linkUp() {
-        return phyRate && phyRate == dpcd[0x100] * 2700u && (dpcd[0x101] & 0x1f) == 4 && !(failHbr3 && phyRate == 81000);
+        return phyRate && phyRate == dpcd[0x100] * 2700u && (dpcd[0x101] & 0x1f) == 4 && !(failHbr3 && phyRate == 81000) && phyRate != failRate;
     }
     uint32_t rd(uint32_t a) {
         const uint32_t v = r[a];
@@ -65,6 +108,12 @@ struct Hw {
         case 0x0504A: return (v & ~0x100u) | ((v & 1u) << 8);
         case 0x03AB3: case 0x03B8F: return v | 2u;
         case 0x0500C: return frames & 0xffffff;
+        case 0x0397B: case 0x0397C: case 0x0397D: case 0x0397E:
+            if (noDetModel) return (v & ~0x1f00u) | ((v & 0x1f) << 8);
+            return (v & ~0x1f00u) | (detCur[a - 0x0397B] << 8);
+        case 0x0397A:
+            if (noDetModel) return (v & ~0x80001f00u) | ((v & 0x1f) << 8);
+            return (v & ~0x80001f00u) | (compCur << 8) | (compErr ? 0x80000000u : 0u);
         case 0x056CC: return (v & ~0x10000u) | ((v & 1u) && otgOn() && phyRate && (r[0x056C8] & 0x10) ? 0x10000u : 0u);
         case 0x05651: return (v & ~0x100000u) | ((v & 2u) && phyRate ? 0x100000u : 0u);   // RESET_DONE needs the symbol clock (box b131)
         case 0x056D2: return phyRate ? static_cast<uint32_t>(std::lround(0x8000 * (double)r[0x00141] / (phyRate * 10000.0))) : 0;
@@ -113,7 +162,7 @@ static void gop(Hw &h) {
         {0x056D0, 0x00000100}, {0x056D1, 0x00008000}, {0x056D3, 0x10102000}, {0x056DD, 0x7fffff00}, {0x056DE, 0x0101ff10},
         {0x05001, 0x00011201}, {0x05045, 0x00010101}, {0x04FEA, 0x00000a9f}, {0x04FEF, 0x000005eb}, {0x00140, 0x00021090},
         {0x00141, 0x2363e7f0}, {0x00142, 0x2ab7772b}, {0x0012F, 0x00000db6}, {0x00124, 0x1c191c1c}, {0x09002, 0x00000000},
-        {0x05081, 0x00000200}, {0x03AB3, 0x000f0000}, {0x04F8A, 0x00000000}, {0x04F8B, 0xfff00000},
+        {0x05081, 0x00000200}, {0x03AB3, 0x000f0000}, {0x0397B, 0x00000404}, {0x0397A, 0x00041010}, {0x04F8A, 0x00000000}, {0x04F8B, 0xfff00000},
         {0x03B8F, 0x00000000}, {0x03B90, 0x00500000}, {0x09017, 0x0000000f}, {0x03542, 0x00000100},
         // pipe 0's macOS surface / colour (what pipe 1 must copy)
         {0x03AA5, 0x00000008}, {0x03AA7, 0x00000000}, {0x03AA6, 0x00000000}, {0x03AC7, 0x09ff09ff}, {0x03ADA, 0x00000000},
@@ -139,7 +188,12 @@ static Env env(Hw &h) {
             [](void *c, uint32_t us) { static_cast<Hw *>(c)->advance(us); }};
     e.vramBytes = 24ull << 30;
     e.fbMcBase = kFb;
-    e.dal = [](void *c, uint32_t m, uint32_t a) { static_cast<Hw *>(c)->dal.push_back(m << 24 ^ a); return 1u; };
+    e.dal = [](void *c, uint32_t m, uint32_t a) {
+        Hw &h = *static_cast<Hw *>(c);
+        if (h.dalNak) { h.dalNak--; return 0xfeu; }
+        h.dal.push_back(m << 24 ^ a);
+        return 1u;
+    };
     e.pmfwIdle = [](void *) { return 1; };
     return e;
 }
@@ -151,8 +205,8 @@ static bool wrote(const Hw &h, uint32_t a, uint8_t v) { for (auto &w : h.dpcdW) 
 
 int main() {
     // ---- the plans themselves ----
-    for (const Plan *p : {&kTo, &kBack}) {
-        unsigned off = 0, up = 0, bad = 0, dal = 0, waits = 0;
+    for (const Plan *p : {&kEntry, &k60To, &k60From, &k120To, &k120From, &k240To, &k240From}) {
+        unsigned off = 0, up = 0, bad = 0, dal = 0, waits = 0, linkups = 0;
         for (unsigned i = 0; i < p->n; i++) {
             const phx_p0odm_step &s = p->s[i];
             if ((s.op == kW || s.op == kCopy) && denied(s.reg)) bad++;
@@ -160,32 +214,38 @@ int main() {
             if (s.op == kW && (s.reg == 0x03540 || s.reg == 0x00124 || (s.reg >= 0x03600 && s.reg <= 0x036FF))) bad++;
             if (s.op == kDal) { dal++; if ((s.val >> 16) != 8 && (s.val >> 16) != 9) bad++; }
             if (s.op == kLinkOff) off = i + 1;
-            if (s.op == kLinkUp) { up = i + 1; if (s.val != p->rate || s.arg != 4 || !(s.mask & 1)) bad++; }
+            if (s.op == kLinkUp) { up = i + 1; linkups++; if (s.val != p->rate || s.arg != 4 || !(s.mask & 1)) bad++; }
             if (s.op == kWait) waits++;
-            if (s.op < kW || s.op > kDelay) bad++;
+            if (s.op < kW || s.op > kSWait) bad++;
         }
-        CHECK(!bad && off && up > off && dal >= 3 && waits >= 15);
+        const phx_p0odm_step &last = p->s[p->n - 1];
+        CHECK(!bad && off && up > off && linkups == 1 && dal >= 3 && waits >= 13);
+        CHECK(last.op == kW && last.reg == 0x0504A && last.val == 0);   // ends on Linux's OTG0 unlock
+        if (bad || !off || up <= off || dal < 3 || waits < 13) std::printf("  plan %s: bad %u off %u up %u dal %u waits %u\n", p->name, bad, off, up, dal, waits);
     }
+    CHECK(setOk(kSet));
     // ---- survey: reads only ----
     {
         Hw h; gop(h); State st{}; Run r{};
-        CHECK(run(env(h), st, r, kSelSurvey, 0, aux(h), kTo, kBack) == kSurveyed && h.writes.empty() && h.dpcdW.empty());
-        CHECK(r.fecCap == 0xbf && r.dscCap == 0x01 && r.g.hz == 144);
-        CHECK(run(env(h), st, r, kSelBack, 0, aux(h), kTo, kBack) == kRefused && h.writes.empty());   // back needs 240 first
+        CHECK(run(env(h), st, r, kSelSurvey, 0, aux(h), kSet) == kSurveyed && h.writes.empty() && h.dpcdW.empty());
+        CHECK(r.fecCap == 0xbf && r.dscCap == 0x01 && r.g.hz == 144 && r.where == kMac);
+        // from macOS's state only the entry: 60 / 120 / 144 are the pipe-0 engine's
+        for (int t : {60, 120, 144, int(kSelBack)}) CHECK(run(env(h), st, r, t, 0, aux(h), kSet) == kRefused && h.writes.empty());
+        for (int t : {0, 59, 165, -1}) CHECK(run(env(h), st, r, t, 0, aux(h), kSet) == kRefused && h.writes.empty());
+        CHECK(!r.failed);
     }
-    // ---- 144 -> 240 -> 144 ----
+    // ---- entry 240, then every rate to every rate ----
     {
         Hw h; gop(h); State st{}; Run r{};
         const auto e = env(h);
-        const int res = run(e, st, r, kSel240, 0, aux(h), kTo, kBack);
+        const int res = run(e, st, r, kSel240, 0, aux(h), kSet);
         CHECK(res == kDone);
         if (res != kDone) std::printf("  240: %s step %u line %u op %u reg 0x%x got 0x%x\n", r.why, r.step, r.line, r.op, r.reg, r.got);
-        CHECK(r.at240 && !st.halted && r.postHz >= 228 && r.postHz <= 252);
+        CHECK(r.where == kLinux && curHz(r, kSet) == 240 && odmActive(r, kSet) && !st.halted && r.postHz >= 228 && r.postHz <= 252);
         CHECK(h.r[0x04F8B] == 0x00100001 && h.r[0x04FEF] == 0x652 && h.r[0x00141] == 0x1f7e5cd8 && (h.r[0x056C9] & 0x40000000));
         CHECK(h.phyRate == 81000 && h.dpcd[0x100] == 0x1e && wrote(h, 0x120, 1) && wrote(h, 0x160, 1) && wrote(h, 0x107, 0x90));
         CHECK((h.r[0x056D7] & 0x30) == 0x30);                                     // FEC on
         CHECK(h.r[0x064C0] & 1 && h.r[0x0651C] & 1);                              // DSC0 + DSC1 clocked
-        // pipe 1 scans pipe 0's surface with pipe 0's colour path; pipe 0's own values untouched
         CHECK(h.r[0x03BA6] == 0x00a00000 && h.r[0x03BA7] == 0x00000080);          // HUBPREQ1 address = HUBPREQ0's
         CHECK(h.r[0x03B81] == 0x8 && h.r[0x03BA3] == 0x09ff09ff && h.r[0x03B83] == 0 && h.r[0x042FA] == 0x8);
         CHECK(h.r[0x03AA5] == 0x8 && h.r[0x03AA7] == 0 && h.r[0x03AC7] == 0x09ff09ff && h.r[0x03ACA] == 0x00a00000);
@@ -196,31 +256,90 @@ int main() {
         bool d1075 = false, d537 = false;
         for (auto x : h.dal) { d1075 |= x == (9u << 24 ^ 0x00080433); d537 |= x == (9u << 24 ^ 0x00090219); }
         CHECK(d1075 && d537 && h.dal.size() == 6);
-        for (auto &w : h.writes) CHECK(!denied(w.first) || w.first == phxdmub::kInbox1Wptr);
-        // and back
-        const size_t nw = h.writes.size();
-        const int rb = run(e, st, r, kSelBack, 0, aux(h), kTo, kBack);
-        CHECK(rb == kDone && !r.at240 && h.writes.size() > nw);
-        if (rb != kDone) std::printf("  back: %s step %u line %u op %u reg 0x%x got 0x%x\n", r.why, r.step, r.line, r.op, r.reg, r.got);
-        CHECK(h.r[0x04FEF] == 0x5eb && h.phyRate == 54000 && h.dpcd[0x100] == 0x14 && wrote(h, 0x160, 0) && r.postHz >= 137 && r.postHz <= 151);
-        CHECK(h.r[0x03542] & 0x100);                                               // pipe 1 power-gated again (Linux)
+        // the same rate again: nothing written
+        size_t nw = h.writes.size();
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kSame && h.writes.size() == nw);
+        // every ordered pair, twice round
+        struct Want { uint32_t hz, v, sym; } W[] = {{60, 0x5c8, 27000}, {120, 0x5f4, 54000}, {144, 0x5eb, 54000}, {240, 0x652, 81000}};
+        const uint32_t order[] = {60, 120, 60, 144, 60, 240, 120, 144, 120, 240, 144, 240, 60, 120, 240, 144, 60};
+        for (uint32_t t : order) {
+            const uint32_t from = curHz(r, kSet);
+            nw = h.writes.size();
+            const int rr = run(e, st, r, static_cast<int>(t), 0, aux(h), kSet);
+            const Want *w = nullptr; for (auto &x : W) if (x.hz == t) w = &x;
+            CHECK(rr == kDone && curHz(r, kSet) == t && h.r[0x04FEF] == w->v && h.phyRate == w->sym && h.writes.size() > nw);
+            CHECK(r.postHz >= t * 95 / 100 - 4 && r.postHz <= t * 105 / 100 + 4 && (h.r[0x056D7] & 0x30) == 0x30);
+            CHECK(odmActive(r, kSet) == (t == 240) && h.r[0x04F8B] == (t == 240 ? 0x00100001u : 0xfff00000u));
+            CHECK(!!(h.r[0x064C0] & 1) == (t == 240));                            // DSC0 only at 240
+            CHECK(r.plan1 == (from == 144 ? nullptr : kModes[findMode(kSet, from)].from->name));
+            CHECK(r.plan2 == (t == 144 ? nullptr : kModes[findMode(kSet, t)].to->name));
+            if (rr != kDone) std::printf("  %u -> %u: %s phase %d step %u line %u op %u reg 0x%x got 0x%x det 0x%x 0x%x comp 0x%x sw_to %u hz %u v 0x%x\n", from, t, r.why, r.phase, r.step, r.line, r.op, r.reg, r.got, r.postDet0, r.postDet1, r.postCompbuf, r.swaitTimeouts, r.postHz, r.postV);
+            CHECK(h.r[0x03540] == 0 && h.r[0x05101] == 0 && h.r[0x05081] == 0x200);
+            // b136: the buffer segments landed (box b135: DET1 kept 9 after 240 -> 144, CONFIG_ERROR, pipe 0 dark)
+            CHECK(!h.compErr && h.detCur[1] == (t == 240 ? 9u : 0u) && h.detCur[0] == (t == 240 ? 9u : 4u) && r.swaitTimeouts == 0);
+        }
+        for (auto &wr : h.writes) CHECK(!denied(wr.first) || wr.first == phxdmub::kInbox1Wptr);
+        CHECK(!r.failed && r.fellBacks == 0 && r.dones == 1 + N(order));
         char b[2048];
-        CHECK(stat(r, b, sizeof b) > 100 && std::strstr(b, "result=DONE"));
-        // b134: 240 again from the back plan's 144 (Linux's own starting state), then back again
-        CHECK(r.linux144 && !r.at240);
-        const int r2 = run(e, st, r, kSel240, 0, aux(h), kTo, kBack);
-        CHECK(r2 == kDone && r.at240 && !r.linux144 && h.r[0x04FEF] == 0x652 && r.postHz >= 228 && r.postHz <= 252);
-        if (r2 != kDone) std::printf("  240 again: %s step %u line %u\n", r.why, r.step, r.line);
-        CHECK(run(e, st, r, kSelBack, 0, aux(h), kTo, kBack) == kDone && r.linux144 && h.r[0x04FEF] == 0x5eb);
+        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "result=DONE") && std::strstr(b, "where=linux now=60"));
     }
-    // ---- HBR3 fails: the back plan runs, 144 at HBR2 ----
+    // ---- HBR3 fails: the entry falls back to 144, not latched; 60 still works; 240 fails twice, then refused ----
     {
         Hw h; gop(h); h.failHbr3 = true; State st{}; Run r{};
-        CHECK(run(env(h), st, r, kSel240, 0, aux(h), kTo, kBack) == kFellBack);
-        CHECK(r.failed && !r.at240 && r.backRes == 1 && h.phyRate == 54000 && h.r[0x04FEF] == 0x5eb && r.op == kLinkUp);
-        CHECK(run(env(h), st, r, kSel240, 0, aux(h), kTo, kBack) == kRefused);   // latched
+        const auto e = env(h);
+        CHECK(run(e, st, r, kSel240, 0, aux(h), kSet) == kFellBack);
+        CHECK(!r.failed && r.where == kLinux && curHz(r, kSet) == 144 && r.backRes == 1 && h.phyRate == 54000 && h.r[0x04FEF] == 0x5eb);
+        CHECK(r.op == kLinkUp && r.last.plan && std::strcmp(r.last.plan, "kPhxP0odm_1440p240") == 0 && r.fbPlan == k240From.name);
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 60 && h.r[0x04FEF] == 0x5c8);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kFellBack && curHz(r, kSet) == 144 && r.fbCount[3] == 2);
+        const size_t nw = h.writes.size();
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kRefused && h.writes.size() == nw);   // twice: not again this boot
+        CHECK(run(e, st, r, 120, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 120);       // the others still run
     }
-    // ---- refusals: zero writes ----
+    // ---- a DAL refusal at the first step (240 -> 60: the from-240 plan starts with DISPCLK 614): a plain refusal, nothing
+    //      written, not latched (b134 latched it); the next try runs. A DAL refusal after writes: the fall-back. ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(k240From.s[0].op == kDal && k240To.s[0].op == kW);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone);
+        const size_t nw = h.writes.size(), nd = h.dpcdW.size();
+        h.dalNak = 1;
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kRefused && h.writes.size() == nw && h.dpcdW.size() == nd && !r.failed);
+        CHECK(curHz(r, kSet) == 240 && r.last.dalResp == 0xfe && r.last.why && std::strstr(r.last.why, "SetHardMinByFreq"));
+        CHECK(r.last.plan == k240From.name && r.last.step == 0);
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 60);
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        h.dalNak = 1;   // hub -> 240: the to plan writes first, so its DAL refusal falls back to 144
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kFellBack && !r.failed && curHz(r, kSet) == 144 && r.fbCount[3] == 1);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 240);
+    }
+    // ---- a from plan that fails (HBR2 training at 60 -> 144): latched ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 60, 0, aux(h), kSet) == kDone);
+        h.failRate = 54000;
+        CHECK(run(e, st, r, 120, 0, aux(h), kSet) == kFailed && r.failed && r.phase == 1);
+        CHECK(r.last.plan == k60From.name && r.last.op == kLinkUp);
+        const size_t nw = h.writes.size();
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kRefused && h.writes.size() == nw);
+        CHECK(run(e, st, r, kSelSurvey, 0, aux(h), kSet) != kDone && h.writes.size() == nw);
+    }
+    // ---- linux state changed under the engine: refused, nothing written ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 120, 0, aux(h), kSet) == kDone);
+        h.r[0x04FEF] = 0x5eb;
+        const size_t nw = h.writes.size();
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kRefused && h.writes.size() == nw && !r.failed);
+        h.r[0x04FEF] = 0x5f4; h.r[0x05081] = 0x201;   // OTG1 lit
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kRefused && h.writes.size() == nw);
+        h.r[0x05081] = 0x200;
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone);
+    }
+    // ---- refusals from macOS's state: zero writes ----
     {
         struct Case { const char *what; void (*f)(Hw &); } cs[] = {
             {"OTG1 on", [](Hw &h) { h.r[0x05081] = 0x201; }},
@@ -231,22 +350,22 @@ int main() {
             {"no DSC", [](Hw &h) { h.dpcd[0x60] = 0; }},
             {"no HBR3", [](Hw &h) { h.dpcd[0xe] = 0x01; }},
             {"1080p", [](Hw &h) { h.r[0x04FEA] = 0x897; }},
-        {"2 ppc without the back plan", [](Hw &h) { h.r[0x056C9] = 0x41000000; }},
+            {"2 ppc from macOS", [](Hw &h) { h.r[0x056C9] = 0x41000000; }},
         };
         for (auto &c : cs) {
             Hw h; gop(h); c.f(h); State st{}; Run r{};
-            const int res = run(env(h), st, r, kSel240, 0, aux(h), kTo, kBack);
-            CHECK(res == kRefused && h.writes.empty() && h.dpcdW.empty() && h.dal.empty());
+            const int res = run(env(h), st, r, kSel240, 0, aux(h), kSet);
+            CHECK(res == kRefused && h.writes.empty() && h.dpcdW.empty() && h.dal.empty() && !r.failed);
             if (res != kRefused) std::printf("  case %s: %s\n", c.what, r.why);
         }
         Hw h; gop(h); State st{}; Run r{};
         Env e = env(h); e.dal = nullptr;
-        CHECK(run(e, st, r, kSel240, 0, aux(h), kTo, kBack) == kRefused && h.writes.empty());
+        CHECK(run(e, st, r, kSel240, 0, aux(h), kSet) == kRefused && h.writes.empty());
     }
     // ---- a foreign change outside pipes 0 / 1 during the run: halted ----
     {
         Hw h; gop(h); h.touchOutsideAt = 20; State st{}; Run r{};
-        CHECK(run(env(h), st, r, kSel240, 0, aux(h), kTo, kBack) == kHalted && st.halted && r.pipeWhy);
+        CHECK(run(env(h), st, r, kSel240, 0, aux(h), kSet) == kHalted && st.halted && r.pipeWhy && r.failed);
         CHECK(h.writes.size() == 20);   // stopped at the write after which the change was seen (no further write)
     }
     std::printf("p0odm_test: %d/%d checks passed\n", checks - fails, checks);

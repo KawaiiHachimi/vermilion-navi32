@@ -1,25 +1,34 @@
 // SPDX-License-Identifier: MIT
-// PhxP0Odm.h: kext b131, the 240 Hz plan's E1 (.agents/findings/2026-11-20-240hz-plan.md): pipe 0 to 2560x1440 at 240 Hz
-// on ODM 2:1 (OTG0 -> OPP0 + OPP1, HUBP0 + HUBP1 each scanning half of the same surface, DSC0 + DSC1, 16 bpp) over DP B at
-// HBR3 x4 with FEC, and back to 1440p144 (Linux's 144: two pixels per clock, HBR2 x4, FEC on).
+// PhxP0Odm.h: the pipe-0 replay engine for the XTX machine's 2560x1440 monitor (LG ULTRAGEAR+ on DP B).
+// b131-b134: 240 Hz on ODM 2:1 (OTG0 -> OPP0 + OPP1, HUBP0 + HUBP1 each scanning half of the same surface, DSC0 + DSC1,
+// 16 bpp) over HBR3 x4 with FEC, and back to Linux's 144. b135: one engine for every 1440p rate (60 / 120 / 144 / 240),
+// always through Linux's 144 as the hub (.agents/findings/2026-11-20-240hz-plan.md, "b135").
 //
-// Source of every step: Linux 7.2's own mode sets on this card and monitor (capture 2026-11-20 065140, 144 -> 240 and
-// 240 -> 144), turned into replay plans by tools/capture/p0odm_from_trace.py (phx_p0odm_1440p240.inc,
-// phx_p0odm_1440p144odm.inc): Linux's values in Linux's order, pipe 1's surface / colour registers copied from pipe 0's
-// live values (the right half scans the same macOS surface through the same colour path), Linux's link windows run by
-// PhxDpLink.h's trainer (TRANSMITTER_CONTROL bytes = Linux's, FEC_READY as Linux), Linux's REG_WAITs inserted. What the
-// generator drops is listed there (pipe 0's surface / colour / power gating, DAL messages but the DISPCLK / DPPCLK hard
-// minimums, DENTIST, audio, cursor, flips, DMCUB GPINT, every DMUB command but TRANSMITTER_CONTROL, the DPCD source OUI).
+// Source of every step: Linux 7.2's own mode sets on this card and monitor, turned into replay plans by
+// tools/capture/p0odm_from_trace.py. Capture v3 (2026-11-20 130351) recorded each rate from Linux's 144 and back
+// (to-<mode> / from-<mode>): phx_p0odm_1440p{60,120,240}_{to,from}.inc. The entry from macOS's own state (the GOP's
+// one pixel per clock at 144, set by the pipe-0 engine) is b133's 240 plan (phx_p0odm_1440p240.inc, capture v2), the one
+// plan whose start is not Linux's. Linux's values in Linux's order, pipe 1's surface / colour registers copied from pipe
+// 0's live values, Linux's link windows run by PhxDpLink.h's trainer (TRANSMITTER_CONTROL bytes = Linux's, the rate Linux
+// picked per mode: HBR at 60, HBR2 at 120 / 144, HBR3 at 240, FEC on at every rate as Linux), Linux's REG_WAITs inserted.
+// What the generator drops is listed there.
 //
-// Selector (root writes debug.phxp0odm): 1 = survey (reads + DPCD reads only), 2 = 240 Hz, 3 = back to 144 (only after 2
-// in this boot). Inert until written. Not wired to System Settings yet.
-// Before the first write (refusal = zero writes): PhxDpbRetrain.h's gates (the GOP's DP B, a 1440p mode, OTG1 off, DMCUB
-// 0x07008742 / 0x07008748, ring idle, HBR3 x4 in the sink's extended caps), the sink's FEC and DSC caps, pipe 1 free
-// (HUBP1 blanked, MPCC1 unconnected, DSC0 / DSC1 clocks off), the DAL path up. During the run: after every write and every
-// DMUB command the fingerprint of everything outside pipes 0 / 1 (OTG1-3, HUBP2-3, MPCC2-3, DSC2-3, DIG0 / DIG2-4 back
-// ends): a change = `halted` (shared latch). Any failed step on the way to 240 runs the back plan once (best effort: the
-// result is 144 Hz on Linux's two-pixel-per-clock setup, or dark until reboot).
-// After 240: the flip path writes HUBP1's address with HUBP0's (phx_scan.cpp, gP0OdmActive).
+// States: `mac` (pipe 0 as the GOP / the pipe-0 engine left it: PhxPipe0.h owns 60 / 120 / 144) and `linux` at one mode
+// of the set (cur). From mac only the entry runs (target 240). From linux every target is cur -> 144 (from plan) ->
+// target (to plan); 144 itself is the hub (no plan). A to plan that fails (a step or the post check) runs the target's
+// from plan, which lands on 144 (fell back, not latched; a target that fell back twice is refused for the boot). A
+// failure before anything was written or sent is a plain refusal (b135: b134 latched a DAL refusal at the first step).
+// Only a failed from plan, a failed fall-back, a halt or a DMUB timeout latch `failed` (no more writes until reboot).
+//
+// Selector (root writes debug.phxp0odm): 1 = survey (reads + DPCD reads only), 2 = 240 (b131 alias), 3 = 144 (alias),
+// or the target in Hz: 60, 120, 144, 240. System Settings reaches it through phxPipe0SetMode (phx_p0odm.cpp p0OdmRoute).
+// Before the first write (refusal = zero writes): from mac PhxDpbRetrain.h's gates (the GOP's DP B, a 1440p mode, OTG1
+// off, DMCUB 0x07008742 / 0x07008748, ring idle, HBR3 x4 in the sink's caps); from linux cur's own state (V_TOTAL, ODM
+// select, stream up, two pixels per clock, OTG1 off) and the sink's caps for the rates the run needs; the sink's FEC caps
+// (and DSC caps and pipe 1 free for 240), the DAL path up. During the run: after every write and every DMUB command the
+// fingerprint of everything outside pipes 0 / 1 (OTG1-3, HUBP2-3, MPCC2-3, DSC2-3, DIG0 / DIG2-4 back ends): a change =
+// `halted` (shared latch).
+// While pipe 0 runs ODM 2:1 the flip path writes HUBP1's address with HUBP0's (phx_scan.cpp, gP0OdmActive).
 // Kernel-free; glue phx_p0odm.cpp; host test tests/kext/p0odm_test.cpp.
 #pragma once
 #include <stdint.h>
@@ -35,12 +44,20 @@ using phxp2::State;
 using phxp2::rd;
 using phxdpl::kConnDpB;
 
-enum Op : uint8_t { kW = 1, kCopy = 2, kWait = 3, kDal = 4, kDpcdW = 5, kLinkOff = 6, kLinkUp = 7, kDelay = 8 };
+enum Op : uint8_t { kW = 1, kCopy = 2, kWait = 3, kDal = 4, kDpcdW = 5, kLinkOff = 6, kLinkUp = 7, kDelay = 8, kSWait = 9 };
 enum Sel : int { kSelSurvey = 1, kSel240 = 2, kSelBack = 3 };
-enum Res : int { kNone = 0, kRefused, kSurveyed, kDone, kFellBack, kFailed, kHalted, kTimeout };
-static const char *const kResName[] = {"none", "refused", "surveyed", "DONE", "FAILED-BACK-AT-144", "FAILED", "HALTED", "timeout"};
+enum Res : int { kNone = 0, kRefused, kSurveyed, kDone, kFellBack, kFailed, kHalted, kTimeout, kSame };
+static const char *const kResName[] = {"none", "refused", "surveyed", "DONE", "FELL-BACK-TO-144", "FAILED", "HALTED", "timeout", "same"};
+constexpr int kResMax = kSame;
+enum Where : int { kMac = 0, kLinux = 1 };
 
+// One replay plan; hz / vTotal / rate = the mode it lands on and its link rate.
 struct Plan { const phx_p0odm_step *s; unsigned n; const char *name; uint32_t hz, vTotal; uint8_t rate; };
+// One mode of the set: to = hub -> this mode, from = this mode -> hub (both nullptr for the hub).
+struct Mode { uint32_t hz, vTotal; uint8_t odm, rate; const Plan *to, *from; };
+// The set: modes, the hub's index, the entry from mac (lands on mode entryMode).
+struct Set { const Mode *m; unsigned n, hub; const Plan *entry; unsigned entryMode; };
+constexpr unsigned kMaxModes = 8;
 
 // Never written by a plan whatever it says: the DMCUB block, DENTIST, the DAL mailbox, MMVM semaphores, other pipes.
 inline bool denied(uint32_t r) {
@@ -61,24 +78,38 @@ static const Fp kFp[] = {
 };
 static constexpr unsigned kNFp = sizeof kFp / sizeof kFp[0];
 constexpr uint32_t kHubp1Cntl = 0x03B8F, kMpcc1Opp = 0x09017, kDscTop0 = 0x064C0, kDscTop1 = 0x0651C, kOdmSrc = 0x04F8B,
-                   kOdmTwo = 0x00100001u, kOtg0V = 0x04FEF, kOtg0Frame = 0x0500C, kHubp0Cntl = 0x03AB3, kOdm1Global = 0x04F9A;
+                   kOdmTwo = 0x00100001u, kOdmOne = 0xfff00000u, kOtg0V = 0x04FEF, kOtg0Frame = 0x0500C, kHubp0Cntl = 0x03AB3,
+                   kOdm1Global = 0x04F9A;
 constexpr uint32_t kDphyCntl = 0x056D7, kHubp1Clk = 0x03B90, kDom1Status = 0x03543;
+// b136: DCHUBBUB DET / compressed-buffer segments (SIZE [4:0], SIZE_CURRENT [12:8]; COMPBUF CONFIG_ERROR bit 31)
+constexpr uint32_t kDet0 = 0x0397B, kDet1 = 0x0397C, kCompbuf = 0x0397A, kCompbufErr = 0x80000000u;
+inline bool detApplied(uint32_t v) { return (v & 0x1fu) == ((v >> 8) & 0x1fu); }
+
+struct Fail { const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target; };
 
 struct Run {
-    int failed, at240, linux144;    // latches: failed = nothing but survey until reboot; at240 = the 240 plan finished;
-                                    // linux144 = the back plan finished (pipe 0 on Linux's 2 ppc 144, b134)
-    uint32_t attempts, refusals, dones;
-    int sel, res, phase;            // phase: 0 gates, 1 plan, 2 back plan, 3 post
-    const char *why, *lastRefusal, *pipeWhy;
-    phxdpb::Run g;                  // the retrain gates' reads (DP B, mode, DMCUB, DPCD)
+    // boot-long
+    int failed;                     // latch: nothing but survey until reboot
+    int where, cur;                 // kMac, or kLinux at mode m[cur]
+    uint32_t attempts, refusals, dones, fellBacks, sames;
+    uint32_t fbCount[kMaxModes];    // fall-backs per target mode (2 = refused for the boot)
+    const char *lastRefusal;
+    Fail last;                      // the last failure (kept across runs: b134 lost its DAL response)
+    // this run
+    int sel, res, phase;            // phase: 0 gates, 1 leg 1, 2 leg 2, 3 fall-back, 4 post
+    uint32_t target;
+    const char *why, *pipeWhy, *plan1, *plan2, *fbPlan;
+    phxdpb::Run g;                  // the gates' reads (DP B, mode, DMCUB, DPCD)
     uint8_t fecCap, dscCap;
     uint32_t hubp1Clk, dom1;
     uint32_t step, line, op, reg, val, got;   // the step a failure stopped at
-    uint32_t writes, copies, waits, waitMaxUs, dals, dpcd, dalResp, strayWr;
+    uint32_t effects;               // writes / copies / DPCD writes / link ops / acknowledged DAL messages so far
+    uint32_t writes, copies, waits, waitMaxUs, dals, dpcd, dalResp, strayWr, swaits, swaitTimeouts, swaitMaxUs;
     phxdpl::Report rep;
     int trc;
     uint32_t fp[kNFp];
     uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
+    uint32_t postDet0, postDet1, postCompbuf;
 };
 
 inline int refuse(Run &r, const char *why) { r.res = kRefused; r.why = r.lastRefusal = why; r.refusals++; return kRefused; }
@@ -134,6 +165,7 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
         const uint32_t v = s.mask == 0xffffffffu ? src : (rd(e, s.reg) & ~s.mask) | (src & s.mask);
         e.io.wr(e.io.c, s.reg, v);
         if (s.op == kW) r.writes++; else r.copies++;
+        r.effects++;
         if (!guard(x)) { r.why = "a register outside pipes 0 / 1 changed"; return 1; }
         return 0;
     }
@@ -155,16 +187,19 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
         r.dalResp = e.dal(e.io.c, 9, s.val);
         r.dals++;
         if (r.dalResp != 1) { r.why = "SetHardMinByFreq not acknowledged (response != 1)"; return 1; }
+        r.effects++;
         return 0;
     }
     case kDpcdW: {
         if (s.reg != 0x107 && s.reg != 0x160) { r.why = "DPCD write not 0x107 / 0x160"; return 1; }
         const uint8_t b = static_cast<uint8_t>(s.val);
+        r.effects++;
         if (x.aux.wr(x.aux.c, kConnDpB.aux, s.reg, &b, 1)) { r.why = "DPCD write not acknowledged"; return 1; }
         r.dpcd++;
         return 0;
     }
     case kLinkOff: {   // Linux: D3, DISABLE, pattern / link / internal 0, FEC_READY shadow, DPCD 0x120 = 0, shadow off
+        r.effects++;
         phxdpl::Opts o; o.onePpc = false; o.fec = true;
         phxdpl::Ctx lx{io, kConnDpB, o, &r.rep};
         int rc = phxdpl::linkOff(lx);
@@ -176,6 +211,7 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
         return x.st->halted ? 1 : 0;
     }
     case kLinkUp: {
+        r.effects++;
         phxdpb::Run &g = r.g;
         phxdpl::Sink sk{};
         phxdpb::sinkOf(g, &sk);
@@ -191,6 +227,17 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
     case kDelay:
         e.io.delayUs(e.io.c, s.arg);
         return 0;
+    case kSWait: {   // b136: Linux's REG_WAIT semantics (a timeout logs, the sequence goes on)
+        uint32_t t = 0;
+        for (; t <= s.arg; t += 10) {
+            if ((rd(e, s.reg) & s.mask) == s.val) break;
+            e.io.delayUs(e.io.c, 10);
+        }
+        r.swaits++;
+        if (t > s.arg) r.swaitTimeouts++;
+        if (t > r.swaitMaxUs) r.swaitMaxUs = t;
+        return 0;
+    }
     }
     r.why = "unknown plan op";
     return 1;
@@ -201,6 +248,7 @@ inline int runPlan(Ctx &x, const Plan &p) {
         if (step(x, io, p, i)) return 1;
     return 0;
 }
+
 
 // OTG0 frames over ~250 ms -> Hz.
 inline uint32_t measureHz(const Env &e) {
@@ -221,32 +269,61 @@ inline const char *readSink(const phxdpb::Aux &aux, phxdpb::Run &g, uint8_t minR
     if (!phxdpb::sinkOf(g, &sk) || sk.maxLanes < 4 || sk.maxRate < minRate) return "the sink cannot take the link (caps)";
     return nullptr;
 }
-inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const phxdpb::Aux &aux, const Plan &to, const Plan &back) {
-    if (r.sel != kSelSurvey && r.sel != kSel240 && r.sel != kSelBack) return "selector: 1 survey, 2 240 Hz, 3 back to 144";
+
+inline int findMode(const Set &s, uint32_t hz) {
+    for (unsigned i = 0; i < s.n; i++) if (s.m[i].hz == hz) return static_cast<int>(i);
+    return -1;
+}
+inline uint32_t curHz(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? s.m[r.cur].hz : 0; }
+inline bool odmActive(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n && s.m[r.cur].odm; }
+inline bool setOk(const Set &s) {
+    if (!s.m || !s.n || s.n > kMaxModes || s.hub >= s.n || s.entryMode >= s.n || !s.entry || !s.entry->n) return false;
+    for (unsigned i = 0; i < s.n; i++) {
+        const bool hub = i == s.hub;
+        if (hub != !s.m[i].to || hub != !s.m[i].from) return false;
+        if (!hub && (!s.m[i].to->n || !s.m[i].from->n)) return false;
+    }
+    return true;
+}
+
+// Pipe 0 is on mode m of the set as a replay left it (reads only).
+inline const char *stateOf(const Env &e, const Mode &m) {
+    if (rd(e, kOtg0V) != m.vTotal) return "pipe 0 is not on the mode the engine set (V_TOTAL)";
+    if (rd(e, kOdmSrc) != (m.odm ? kOdmTwo : kOdmOne)) return "pipe 0 is not on the mode the engine set (ODM select)";
+    if (!(rd(e, phxdpb::kR.vidStream) & phxdpl::kStreamStatus)) return "DP1 stream not running";
+    if (!(rd(e, phxdpb::kR.pixFmt) & phxdpb::kPix2ppc)) return "DP1 not two pixels per clock (not Linux's setup)";
+    if (rd(e, phxdpb::kOtg1Ctl) & 1u) return "OTG1 enabled (a second display)";
+    return nullptr;
+}
+
+inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const phxdpb::Aux &aux, const Set &s, int ti) {
     if (r.failed && r.sel != kSelSurvey) return "a run failed in this boot: nothing more until reboot";
     if (st.halted) return "halted: something changed earlier in this boot";
     if (!e.dal || e.dalDead) return "no DAL path (hard minimums)";
-    if (!to.n || !back.n) return "no plan";
+    if (!setOk(s)) return "no plan set";
     for (unsigned k = 0; k < kNFp; k++) r.fp[k] = rd(e, kFp[k].reg);
-    if (r.sel == kSelBack) {
-        if (!r.at240) return "back: 240 Hz was not set by debug.phxp0odm in this boot";
-        if (rd(e, kOdmSrc) != kOdmTwo || rd(e, kOtg0V) != to.vTotal) return "back: pipe 0 is not on the 240 plan's ODM 2:1 timing";
-        return readSink(aux, r.g, back.rate);
-    }
-    if (r.at240) return "already at 240 Hz (3 = back)";
-    if (r.linux144) {   // b134: again from the back plan's state (= Linux's own starting point of the 240 capture)
-        if (rd(e, kOdmSrc) != 0xfff00000u || rd(e, kOtg0V) != back.vTotal) return "pipe 0 is not on the back plan's 144 (ODM 1:1, V 0x5eb)";
-        if (!(rd(e, phxdpb::kR.vidStream) & phxdpl::kStreamStatus)) return "DP1 stream not running";
-        if (!(rd(e, phxdpb::kR.pixFmt) & phxdpb::kPix2ppc)) return "DP1 not two pixels per clock (not the back plan's state)";
-        if (rd(e, phxdpb::kOtg1Ctl) & 1u) return "OTG1 enabled (a second display)";
-        const char *sk = readSink(aux, r.g, phxdpl::kHbr3);
-        if (sk) return sk;
-        r.g.hz = 144;
-    } else {
+    bool toOdm = false;
+    if (r.where == kMac) {
+        if (r.sel != kSelSurvey && ti != static_cast<int>(s.entryMode)) return "from macOS's own mode only the entry (240 Hz) runs here";
         r.g = phxdpb::Run{};
         r.g.sel = phxdpb::kSelHbr3;
         const char *g = phxdpb::gates(e, st, r.g, restartDone, aux);
         if (g) return g;
+        toOdm = s.m[s.entryMode].odm;
+    } else {
+        if (r.cur < 0 || static_cast<unsigned>(r.cur) >= s.n) return "no current mode";
+        const Mode &c = s.m[r.cur];
+        const char *w = stateOf(e, c);
+        if (w) return w;
+        uint8_t need = c.rate;
+        if (ti >= 0) {
+            if (s.m[ti].rate > need) need = s.m[ti].rate;
+            if (s.m[s.hub].rate > need) need = s.m[s.hub].rate;
+            toOdm = s.m[ti].odm && !c.odm;
+        }
+        const char *sk = readSink(aux, r.g, need);
+        if (sk) return sk;
+        r.g.hz = c.hz;
     }
     uint8_t b = 0;
     if (aux.rd(aux.c, kConnDpB.aux, 0x090, &b, 1)) return "DPCD 0x090 (FEC caps) not readable";
@@ -254,89 +331,154 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
     if (!(b & 1)) return "the sink is not FEC capable";
     if (aux.rd(aux.c, kConnDpB.aux, 0x060, &b, 1)) return "DPCD 0x060 (DSC caps) not readable";
     r.dscCap = b;
-    if (!(b & 1)) return "the sink does not support DSC";
-    r.hubp1Clk = rd(e, kHubp1Clk); r.dom1 = rd(e, kDom1Status);   // recorded (a power-gated pipe 1 may read 0)
-    if (!(rd(e, kHubp1Cntl) & 1u) && (r.hubp1Clk & 1u)) return "pipe 1 busy: HUBP1 clocked and not blanked";
-    if ((rd(e, kMpcc1Opp) & 0xf) != 0xf) return "pipe 1 busy: MPCC1 connected to an OPP";
-    if ((rd(e, kDscTop0) & 1u) || (rd(e, kDscTop1) & 1u)) return "DSC0 / DSC1 already clocked";
+    if (r.sel == kSelSurvey) toOdm = r.where == kMac;
+    if (toOdm) {
+        if (!(b & 1)) return "the sink does not support DSC";
+        r.hubp1Clk = rd(e, kHubp1Clk); r.dom1 = rd(e, kDom1Status);   // recorded (a power-gated pipe 1 may read 0)
+        if (!(rd(e, kHubp1Cntl) & 1u) && (r.hubp1Clk & 1u)) return "pipe 1 busy: HUBP1 clocked and not blanked";
+        if ((rd(e, kMpcc1Opp) & 0xf) != 0xf) return "pipe 1 busy: MPCC1 connected to an OPP";
+        if ((rd(e, kDscTop0) & 1u) || (rd(e, kDscTop1) & 1u)) return "DSC0 / DSC1 already clocked";
+    }
     return nullptr;
 }
 
-inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const phxdpb::Aux &aux, const Plan &to, const Plan &back) {
-    const int failed = r.failed, at240 = r.at240, l144 = r.linux144;
-    const uint32_t att = r.attempts + 1, refs = r.refusals, dones = r.dones;
-    const char *lastRef = r.lastRefusal;
-    r = Run{};
-    r.failed = failed; r.at240 = at240; r.linux144 = l144; r.attempts = att; r.refusals = refs; r.dones = dones; r.lastRefusal = lastRef;
-    r.sel = sel;
-    const char *g = gates(e, st, r, restartDone, aux, to, back);
-    if (g) return refuse(r, g);
-    if (sel == kSelSurvey) { r.res = kSurveyed; r.why = "gates pass (reads only, nothing written)"; return kSurveyed; }
-    Ctx x{&e, &st, &r, aux};
-    const Plan &p = sel == kSel240 ? to : back;
-    r.phase = 1;
-    const int bad = runPlan(x, p);
-    if (st.halted) { r.res = kHalted; r.failed = 1; if (!r.why) r.why = "halted"; return kHalted; }
-    if (st.dmub.dead) { r.res = kTimeout; r.failed = 1; r.why = "a DMUB command timed out: debug.phxdmub_dead latched"; return kTimeout; }
-    if (bad) {
-        r.failed = 1;
-        if (sel == kSel240) {   // best effort: Linux's way back to 144
-            const char *why = r.why;
-            const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
-            r.phase = 2;
-            r.why = nullptr;
-            const int bb = runPlan(x, back);
-            r.backRes = bb ? 2 : 1;
-            r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
-            if (!bb && !st.halted && !st.dmub.dead) { r.res = kFellBack; return kFellBack; }
-        }
-        r.res = kFailed;
-        return kFailed;
-    }
-    r.phase = 3;
+// After a plan: pipe 0 on mode m (frame rate, V_TOTAL, the stream twice 0.5 s apart, no underflow).
+inline bool post(const Env &e, Run &r, const Mode &m) {
     r.postHz = measureHz(e);
     r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
     r.postStream = rd(e, phxdpb::kR.vidStream); r.postDphy = rd(e, kDphyCntl);
     e.io.delayUs(e.io.c, 500000);   // b133: the stream once went off after the first read (box b132)
     r.postStream2 = rd(e, phxdpb::kR.vidStream); r.postPixFmt = rd(e, phxdpb::kR.pixFmt); r.postPixDiv = rd(e, phxdpb::kPixDiv);
-    const uint32_t want = p.hz, lo = want * 95 / 100, hi = want * 105 / 100;
-    const bool ok = r.postHz >= lo && r.postHz <= hi && r.postV == p.vTotal && (r.postStream & phxdpl::kStreamStatus) &&
-                    (r.postStream2 & phxdpl::kStreamStatus) && !(r.postHubp0 & phxp2::kUnderflow) &&
-                    !(sel == kSel240 && (r.postHubp1 & phxp2::kUnderflow));
-    if (!ok) {
-        r.failed = 1;
-        r.why = "post check: frame rate / V_TOTAL / stream / underflow not as planned";
-        if (sel == kSel240 && !st.halted && !st.dmub.dead) {   // b133: back to 144 instead of leaving it dark
-            const char *why = r.why;
-            r.phase = 2; r.why = nullptr;
-            const int bb = runPlan(x, back);
-            r.backRes = bb ? 2 : 1; r.why = why;
-            if (!bb && !st.halted && !st.dmub.dead) { r.res = kFellBack; return kFellBack; }
-        }
-        r.res = kFailed;
-        return kFailed;
+    r.postDet0 = rd(e, kDet0); r.postDet1 = rd(e, kDet1); r.postCompbuf = rd(e, kCompbuf);
+    // b136: +-4 Hz on top of 5 %: measureHz counts whole frames in 250 ms (60 Hz reads 56 or 60 by phase)
+    const uint32_t lo = m.hz * 95 / 100 - 4, hi = m.hz * 105 / 100 + 4;
+    return detApplied(r.postDet0) && detApplied(r.postDet1) && (r.postDet0 & 0x1fu) && !(r.postCompbuf & kCompbufErr) && r.postHz >= lo && r.postHz <= hi && r.postV == m.vTotal && r.postOdm == (m.odm ? kOdmTwo : kOdmOne) &&
+           (r.postStream & phxdpl::kStreamStatus) && (r.postStream2 & phxdpl::kStreamStatus) && !(r.postHubp0 & phxp2::kUnderflow) &&
+           !(m.odm && (r.postHubp1 & phxp2::kUnderflow));
+}
+
+inline void keepFail(Run &r, const char *plan) {
+    r.last = Fail{r.why, plan, r.step, r.line, r.op, r.reg, r.val, r.got, r.dalResp, r.target};
+}
+
+// One leg: the plan, then the post check on mode m. 0 = landed, 1 = failed (r.why set), -1 = halted / DMUB dead.
+inline int leg(Ctx &x, const Plan &p, const Mode &m) {
+    const int bad = runPlan(x, p);
+    if (x.st->halted || x.st->dmub.dead) return -1;
+    if (bad) return 1;
+    if (!post(*x.e, *x.r, m)) { x.r->why = "post check: frame rate / V_TOTAL / ODM / stream / underflow / DET not as planned"; return 1; }
+    return 0;
+}
+
+inline int stop(Run &r, State &st) {
+    r.failed = 1;
+    if (st.halted) { r.res = kHalted; if (!r.why) r.why = "halted"; }
+    else { r.res = kTimeout; r.why = "a DMUB command timed out: debug.phxdmub_dead latched"; }
+    keepFail(r, r.plan2 ? r.plan2 : r.plan1);
+    return r.res;
+}
+
+// sel: kSelSurvey, kSel240 / kSelBack (aliases), or the target in Hz.
+inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const phxdpb::Aux &aux, const Set &s) {
+    {
+        Run k = r;
+        r = Run{};
+        r.failed = k.failed; r.where = k.where; r.cur = k.cur; r.attempts = k.attempts + 1; r.refusals = k.refusals; r.dones = k.dones;
+        r.fellBacks = k.fellBacks; r.sames = k.sames; r.lastRefusal = k.lastRefusal; r.last = k.last;
+        for (unsigned i = 0; i < kMaxModes; i++) r.fbCount[i] = k.fbCount[i];
     }
-    r.at240 = sel == kSel240;
-    r.linux144 = sel == kSelBack;
+    r.sel = sel;
+    const uint32_t target = sel == kSel240 ? 240u : sel == kSelBack ? 144u : sel == kSelSurvey ? 0u : static_cast<uint32_t>(sel);
+    r.target = target;
+    const int ti = target ? findMode(s, target) : -1;
+    if (sel != kSelSurvey && (ti < 0 || sel <= 0)) return refuse(r, "target: 1 survey, or a rate of the set (60, 120, 144, 240)");
+    if (ti >= 0 && r.fbCount[ti] >= 2) return refuse(r, "this rate fell back twice in this boot");
+    const char *g = gates(e, st, r, restartDone, aux, s, ti);
+    if (g) return refuse(r, g);
+    if (sel == kSelSurvey) { r.res = kSurveyed; r.why = "gates pass (reads only, nothing written)"; return kSurveyed; }
+    if (r.where == kLinux && ti == r.cur) { r.sames++; r.res = kSame; r.why = "already at that rate"; return kSame; }
+
+    Ctx x{&e, &st, &r, aux};
+    const Mode &tm = s.m[ti];
+    // the legs: mac -> entry; linux: cur -> hub (from), hub -> target (to)
+    const Plan *p1 = nullptr, *p2 = nullptr;
+    int m1 = -1;
+    if (r.where == kMac) { p1 = s.entry; m1 = ti; }
+    else {
+        if (static_cast<unsigned>(r.cur) != s.hub) { p1 = s.m[r.cur].from; m1 = static_cast<int>(s.hub); }
+        if (static_cast<unsigned>(ti) != s.hub) p2 = tm.to;
+    }
+    r.plan1 = p1 ? p1->name : nullptr;
+    r.plan2 = p2 ? p2->name : nullptr;
+    // a to-leg (the entry or hub -> target) that fails runs the target's from plan back to the hub
+    auto fallBack = [&](const char *plan) -> int {
+        keepFail(r, plan);
+        if (!tm.from) { r.failed = 1; r.res = kFailed; return kFailed; }
+        const char *why = r.why;
+        const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
+        r.phase = 3; r.why = nullptr; r.fbPlan = tm.from->name;
+        const int b = leg(x, *tm.from, s.m[s.hub]);
+        r.backRes = b ? 2 : 1;
+        r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
+        if (b < 0) return stop(r, st);
+        if (b) { r.failed = 1; r.res = kFailed; return kFailed; }
+        r.where = kLinux; r.cur = static_cast<int>(s.hub);
+        r.fbCount[ti]++; r.fellBacks++;
+        r.res = kFellBack;
+        return kFellBack;
+    };
+    if (p1) {
+        r.phase = 1;
+        const int b = leg(x, *p1, s.m[m1]);
+        if (b < 0) return stop(r, st);
+        if (b) {
+            if (!r.effects) { keepFail(r, p1->name); return refuse(r, r.why); }   // nothing written or sent: a plain refusal
+            if (r.where == kMac) return fallBack(p1->name);
+            keepFail(r, p1->name);   // a from plan failed: no plan knows this state
+            r.failed = 1; r.res = kFailed;
+            return kFailed;
+        }
+        r.where = kLinux; r.cur = m1;
+    }
+    if (p2) {
+        r.phase = 2;
+        const uint32_t e0 = r.effects;
+        const int b = leg(x, *p2, tm);
+        if (b < 0) return stop(r, st);
+        if (b) {
+            if (r.effects == e0 && !p1) { keepFail(r, p2->name); return refuse(r, r.why); }
+            return fallBack(p2->name);
+        }
+        r.cur = ti;
+    }
+    r.phase = 4;
     r.dones++;
     r.res = kDone;
-    r.why = sel == kSel240 ? "240 Hz on ODM 2:1 + DSC + FEC, HBR3 x4" : "back at 144 Hz (Linux's 2 ppc setup, HBR2 + FEC)";
+    r.why = tm.odm ? "at the rate: ODM 2:1 + DSC + FEC" : "at the rate";
     return kDone;
 }
 
-inline int stat(const Run &r, char *b, int n) {
+inline int stat(const Run &r, const Set &s, char *b, int n) {
     int o = 0;
 #define PHXODM_OUT(...) do { if (o < n - 1) { const int k_ = snprintf(b + o, static_cast<size_t>(n - o), __VA_ARGS__); o += k_ > 0 ? k_ : 0; if (o > n - 1) o = n - 1; } } while (0)
-    static const char *const ph[] = {"gates", "plan", "back-plan", "post"};
-    PHXODM_OUT("result=%s sel=%d phase=%s why=%s\n", kResName[r.res >= 0 && r.res <= kTimeout ? r.res : 0], r.sel,
-               ph[r.phase >= 0 && r.phase <= 3 ? r.phase : 0], r.why ? r.why : "-");
-    PHXODM_OUT("boot: attempts=%u dones=%u refusals=%u failed=%d at240=%d last_refusal=%s\n", r.attempts, r.dones, r.refusals,
-               r.failed, r.at240, r.lastRefusal ? r.lastRefusal : "-");
+    static const char *const ph[] = {"gates", "leg1", "leg2", "fall-back", "post"};
+    PHXODM_OUT("result=%s target=%u phase=%s why=%s plans=%s,%s fallback=%s\n", kResName[r.res >= 0 && r.res <= kResMax ? r.res : 0],
+               r.target, ph[r.phase >= 0 && r.phase <= 4 ? r.phase : 0], r.why ? r.why : "-", r.plan1 ? r.plan1 : "-",
+               r.plan2 ? r.plan2 : "-", r.fbPlan ? r.fbPlan : "-");
+    PHXODM_OUT("state: where=%s now=%u Hz failed=%d attempts=%u dones=%u fell_backs=%u sames=%u refusals=%u last_refusal=%s\n",
+               r.where == kLinux ? "linux" : "mac", curHz(r, s), r.failed, r.attempts, r.dones, r.fellBacks, r.sames, r.refusals,
+               r.lastRefusal ? r.lastRefusal : "-");
+    PHXODM_OUT("last_fail: target=%u plan=%s step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x dal_resp=0x%x why=%s\n",
+               r.last.target, r.last.plan ? r.last.plan : "-", r.last.step, r.last.line, r.last.op, r.last.reg, r.last.val, r.last.got,
+               r.last.dalResp, r.last.why ? r.last.why : "-");
     PHXODM_OUT("gates: otg0 %u Hz pclk=%u kHz scratch1=0x%08x link_now 0x%02x fec_cap=0x%02x dsc_cap=0x%02x hubp1_clk=0x%x dom1=0x%08x\n",
                r.g.hz, r.g.pclkKhz, r.g.scr1, r.g.link0[0], r.fecCap, r.dscCap, r.hubp1Clk, r.dom1);
     PHXODM_OUT("stop: step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x back=%u\n", r.step, r.line, r.op, r.reg, r.val, r.got, r.backRes);
-    PHXODM_OUT("io: writes=%u copies=%u waits=%u wait_max_us=%u dal=%u dal_resp=%u dpcd=%u stray=%u train=%s cr=%u eq=%u\n", r.writes,
-               r.copies, r.waits, r.waitMaxUs, r.dals, r.dalResp, r.dpcd, r.strayWr, phxdpl::rcName(r.trc), r.rep.crLoops, r.rep.eqLoops);
+    PHXODM_OUT("io: effects=%u writes=%u copies=%u waits=%u wait_max_us=%u dal=%u dal_resp=%u dpcd=%u stray=%u train=%s cr=%u eq=%u\n",
+               r.effects, r.writes, r.copies, r.waits, r.waitMaxUs, r.dals, r.dalResp, r.dpcd, r.strayWr, phxdpl::rcName(r.trc),
+               r.rep.crLoops, r.rep.eqLoops);
+    PHXODM_OUT("det: swaits=%u swait_timeouts=%u swait_max_us=%u det0=0x%x det1=0x%x compbuf=0x%08x\n", r.swaits, r.swaitTimeouts,
+               r.swaitMaxUs, r.postDet0, r.postDet1, r.postCompbuf);
     PHXODM_OUT("post: hz=%u odm=0x%08x v_total=0x%x hubp0=0x%08x hubp1=0x%08x stream=0x%x stream_0.5s=0x%x pixfmt=0x%08x pixdiv=0x%x "
                "dphy=0x%x%s%s\n", r.postHz, r.postOdm, r.postV, r.postHubp0, r.postHubp1, r.postStream, r.postStream2, r.postPixFmt,
                r.postPixDiv, r.postDphy, r.pipeWhy ? " changed=" : "", r.pipeWhy ? r.pipeWhy : "");

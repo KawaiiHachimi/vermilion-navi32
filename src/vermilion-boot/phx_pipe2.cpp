@@ -105,9 +105,16 @@ static void p2IoDelay(void *, uint32_t us) {
 }
 // b91 mode switch: one DAL message (RESP, 0 = timeout, which latches gDalDead in dalMessage); the PMFW is idle when
 // neither the DAL mailbox nor the driver mailbox has a message in flight (RESP != 0 on both).
+// b135: kIOReturnBusy (the previous message's RESP still 0: nothing sent) waits and tries again, up to ~2 s, as Linux
+// dcn32_smu_send_msg_with_param waits for RESP before it writes (10 us x 200000); b134 failed a mode set on it.
+static uint32_t gDalBusyRetries;
 static uint32_t p2Dal(void *c, uint32_t msg, uint32_t arg) {
     uint32_t resp = 0, after = 0;
-    static_cast<PhxBringup *>(c)->dalMessage(msg, arg, &resp, &after);
+    for (unsigned i = 0; i < 200; i++) {
+        if (static_cast<PhxBringup *>(c)->dalMessage(msg, arg, &resp, &after) != kIOReturnBusy) break;
+        gDalBusyRetries++;
+        IOSleep(10);
+    }
     return resp;
 }
 static int p2PmfwIdle(void *c) {
