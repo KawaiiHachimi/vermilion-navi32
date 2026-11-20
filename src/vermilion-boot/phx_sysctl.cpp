@@ -309,6 +309,11 @@ static volatile int gP0OdmActive = 0;
 // Linux's per-flip manual trigger (OTG_TRIGA_MANUAL_TRIG), which ends the stretched frame
 static volatile int gVrrOn = 0;
 static volatile SInt64 gVrrTrigs = 0;
+// b144: System Settings' Variable (PhxAccel "phxVrrSet") wants VRR; it is on only while GPU present scans (the per-flip trigger
+// ends each frame; without it every frame would run to 48 Hz). Both with scanLock held, defined in phx_p0odm.cpp.
+static volatile int gVrrWant = 0;
+static void phxVrrDropLocked();     // GPU present stopped (scanRestoreLocked): range off, the want kept
+static void phxVrrResumeLocked();   // GPU present (re)acquired (scanAcquire): range on again if wanted
 SYSCTL_INT(_debug, OID_AUTO, phxp0odm_active, CTLFLAG_RD | CTLFLAG_LOCKED, const_cast<int *>(&gP0OdmActive), 0, "b131 1 = flips go to HUBP0 and HUBP1 (pipe 0 on ODM 2:1)");
 static SInt64 gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost;
 static uint32_t gScanGhost = 0xffffffffu;   // slot of the last accepted-but-forgotten flip (on screen until a later latch)

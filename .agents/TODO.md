@@ -122,7 +122,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Test:** at 2560x1440 240, `sudo sysctl -w debug.phxvrr=1`: the OSD rate follows what is drawn; `=0` undoes it.
       22:50 on the box: the range works (OTG0 48 Hz, OSD 48, picture normal), 0 triggers: GPU present was off since the
       boot (plane 1280x1440 under ODM 2:1, a b138 bug; at 240 the CPU copy has drawn since b140). b143 installed 23:35
-      (`OC` = b143, `OC.prev` = b142; b141 kext in `~/vermilion-rollback/`): the plane is twice HUBP0's viewport under ODM
+      (`OC` = b143, `OC.prev` = b142; b141 kext in `~/vermilion-rollback/`): the plane is twice HUBP0's viewport under ODM.
+      22:56 on the box: **VRR works** (debug.phxvrr=1: OTG0 52-188 Hz with the content, the owner sees it). b144 + PhxAccel
+      installed 23:50 (`OC` = b144, `OC.prev` = b143; b142 kext and the PhxAccel before in `~/vermilion-rollback/`):
+      System Settings' Variable turns the range on (phxVrrSet), a fixed rate off; on only while GPU present scans.
+      **Test:** restart; pick Variable, move windows (OSD follows), pick 144 (fixed 144), Variable again
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)

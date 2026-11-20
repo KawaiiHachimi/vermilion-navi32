@@ -94,6 +94,7 @@ bool PhxBringup::scanRestoreLocked() {
     scan.acquired = false;
     scan.front = scan.pending = PHXN_SCAN_NO_SLOT;
     scan.restores++;
+    if (gVrrOn) phxVrrDropLocked();   // b144: no flips, no trigger: the range goes off with GPU present
     IOLog("PhxBringup: scanout restored to the console (%s)\n", ok ? "verified" : "NOT verified");
     return ok;
 }
@@ -234,6 +235,7 @@ IOReturn PhxBringup::scanAcquire(const void *who, uint64_t out[2]) {
         scan.lastCallAbs = mach_absolute_time();
         out[0] = scan.consoleMc;
         out[1] = scanFrameLocked();
+        if (gVrrWant) phxVrrResumeLocked();   // b144: System Settings' Variable, back with GPU present
         IOLog("PhxBringup: scanout acquired (console MC 0x%llx, %ux%u, slots %s at VRAM 0x%llx + k * 0x%llx)%s\n", scan.consoleMc,
               q.pitch_px, q.plane_h, phxscanlay::name(scan.lay.kind), scan.lay.base, scan.lay.stride, prev ? " (previous owner dropped)" : "");
     }

@@ -1868,6 +1868,17 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     }
     gHead0Mode = (int)fModeId; gHead0Refresh = (int)fRefreshMilliHz;
     if (ret != kIOReturnSuccess) gHead0SwitchFails++;
+    // b144 Adaptive Sync: System Settings' Variable (the VRR twin) wants the range on, any other landed mode off
+    // (PhxBringup b144+ "phxVrrSet"; it keeps the range on only while GPU present scans)
+    if (fVrrMinHz && ret == kIOReturnSuccess)
+        if (IOService *vb = copyBringup("phx-vrr-fn")) {
+            const phxhead::HeadMode *lm = phxhead::headMode(0, fModeId);
+            const uint32_t want = lm && phxhead::isVrrTwin(*lm) ? 1u : 0u;
+            uint32_t io = want;
+            const IOReturn vr = vb->callPlatformFunction("phxVrrSet", false, &io, nullptr, nullptr, nullptr);
+            vb->release();
+            PFBLOG("head 0 VRR %s: rc 0x%x, range %s", want ? "wanted (Variable)" : "off (a fixed rate)", vr, io ? "on" : "off");
+        }
     if (flips && act != phxhead::kActDark) flipEnable(1);
     PFBLOG("head 0 switch to id %d (target %u): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz %ux%u row %u",
            (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz, fWidth, fHeight, fRowBytes);

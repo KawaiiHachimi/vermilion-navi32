@@ -106,6 +106,26 @@ static int vrrOnLocked(const phxp2::Env &e) {
     e.io.wr(e.io.c, phxodm::kOtg0VCtl, v.ctl);
     gVrrSet = v; gVrrOn = 1; gVrrOns++; gVrrWhy = "on";
     return 0;
+}
+static uint32_t gVrrDrops = 0, gVrrResumes = 0;
+static void phxVrrDropLocked() { if (!gVrrOn || !p2Up()) return; vrrOffLocked(p2Env()); gVrrDrops++; gVrrWhy = "off: GPU present stopped (wanted)"; }
+static void phxVrrResumeLocked() { if (gVrrOn || !gVrrWant || !p2Up()) return; if (!vrrOnLocked(p2Env())) gVrrResumes++; }
+// b144: PhxAccel head 0 after each landed switch: *io = 1 (System Settings' Variable, the VRR twin) or 0 (a fixed rate); out:
+// 1 when the range is on. On needs GPU present (scanAcquiredLocked); otherwise it is remembered and comes on with it.
+static IOReturn phxVrrSetFn(uint32_t *io) {
+    if (!io || *io > 1) return kIOReturnBadArgument;
+    if (!p2Up() || !gPhx || !gPhx->scanLockForEngines()) return kIOReturnNotReady;
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return kIOReturnBusy;
+    IOLockLock(gPhx->scanLockForEngines());
+    const phxp2::Env e = p2Env();
+    gVrrWant = static_cast<int>(*io);
+    if (!*io) vrrOffLocked(e);
+    else if (gPhx->scanAcquiredLocked()) { if (vrrOnLocked(e)) gVrrRefusals++; }
+    else gVrrWhy = "wanted: comes on with GPU present";
+    *io = static_cast<uint32_t>(gVrrOn);
+    IOLockUnlock(gPhx->scanLockForEngines());
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    return kIOReturnSuccess;
 }   // where = kMac until the first run lands (cur is read only in kLinux)
 
 // One engine run under gP2Busy, the AUX lock and scanLock. -1 = not run (busy / not ready; *err set).
@@ -214,6 +234,7 @@ static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
     IOLockLock(gPhx->scanLockForEngines());
     const phxp2::Env e = p2Env();
     int r = 0;
+    gVrrWant = v;
     if (v) r = vrrOnLocked(e); else vrrOffLocked(e);
     if (r) gVrrRefusals++;
     IOLockUnlock(gPhx->scanLockForEngines());
@@ -235,10 +256,10 @@ static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
         IOSleep(250);
         const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
         n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
-                     "triggers %lld | ons %u offs %u refusals %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
+                     "triggers %lld | want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
                      gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
-                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrOns, gVrrOffs,
-                     gVrrRefusals, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
+                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrWant, gVrrOns, gVrrOffs,
+                     gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
     }
     if (n < 0) n = 0;
     if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;
