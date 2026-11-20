@@ -50,7 +50,7 @@ struct Hw {
         case 0x05001: return (v & ~0x10000u) | ((v & 1u) << 16);
         case 0x0500C: return frames & 0xffffff;
         case 0x056CC: return (v & ~0x10000u) | ((v & 1u) && otgOn() && phyRate && (r[0x056C8] & 0x10) ? 0x10000u : 0u);
-        case 0x05651: return (v & ~0x100000u) | ((v & 2u) << 19);
+        case 0x05651: return (v & ~0x100000u) | ((v & 2u) && phyRate ? 0x100000u : 0u);   // RESET_DONE needs the symbol clock (box b131)
         case 0x056D2: return phyRate ? static_cast<uint32_t>(std::lround(0x8000 * (double)r[0x00141] / (phyRate * 10000.0))) : 0;
         default: return v;
         }

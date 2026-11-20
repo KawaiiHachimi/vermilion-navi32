@@ -219,9 +219,7 @@ static const struct phx_p0odm_step kPhxP0odm_1440p144odm[] = {
   {1, 502, 0x05651, 0x1000011c, 0xffffffff, 0},  /* DIG1_DIG_FIFO_CTRL0 */
   {1, 503, 0x05651, 0x1000011c, 0xffffffff, 0},  /* DIG1_DIG_FIFO_CTRL0 */
   {1, 504, 0x05651, 0x1000011e, 0xffffffff, 0},  /* DIG1_DIG_FIFO_CTRL0 */
-  {3, 504, 0x05651, 0x00100000, 0x00100000, 1000},  /* wait DIG1_DIG_FIFO_CTRL0 & 0x100000 == 0x100000 (<= 1000 us) */
   {1, 505, 0x05651, 0x1000011c, 0xffffffff, 0},  /* DIG1_DIG_FIFO_CTRL0 */
-  {3, 505, 0x05651, 0x00000000, 0x00100000, 1000},  /* wait DIG1_DIG_FIFO_CTRL0 & 0x100000 == 0x0 (<= 1000 us) */
   {1, 506, 0x05651, 0x1000011d, 0xffffffff, 0},  /* DIG1_DIG_FIFO_CTRL0 */
   {7, 507, 0x00000, 0x00000014, 0x00000001, 4},  /* link rate 0x14 x4 with FEC_READY, CR + EQ, FEC on (Linux window) */
   {1, 1059, 0x05671, 0x20000000, 0xffffffff, 0},  /* DIG1_DIG_BE_CNTL */

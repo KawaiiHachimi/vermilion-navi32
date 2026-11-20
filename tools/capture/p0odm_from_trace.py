@@ -59,7 +59,7 @@ LINK_OFF_END = ("DP1_DP_DPHY_CNTL", 0x00000000)   # after DPCD 0x120 = 0: FEC_RE
 LINK_UP_END = ("DP1_DP_DPHY_CNTL", 0x00000030)    # FEC_EN | FEC_READY_SHADOW after training
 
 
-def wait_rules(n, v, prev, nm2a):
+def wait_rules(n, v, prev, nm2a, nextv=0):
     """(reg, mask, want, timeout_us) waits Linux runs after this write."""
     w = []
     def A(name):
@@ -83,9 +83,11 @@ def wait_rules(n, v, prev, nm2a):
     if m and (v & 1) and not (prev.get(n, 0) & 1):          # blank -> no outstanding request (hubp2_set_blank)
         w.append((A(n), 0x2, 0x2, 200))
     m = re.match(r"DIG(\d)_DIG_FIFO_CTRL0$", n)
-    if m and (v & 2):                                       # FIFO reset -> RESET_DONE 1 (enc32_reset_fifo)
+    # enc32_reset_fifo waits; the setup pulses (link still off) do not. Linux's next write carries RESET_DONE (0x100000)
+    # exactly where it had waited for it (box 2026-11-20: a wait after a setup pulse never completed).
+    if m and (v & 2) and (nextv & 0x100000):                # FIFO reset -> RESET_DONE 1
         w.append((A(n), 0x100000, 0x100000, 1000))
-    elif m and (prev.get(n, 0) & 2) and not (v & 2):        # release -> RESET_DONE 0
+    elif m and (v & 0x100000) and not (v & 2):              # release (written with the DONE it read) -> RESET_DONE 0
         w.append((A(n), 0x100000, 0, 1000))
     m = re.match(r"DP(\d)_DP_VID_STREAM_CNTL$", n)
     if m and (prev.get(n, 1) & 1) and not (v & 1):          # stream off -> STATUS 0 (enc1_stream_encoder_dp_blank)
@@ -110,6 +112,14 @@ def main():
         out.append((OPS[op], line, reg, val, mask, arg, note))
         stats[op] = stats.get(op, 0) + 1
     state, aux, dal_arg = "pre", None, 0
+    nextw, last = {}, {}   # trace line -> the value of the next write to the same register (FIFO wait rule)
+    for ln, l in enumerate(open(a.trace), 1):
+        m = re.search(r"amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
+        if m:
+            r_ = int(m.group(1), 16)
+            if r_ in last:
+                nextw[last[r_]] = int(m.group(2), 16)
+            last[r_] = ln
     for ln, l in enumerate(open(a.trace), 1):
         m = re.search(r"\s([\d.]+): amdgpu_dc_wreg: reg=0x([0-9a-f]+), value=0x([0-9a-f]+)", l)
         d = re.search(r"\s([\d.]+): dmubcmd\d*: .*?c0=0x([0-9a-f]+) c1=0x([0-9a-f]+) c2=0x([0-9a-f]+) c3=0x([0-9a-f]+)", l)
@@ -177,7 +187,7 @@ def main():
                 emit("COPY", ln, r, nm2a[src], 0xFFFFFFFF, 0, f"{n} = {src} (live)")
             continue      # pipe 0's own surface / colour: macOS's values stay
         emit("W", ln, r, v, SHARED_MASK.get(n, 0xFFFFFFFF), 0, n)
-        for wr, wm, ww, wt in wait_rules(n, v, prev, nm2a):
+        for wr, wm, ww, wt in wait_rules(n, v, prev, nm2a, nextw.get(ln, 0)):
             emit("WAIT", ln, wr, ww, wm, wt, f"wait {nm.get(wr, hex(wr))} & 0x{wm:x} == 0x{ww:x} (<= {wt} us)")
         prev[n] = v
     if state != "post":
