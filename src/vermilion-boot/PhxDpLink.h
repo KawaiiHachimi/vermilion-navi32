@@ -35,13 +35,18 @@ constexpr uint32_t kSeg1 = 0xC0, kSeg2 = 0x34C0;   // DCN BASE_IDX 1 / 2 (the ca
 // ---- connectors -----------------------------------------------------------------------------------------------------
 // dig = DIG FE = DIG BE = PHY index (multiport 3.4: FE = BE = PHY letter on DCN32); hpd = HPDn sense line; aux = DP_AUXn;
 // hpdsel = the DMUB hpdsel byte = VBIOS HPD pin id = hpd + 1 (traces: DP E 5, DP A 4, DP B 3, HDMI D 1).
-struct Conn { const char *name; uint8_t dig, phy, hpd, aux, hpdsel; };
+// retrain (b129): 1 = the GOP's own link, only for PhxDpbRetrain.h (the live pipe-0 link retrained in place, HBR3 allowed).
+struct Conn { const char *name; uint8_t dig, phy, hpd, aux, hpdsel, retrain; };
 static constexpr Conn kConns[] = {
-    {"DP-A", 0, 0, 3, 3, 4},
-    {"DP-E", 4, 4, 4, 4, 5},
+    {"DP-A", 0, 0, 3, 3, 4, 0},
+    {"DP-E", 4, 4, 4, 4, 5, 0},
 };
 static constexpr unsigned kNConns = sizeof kConns / sizeof kConns[0];
 // DP B (DIG1 / PHY B) is the GOP's pipe 0 and HDMI D (DIG3 / PHY D) is pipe 1: never in kConns, so never driven here.
+// b129: DP B (DIG1 / PHY B / HPD2 / AUX2, hpdsel 3), the GOP's pipe-0 link. Not in kConns: connByDig never returns it,
+// so the multiport probes (PhxDpRun.h, PhxDpStream.h) still refuse DP B. Linux's 144 -> 240 Hz capture (2026-11-20) sent
+// TRANSMITTER_CONTROL with exactly these bytes for it (phyid 1, hpdsel 3).
+static constexpr Conn kConnDpB = {"DP-B", 1, 1, 2, 2, 3, 1};
 inline const Conn *connByDig(unsigned dig) {
     for (const Conn &c : kConns) if (c.dig == dig) return &c;
     return nullptr;
@@ -107,9 +112,9 @@ static_assert(beCntl(kConns[1], false) == 0x40000000u && beCntl(kConns[1], true)
               beCntl(kConns[0], true) == 0x30000100u, "BE_CNTL = trace (DP E) / snap (DP A)");
 
 // ---- link rates, caps, link choice ------------------------------------------------------------------------------------
-enum : uint8_t { kRbr = 0x06, kHbr = 0x0a, kHbr2 = 0x14 };
+enum : uint8_t { kRbr = 0x06, kHbr = 0x0a, kHbr2 = 0x14, kHbr3 = 0x1e };   // kHbr3: retrain connectors only (b129)
 struct Link { uint8_t rate, lanes; };
-inline constexpr uint32_t symclk10k(uint8_t rate) { return rate * 2700u; }   // RBR 16200, HBR 27000, HBR2 54000
+inline constexpr uint32_t symclk10k(uint8_t rate) { return rate * 2700u; }   // RBR 16200, HBR 27000, HBR2 54000, HBR3 81000
 inline constexpr uint64_t linkKbps(Link l) { return static_cast<uint64_t>(l.rate) * 270000u * 8u / 10u * l.lanes; }
 struct Sink { uint8_t rev, maxRate, maxLanes; bool enhanced, tps3, tps4, downspread; uint8_t trainIntervalRaw; };
 inline bool parseCaps(const uint8_t caps[16], Sink *s) {
@@ -156,15 +161,17 @@ inline bool txAllowed(const uint32_t c[16], const Conn &k, const char **why) {
     const char *w = nullptr;
     const uint32_t phy = c[1] & 0xff, act = (c[1] >> 8) & 0xff, b2 = (c[1] >> 16) & 0xff, lanes = c[1] >> 24;
     const uint32_t hs = c[3] & 0xff, fe = (c[3] >> 8) & 0xff, b10 = (c[3] >> 16) & 0xff, b11 = c[3] >> 24;
-    const bool rateOk = c[2] == symclk10k(kRbr) || c[2] == symclk10k(kHbr) || c[2] == symclk10k(kHbr2);
+    const bool rateOk = c[2] == symclk10k(kRbr) || c[2] == symclk10k(kHbr) || c[2] == symclk10k(kHbr2) ||
+                        (k.retrain && c[2] == symclk10k(kHbr3));
     if (c[0] != kTxHdr) w = "not TRANSMITTER_CONTROL (128/1, 60 bytes)";
-    else if (phy != k.phy || (phy != 0 && phy != 4)) w = "PHY not this connector's (never PHY B / PHY D)";
+    else if (phy != k.phy || (phy != 0 && phy != 4 && !(k.retrain && phy == 1)))
+        w = "PHY not this connector's (never PHY D; PHY B only for the DP B retrain)";
     else if (hs != k.hpdsel) w = "hpdsel not this connector's";
     else if (fe != 0) w = "digfe_sel not 0";
     else if (act == kTxEnable) {
         if (b2 != 0) w = "ENABLE digmode not DP";
         else if (lanes != 1 && lanes != 2 && lanes != 4) w = "ENABLE lanes";
-        else if (!rateOk) w = "ENABLE symclk not RBR/HBR/HBR2";
+        else if (!rateOk) w = "ENABLE symclk not RBR/HBR/HBR2 (HBR3: retrain only)";
         else if (b10 != 0x00 || b11 != 0xf4) w = "ENABLE bytes 10/11";
     } else if (act == kTxVsemph) {
         if ((b2 & ~0x1bu) || (b2 & 3) + ((b2 >> 3) & 3) > 3) w = "SETUP_VSEMPH dplaneset (vs + pe <= 3)";

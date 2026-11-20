@@ -129,6 +129,18 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
     - [ ] B. HDR at 60-144 Hz (no link change): 7a probe, then 10-bit scan-out + 10 bpc output + HDR infoframe + PQ path
     - [ ] C. DMUB on this card (asks the owner first): does DMCUB `0x07008748` answer Linux's QUERY_FEATURE_CAPS; gate
           gets `0x07008748` next to `0x07008742` (rev 0xC8 only)
+    - [~] 2026-11-20 **D1 / D2 = VermilionBoot b129** (owner OK for the DMUB ping + TRANSMITTER_CONTROL): `debug.phxdpb_retrain`
+          1 survey, 2 retrain DP B at HBR2 x4, 3 at HBR3 x4 (falls back to HBR2). Inert until root writes it. Host test
+          dpb_retrain 67/67; mock 193/159. Built on the Mac (VermilionBoot sha256 `5b61b345...`). Install with
+          `efi/build.py install --stage vermilion` (OC.prev = the b128 EFI, booted 2026-11-20).
+          **Test after the boot** (desktop at 1440p, any rate; one command at a time):
+          `sudo sysctl debug.phxdpb_retrain=1; sysctl -n debug.phxdpb_retrain_stat` (survey: `result=surveyed`, nothing
+          written), then `sudo sysctl debug.phxdpb_retrain=2` (screen dark ~1 s, then the same picture; stat `result=PASS`),
+          then `=3` (HBR3; the monitor's OSD may show the link rate), then `=2` again (back to HBR2: the 120/144 switch
+          needs HBR2, its M check refuses at HBR3).
+          **Rollback:** dark after a retrain = power off / on (the GOP trains HBR2 again; nothing persists). Bad boot: OpenCore
+          `OC.prev` (from the Mac: `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`), or
+          `-phxbringupoff` for one boot. The 120/144 flag and PhxAccel are unchanged
     - [ ] D. 240 Hz SDR: retrain DP B to HBR3 (TRANSMITTER_CONTROL bytes from A, TPS4, extended caps), 2-pixel-per-cycle
           plan, head-0 row; fall back to HBR2 + the 60 Hz plan on any failure
     - [ ] E. 240 Hz HDR: FEC + DSC (+ ODM 2:1 as Linux) at 10 bpc

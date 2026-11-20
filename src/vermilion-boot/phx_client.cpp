@@ -147,6 +147,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxc3); sysctl_register_oid(&sysctl__debug_phxc3_stat); sysctl_register_oid(&sysctl__debug_phxpoweron);   // b113
         sysctl_register_oid(&sysctl__debug_phxdplink); sysctl_register_oid(&sysctl__debug_phxdplink_stat);   // b116
         sysctl_register_oid(&sysctl__debug_phxdpstream); sysctl_register_oid(&sysctl__debug_phxdpstream_stat);   // b117
+        sysctl_register_oid(&sysctl__debug_phxdpb_retrain); sysctl_register_oid(&sysctl__debug_phxdpb_retrain_stat);   // b129
         sysctl_register_oid(&sysctl__debug_phxdpwatch); sysctl_register_oid(&sysctl__debug_phxdpwatch_stat); sysctl_register_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122
         sysctl_register_oid(&sysctl__debug_phxhotplug); sysctl_register_oid(&sysctl__debug_phxhotplug_stat);
     }
