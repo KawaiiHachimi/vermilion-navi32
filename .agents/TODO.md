@@ -104,8 +104,16 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
         **Rollback:** bad boot (no desktop, panic): power off, power on, OpenCore picker > (Space) > the previous entries are
         not separate, so: boot with `-phxbringupoff` once, or from Linux: `sudo mv /boot/EFI/OC /boot/EFI/OC.bad &&
         sudo mv /boot/EFI/OC.prev /boot/EFI/OC`; from macOS: `sudo mv <ESP>/EFI/OC <ESP>/EFI/OC.bad && sudo mv <ESP>/EFI/OC.prev <ESP>/EFI/OC`
-  - [ ] Next after b128 passes: PhxAccel head-0 mode list for 1440p (LG DTDs 60/120/144, target_hz rounded from milliHz:
-        59951 -> 60) + a daemon flag that sets `debug.phxpipe0_enable=1 debug.phxpipe0_modes=1` before the claim (one boot)
+  - [~] 2026-11-20 **120/144 Hz in System Settings** (one change, one switch: the flag): PhxAccel with the LG's 1440p rows in
+        head 0's mode table (ids 3-5, the EDID's DTDs; `target_hz` rounded, 59.951 -> 60; host test head0_1440 15/15; the
+        installed PhxAccel was byte-identical to this branch without the change) + daemon flag `~/gpu/phxboot-p0modes`
+        (`debug.phxpipe0_enable=1 debug.phxpipe0_modes=1` before the claim; mock 193/193). Installed 2026-11-20 from the
+        Mac: rollback copy `~/vermilion-rollback/VermilionAccel.kext.20261120`, daemon `.prev` in `~/gpu`, `kmutil load -p`
+        (AuxKC rebuild, applies at the next boot). After the boot: System Settings > Displays > Refresh Rate lists 60/120/144.
+        **Rollback:** `rm ~/gpu/phxboot-p0modes` (or from Linux `touch /boot/vermilion/flags/phxboot-p0modes.rm`): one mode
+        again at the next boot. Full PhxAccel rollback: `sudo rm -rf /Library/Extensions/VermilionAccel.kext && sudo cp -R
+        ~/vermilion-rollback/VermilionAccel.kext.20261120 /Library/Extensions/VermilionAccel.kext && sudo kmutil load -p
+        /Library/Extensions/VermilionAccel.kext`, reboot. Bad boot: `-phxacceloff` once
   - [ ] Step 7a (proposal): report-only HDR probe in PhxAccel behind a boot-arg (timing range + 10 bpc depths, log
         `'hdrm'`/`'dsdp'`), to see whether System Settings offers HDR before any hardware work
   - [~] Step 2: Linux capture. Tool `tools/capture/linux_display_capture.py` (test
