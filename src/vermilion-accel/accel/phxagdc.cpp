@@ -78,6 +78,25 @@ static void panelTiming(IOService *fb, uint32_t t[NVK5_TIMING_WORDS])
     t[NVK5_T_REFRESH_MHZ] = mhz; t[NVK5_T_HSYNCPOS] = 1; t[NVK5_T_VSYNCPOS] = 0;
 }
 
+// HDR probe (2026-11-21, debug.phxfb0_hdrprobe, phxfb.cpp): AGDC 0x713 is Apple's AMD driver's setSecondaryDataPacket
+// (AGDCFBSDPPacket_t: the HDR infoframe CoreDisplay sends); accepted and kept (debug.phxagdc_sdp), never sent to the monitor
+extern int gPhxHdrProbe;
+static uint8_t gSdp[64];
+static uint32_t gSdpLen = 0, gSdpN = 0;
+static int phxAgdcSdpSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (req->newptr) return EPERM;
+    char b[256];
+    int n = snprintf(b, sizeof b, "packets %u, last %u bytes:", gSdpN, gSdpLen);
+    for (uint32_t i = 0; i < gSdpLen && n > 0 && n < (int)sizeof b - 4; i++) n += snprintf(b + n, sizeof b - (size_t)n, " %02x", gSdp[i]);
+    if (n < 0) n = 0;
+    if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;
+    b[n] = 0;
+    return SYSCTL_OUT(req, b, (size_t)n + 1);
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxagdc_sdp, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, NULL, 0, phxAgdcSdpSysctl, "A",
+            "HDR probe: the last AGDC 0x713 secondary data packet CoreDisplay sent (kept, not sent to the monitor)");
+
 IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned long *in, unsigned long inSize,
                                                     unsigned long *out, unsigned long *outSize, IOExternalMethodArguments *)
 {
@@ -136,6 +155,13 @@ IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned l
         if (gLogged < 40) { gLogged++; AGLOG("command %#x not answered (result %d, why %#x)", cmd, r, why); }
         if (r == NVK5_R_BADARG) return kIOReturnBadArgument;
         if (r == NVK5_R_NOTFOUND) return kIOReturnNotFound;
+    }
+    if (cmd == 0x713u && gPhxHdrProbe) {   // HDR probe: the packet, every time (the 40-line log cap does not apply)
+        const uint32_t n = in && inSize ? (uint32_t)(inSize < sizeof gSdp ? inSize : sizeof gSdp) : 0;
+        if (n) memcpy(gSdp, in, n);
+        gSdpLen = n; gSdpN++;
+        AGLOG("hdrprobe: command 0x713 (secondary data packet) in %lu bytes, kept (packet %u)", inSize, gSdpN);
+        return kIOReturnSuccess;
     }
     OSAddAtomic64(1, &gRefused); gLastRefused = (int)cmd;
     if (gLogged < 40) { gLogged++; AGLOG("command %#x (in %lu bytes) -> Unsupported [%d/40]", cmd, inSize, gLogged); }
@@ -261,6 +287,7 @@ void phxAgdcInstall()
     sysctl_register_oid(&sysctl__debug_phxagdc_fb_replies); sysctl_register_oid(&sysctl__debug_phxagdc_refused);
     sysctl_register_oid(&sysctl__debug_phxagdc_last_refused); sysctl_register_oid(&sysctl__debug_phxagdc_k5);
     sysctl_register_oid(&sysctl__debug_phxfb_hold);
+    sysctl_register_oid(&sysctl__debug_phxagdc_sdp);
     sysctl_register_oid(&sysctl__debug_phxagdc_fbs); sysctl_register_oid(&sysctl__debug_phxagdc_k5_h1);
     gSysctls = true;
 }
@@ -272,6 +299,7 @@ void phxAgdcRemove()
     sysctl_unregister_oid(&sysctl__debug_phxagdc_fb_replies); sysctl_unregister_oid(&sysctl__debug_phxagdc_refused);
     sysctl_unregister_oid(&sysctl__debug_phxagdc_last_refused); sysctl_unregister_oid(&sysctl__debug_phxagdc_k5);
     sysctl_unregister_oid(&sysctl__debug_phxfb_hold);
+    sysctl_unregister_oid(&sysctl__debug_phxagdc_sdp);
     sysctl_unregister_oid(&sysctl__debug_phxagdc_fbs); sysctl_unregister_oid(&sysctl__debug_phxagdc_k5_h1);
     if (gHoldTimer) { thread_call_cancel(gHoldTimer); thread_call_free(gHoldTimer); gHoldTimer = nullptr; }
     holdSet(false, "stop");
