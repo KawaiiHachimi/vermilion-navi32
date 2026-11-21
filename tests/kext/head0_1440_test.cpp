@@ -93,7 +93,7 @@ int main() {
         for (uint32_t b2 = 3; b2 <= 6; b2++) {
             DetailedTiming tb{}, tt{};
             CHECK(detailedTiming(0, b2, &tb) && detailedTiming(0, b2 + 11, &tt) && tb.pixelHz == tt.pixelHz && tb.vBlank == tt.vBlank &&
-                  switchKey(*headMode(0, b2), 2560, 1440) == switchKey(*headMode(0, b2 + 11), 2560, 1440));
+                  switchKey(*headMode(0, b2 + 11), 2560, 1440) == 1440000 + switchKey(*headMode(0, b2), 2560, 1440));   // b145 HDR keys
         }
         CHECK(modeForTotals(0, 2720, 1481, ids, 0) == 0);
         CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, false, true) == 2);   // the XT's AOC: unchanged

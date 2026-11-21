@@ -34,6 +34,15 @@
 #include "phx_p0odm_480p60_from.inc"
 #include "phx_p0odm_480p59_to.inc"
 #include "phx_p0odm_480p59_from.inc"
+// capture v4 (2026-11-21): Linux's SDR 144 hub -> HDR at each 1440p rate and back (two mode sets each, b145)
+#include "phx_p0odm_1440p60hdr_to.inc"
+#include "phx_p0odm_1440p60hdr_from.inc"
+#include "phx_p0odm_1440p120hdr_to.inc"
+#include "phx_p0odm_1440p120hdr_from.inc"
+#include "phx_p0odm_1440p144hdr_to.inc"
+#include "phx_p0odm_1440p144hdr_from.inc"
+#include "phx_p0odm_1440p240hdr_to.inc"
+#include "phx_p0odm_1440p240hdr_from.inc"
 
 #define PHX_ODM_PLAN(sym, nm, hz, v, rate, lanes) {sym, sizeof sym / sizeof sym[0], nm, hz, v, rate, lanes}
 #define PHX_ODM_BACK(sym, nm) PHX_ODM_PLAN(sym, nm, 144, 0x5eb, 0x14, 4)
@@ -58,6 +67,16 @@ static const phxodm::Plan kOdm480p60To = PHX_ODM_PLAN(kPhxP0odm_480p60_to, "640x
 static const phxodm::Plan kOdm480p60From = PHX_ODM_BACK(kPhxP0odm_480p60_from, "640x480p60-from");
 static const phxodm::Plan kOdm480p59To = PHX_ODM_PLAN(kPhxP0odm_480p59_to, "640x480p59.94-to", 60, 0x20c, 0x06, 1);
 static const phxodm::Plan kOdm480p59From = PHX_ODM_BACK(kPhxP0odm_480p59_from, "640x480p59.94-from");
+// b145 HDR: the "to" plans end in HDR at the rate on Linux's link for 10 bpc (HBR at 60, HBR2 at 120, HBR3 at 144 / 240),
+// the "from" plans back in the SDR hub (8 bpc, the SDR mastering infoframe Linux sends to leave HDR)
+static const phxodm::Plan kOdm60hTo = PHX_ODM_PLAN(kPhxP0odm_1440p60hdr_to, "1440p60hdr-to", 60, 0x5c8, 0x0a, 4);
+static const phxodm::Plan kOdm60hFrom = PHX_ODM_BACK(kPhxP0odm_1440p60hdr_from, "1440p60hdr-from");
+static const phxodm::Plan kOdm120hTo = PHX_ODM_PLAN(kPhxP0odm_1440p120hdr_to, "1440p120hdr-to", 120, 0x5f4, 0x14, 4);
+static const phxodm::Plan kOdm120hFrom = PHX_ODM_BACK(kPhxP0odm_1440p120hdr_from, "1440p120hdr-from");
+static const phxodm::Plan kOdm144hTo = PHX_ODM_PLAN(kPhxP0odm_1440p144hdr_to, "1440p144hdr-to", 144, 0x5eb, 0x1e, 4);
+static const phxodm::Plan kOdm144hFrom = PHX_ODM_BACK(kPhxP0odm_1440p144hdr_from, "1440p144hdr-from");
+static const phxodm::Plan kOdm240hTo = PHX_ODM_PLAN(kPhxP0odm_1440p240hdr_to, "1440p240hdr-to", 240, 0x652, 0x1e, 4);
+static const phxodm::Plan kOdm240hFrom = PHX_ODM_BACK(kPhxP0odm_1440p240hdr_from, "1440p240hdr-from");
 #undef PHX_ODM_BACK
 #undef PHX_ODM_PLAN
 // Linux's totals per mode (capture v3 regs.txt) and the link Linux trained for each (rate, lanes).
@@ -73,6 +92,11 @@ static const phxodm::Mode kOdmModes[] = {
     {600060, 800, 600, 60, 0x41f, 0x273, 0, 0x06, 1, &kOdm600p60To, &kOdm600p60From},
     {480060, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p60To, &kOdm480p60From},
     {480059, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p59To, &kOdm480p59From},
+    // b145 HDR (keys height * 1000 + Hz, PhxAccel's HDR twins): the SDR modes' timings, Linux's 10 bpc link
+    {1440060, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &kOdm60hTo, &kOdm60hFrom},
+    {1440120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &kOdm120hTo, &kOdm120hFrom},
+    {1440144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x1e, 4, &kOdm144hTo, &kOdm144hFrom},
+    {1440240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, &kOdm240hTo, &kOdm240hFrom},
 };
 static const phxodm::Set kOdmSet = {kOdmModes, sizeof kOdmModes / sizeof kOdmModes[0], 2, &kOdmEntry, 3};
 

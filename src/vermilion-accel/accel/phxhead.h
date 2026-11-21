@@ -304,8 +304,10 @@ inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint3
 }
 // b138: what phxPipe0SetMode's target_hz carries for m: its rounded Hz when m has the boot surface's size (as before; the
 // 1440p rates are keyed by Hz in PhxBringup too), else PhxBringup b137's key height * 1000 + whole Hz (1080060, 480059).
+// b145: an HDR twin asks for PhxBringup b145's HDR replay mode, height * 1000 + rounded Hz (1440060, 1440120, 1440144, 1440240).
 constexpr uint32_t switchKey(const HeadMode &m, uint32_t bootW, uint32_t bootH) {
-    return m.w == bootW && m.h == bootH ? (m.milliHz + 500) / 1000 : m.h * 1000 + m.milliHz / 1000;
+    return isHdrTwin(m) ? m.h * 1000 + (m.milliHz + 500) / 1000
+         : m.w == bootW && m.h == bootH ? (m.milliHz + 500) / 1000 : m.h * 1000 + m.milliHz / 1000;
 }
 // b138: the bytes per row of m's scan-out: the boot surface's own for its size, else Linux's pitch (the width rounded up to
 // 256 pixels, capture v3: 1920 -> 2048, 800 -> 1024, 640 -> 768), which PhxBringup b138's plans write into HUBP0.

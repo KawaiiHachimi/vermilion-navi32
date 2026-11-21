@@ -141,7 +141,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       ~/gpu/phxboot-hdrprobe; PhxAccel copies in `~/vermilion-rollback/`. Probes on the box: steps 1-2 no switch (30-bit depth taken),
       **step 3 (HDR10 twins 14-17): System Settings offers High Dynamic Range** (on = mode 17, off = mode 6); step 4: no
       0x713 packet. Hardware next: HDR twins as replay modes from Linux's HDR mode sets. Capture v3 has no HDR -> SDR
-      (findings): **needs capture v4** in Omarchy (`--hdr-pairs`, tool on the ESP)
+      (findings): **needs capture v4** in Omarchy (`--hdr-pairs`, tool on the ESP). Capture v4 done 2026-11-21 23:40 (`display-20261121-234031`,
+      every from-hdr back at 8 bpc). **b145 + PhxAccel installed 2026-11-22 00:50** (`OC` = b145, `OC.prev` = b144; b143
+      kext and the PhxAccel before in `~/vermilion-rollback/`): the HDR twins switch to HDR replay modes (10 bpc, BT.2020,
+      PQ infoframe; 8-bit surface). **Test:** restart, HDR on in System Settings: the LG's OSD shows HDR; HDR off: SDR again.
+      **Rollback:** HDR off in System Settings; boot trouble: swap `EFI/OC` and `EFI/OC.prev`, rm ~/gpu/phxboot-hdrprobe
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)

@@ -29,6 +29,15 @@
 #include "phx_p0odm_480p60_from.inc"
 #include "phx_p0odm_480p59_to.inc"
 #include "phx_p0odm_480p59_from.inc"
+// capture v4 (2026-11-21): Linux's SDR 144 hub -> HDR at each 1440p rate and back (two mode sets each, b145)
+#include "phx_p0odm_1440p60hdr_to.inc"
+#include "phx_p0odm_1440p60hdr_from.inc"
+#include "phx_p0odm_1440p120hdr_to.inc"
+#include "phx_p0odm_1440p120hdr_from.inc"
+#include "phx_p0odm_1440p144hdr_to.inc"
+#include "phx_p0odm_1440p144hdr_from.inc"
+#include "phx_p0odm_1440p240hdr_to.inc"
+#include "phx_p0odm_1440p240hdr_from.inc"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -55,6 +64,10 @@ static const Plan kD = PL(kPhxP0odm_768p60_to, 60, 0x325, 0x06, 2), kDf = BK(kPh
 static const Plan kE = PL(kPhxP0odm_600p60_to, 60, 0x273, 0x06, 1), kEf = BK(kPhxP0odm_600p60_from);
 static const Plan kF = PL(kPhxP0odm_480p60_to, 60, 0x20c, 0x06, 1), kFf = BK(kPhxP0odm_480p60_from);
 static const Plan kG = PL(kPhxP0odm_480p59_to, 60, 0x20c, 0x06, 1), kGf = BK(kPhxP0odm_480p59_from);
+static const Plan kH60 = PL(kPhxP0odm_1440p60hdr_to, 60, 0x5c8, 0x0a, 4), kH60f = BK(kPhxP0odm_1440p60hdr_from);
+static const Plan kH120 = PL(kPhxP0odm_1440p120hdr_to, 120, 0x5f4, 0x14, 4), kH120f = BK(kPhxP0odm_1440p120hdr_from);
+static const Plan kH144 = PL(kPhxP0odm_1440p144hdr_to, 144, 0x5eb, 0x1e, 4), kH144f = BK(kPhxP0odm_1440p144hdr_from);
+static const Plan kH240 = PL(kPhxP0odm_1440p240hdr_to, 240, 0x652, 0x1e, 4), kH240f = BK(kPhxP0odm_1440p240hdr_from);
 // = phx_p0odm.cpp's set
 static const Mode kModes[] = {
     {60, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &k60To, &k60From}, {120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &k120To, &k120From},
@@ -63,6 +76,8 @@ static const Mode kModes[] = {
     {1024075, 1280, 1024, 75, 0x697, 0x429, 0, 0x06, 4, &kC, &kCf}, {768060, 1024, 768, 60, 0x53f, 0x325, 0, 0x06, 2, &kD, &kDf},
     {600060, 800, 600, 60, 0x41f, 0x273, 0, 0x06, 1, &kE, &kEf}, {480060, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kF, &kFf},
     {480059, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kG, &kGf},
+    {1440060, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &kH60, &kH60f}, {1440120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &kH120, &kH120f},
+    {1440144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x1e, 4, &kH144, &kH144f}, {1440240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, &kH240, &kH240f},
 };
 static const Set kSet = {kModes, N(kModes), 2, &kEntry, 3};
 constexpr uint64_t kFb = 0x8000000000ull, kRing = 0x1000000;
@@ -301,19 +316,26 @@ int main() {
             CHECK(rr == kDone && curKey(r, kSet) == t && h.r[0x04FEF] == m.vTotal && h.r[0x04FEA] == m.hTotal && h.writes.size() > nw);
             CHECK(h.phyRate == m.rate * 2700u && (h.dpcd[0x101] & 0x1f) == m.lanes);   // Linux's link for the mode
             CHECK(r.postHz >= m.hz * 95 / 100 - 4 && r.postHz <= m.hz * 105 / 100 + 4 && (h.r[0x056D7] & 0x30) == 0x30);
-            CHECK(odmActive(r, kSet) == (t == 240) && h.r[0x04F8B] == (t == 240 ? 0x00100001u : 0xfff00000u));
-            CHECK(!!(h.r[0x064C0] & 1) == (t == 240));                            // DSC0 only at 240
+            CHECK(odmActive(r, kSet) == !!m.odm && h.r[0x04F8B] == (m.odm ? 0x00100001u : 0xfff00000u));   // b145: 240 SDR and HDR
+            CHECK(!!(h.r[0x064C0] & 1) == !!m.odm);                                // DSC0 only at 240 (SDR and HDR)
             CHECK(r.plan1 == (from == 144 ? nullptr : kModes[findMode(kSet, from)].from->name));
             CHECK(r.plan2 == (t == 144 ? nullptr : m.to->name));
             if (rr != kDone) std::printf("  %u -> %u: %s phase %d step %u line %u op %u reg 0x%x got 0x%x det 0x%x 0x%x comp 0x%x sw_to %u hz %u v 0x%x\n", from, t, r.why, r.phase, r.step, r.line, r.op, r.reg, r.got, r.postDet0, r.postDet1, r.postCompbuf, r.swaitTimeouts, r.postHz, r.postV);
             CHECK(h.r[0x03540] == 0 && h.r[0x05101] == 0 && h.r[0x05081] == 0x200);
             // b136: the buffer segments landed (box b135: DET1 kept 9 after 240 -> 144, CONFIG_ERROR, pipe 0 dark)
             CHECK(!h.compErr && h.detCur[0] == (h.r[0x0397B] & 0x1f) && h.detCur[1] == (h.r[0x0397C] & 0x1f) && h.detCur[0] && r.swaitTimeouts == 0);
-            CHECK(h.detCur[1] == (t == 240 ? 9u : 0u));
+            CHECK(h.detCur[1] == (m.odm ? 9u : 0u));
             // b138: pipe 0's pitch is Linux's for the mode (the width rounded up to 256 pixels)
             CHECK((h.r[0x03AC7] & 0x3fff) + 1 == ((m.w + 255u) & ~255u));
         }
         CHECK(pairs > 100);
+        // b145 HDR: an HDR mode ends at 10 bpc with the PQ mastering infoframe (DP_PIXEL_FORMAT, FMT, DP_SEC_CNTL bit 23),
+        // the SDR hub after it at 8 bpc again
+        CHECK(run(e, st, r, 1440240, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x42000000u && h.r[0x04D01] == 0xd100u && (h.r[0x056EB] & 0x800000u));
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x41000000u && h.r[0x04D01] == 0xc900u);
+        CHECK(run(e, st, r, 1440060, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x42000000u && h.phyRate == 0x0a * 2700u);
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x41000000u);
+        pairs += 4;
         for (auto &wr : h.writes) CHECK(!denied(wr.first) || wr.first == phxdmub::kInbox1Wptr);
         CHECK(!r.failed && r.fellBacks == 0 && r.dones == 1 + pairs);
         char b[2048];

@@ -102,7 +102,7 @@ NOISE = re.compile(r"VERTICAL_INTERRUPT|GLOBAL_SYNC_STATUS|STATIC_SCREEN|TRIGA_M
 SYM_RATE = {16200: 0x06, 27000: 0x0A, 54000: 0x14, 81000: 0x1E}
 
 
-def auto_bounds(trace, nm):
+def auto_bounds(trace, nm, modesets=1):
     """(until, rate): the mode set = the first two write bursts (> 50 ms apart; 800x600 -> 144 has a 20 ms pause inside link training, per-frame flip / lock noise ignored);
     until = the first OTG0_OTG_MASTER_UPDATE_LOCK = 0 after the second burst; rate = the ENABLE symbol clock."""
     ev, locks, rate, lanes = [], [], None, None
@@ -127,11 +127,13 @@ def auto_bounds(trace, nm):
         if t - bursts[-1][1] > 0.05:
             bursts.append([t, t])
         bursts[-1][1] = t
-    if len(bursts) < 2:
-        sys.exit("auto until: fewer than two bursts")
-    end = bursts[1][1]
+    # v4 HDR (2026-11-21): an HDR switch is two full mode sets (amdgpu commits the mode, then the colour space / depth, each
+    # with its own link window): --modesets 2 takes bursts 1 and 2
+    if len(bursts) < 1 + modesets:
+        sys.exit(f"auto until: fewer than {1 + modesets} bursts")
+    end = bursts[modesets][1]
     after = [t for t in locks if t > end]
-    if not after or (len(bursts) > 2 and after[0] > bursts[2][0]):
+    if not after or (len(bursts) > 1 + modesets and after[0] > bursts[1 + modesets][0]):
         sys.exit("auto until: no OTG0 unlock between the mode set and the next burst")
     if rate is None:
         sys.exit("auto rate: no TRANSMITTER_CONTROL ENABLE")
@@ -150,13 +152,14 @@ def main():
     ap.add_argument("--rate", default="auto", help="LINKUP link rate (DPCD 0x100 value); auto = from Linux's "
                     "TRANSMITTER_CONTROL ENABLE symbol clock (16200 RBR, 27000 HBR, 54000 HBR2, 81000 HBR3)")
     ap.add_argument("--lanes", default="auto", help="LINKUP lane count; auto = Linux's TRANSMITTER_CONTROL ENABLE (needs --rate auto or --until auto)")
+    ap.add_argument("--modesets", type=int, default=1, help="mode-set bursts in the step (auto until): 1, or 2 for an HDR switch")
     ap.add_argument("--hdr", default="/Users/dnanu/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h")
     a = ap.parse_args()
     nm = names(a.hdr)
     nm2a = {v: k for k, v in nm.items()}
     nm.update({0x1628A: "DAL_MSG", 0x16273: "DAL_ARG", 0x16274: "DAL_RESP"})
     if a.until == "auto" or a.rate == "auto":
-        u, rt, ln_ = auto_bounds(a.trace, nm)
+        u, rt, ln_ = auto_bounds(a.trace, nm, a.modesets)
         if a.lanes == "auto":
             a.lanes = str(ln_)
         if a.until == "auto":
@@ -170,6 +173,7 @@ def main():
         out.append((OPS[op], line, reg, val, mask, arg, note))
         stats[op] = stats.get(op, 0) + 1
     state, aux, dal_arg, div_set = "pre", None, 0, False
+    win_rate, win_lanes, windows = None, None, 0   # v4: each link window's own ENABLE (rate, lanes); --rate / --lanes for the first
     det, det_pend, compbuf = {}, set(), None   # DETn size last written, DETs written since the last OTG0 unlock
     nextw, last = {}, {}   # trace line -> the value of the next write to the same register (FIFO wait rule)
     for ln, l in enumerate(open(a.trace), 1):
@@ -189,8 +193,13 @@ def main():
             break
         if d:
             hdr = int(d.group(2), 16)
-            if hdr == 0x3c000180 and state == "pre" and int(d.group(3), 16) & 0xff00 == 0:
-                state = "linkoff"; emit("LINKOFF", ln, 0, 0, 0, 1, "D3, TRANSMITTER_CONTROL DISABLE, FEC_READY off (Linux window)")
+            c1, c2 = int(d.group(3), 16), int(d.group(4), 16)
+            # v4: a second DISABLE after a finished window starts another one (an HDR switch: two mode sets)
+            if hdr == 0x3c000180 and state in ("pre", "post") and c1 & 0xff00 == 0:
+                state = "linkoff"; windows += 1
+                emit("LINKOFF", ln, 0, 0, 0, 1, "D3, TRANSMITTER_CONTROL DISABLE, FEC_READY off (Linux window" + (f" {windows})" if windows > 1 else ")"))
+            if hdr == 0x3c000180 and c1 & 0xff00 == 0x0100 and state in ("linkoff", "mid") and c2 in SYM_RATE:
+                win_rate, win_lanes = SYM_RATE[c2], c1 >> 24   # this window's ENABLE: its link rate and lane count
             continue
         r, v = int(m.group(2), 16), int(m.group(3), 16)
         n = nm.get(r, f"R{r:05X}")
@@ -223,7 +232,9 @@ def main():
             prev[n] = v
             continue
         if state == "mid" and n == "DP1_DP_CONFIG":
-            state = "linkup"; emit("LINKUP", ln, 0, int(a.rate, 0), 1, lanes, f"link rate {a.rate} x{lanes} with FEC_READY, CR + EQ, FEC on (Linux window)")
+            rate_w = win_rate if (windows > 1 and win_rate) else int(a.rate, 0)
+            lanes_w = win_lanes if (windows > 1 and win_lanes in (1, 2, 4)) else lanes
+            state = "linkup"; emit("LINKUP", ln, 0, rate_w, 1, lanes_w, f"link rate {hex(rate_w) if windows > 1 else a.rate} x{lanes_w} with FEC_READY, CR + EQ, FEC on (Linux window" + (f" {windows})" if windows > 1 else ")"))
         if state == "linkup":
             if (n, v) == LINK_UP_END:
                 state = "post"
