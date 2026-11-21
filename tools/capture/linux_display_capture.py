@@ -272,7 +272,10 @@ class Cap:
         rule = None
         if hz:
             mode = hz if isinstance(hz, str) else f"2560x1440@{hz}"
-            rule = f"{self.cname},{mode},0x0,1,vrr,{vrr}" + (f",bitdepth,{bpc}" if bpc and bpc > 8 else "") + (",cm,hdr" if hdr else "")
+            # v4 (2026-11-21): an SDR step names SDR (bitdepth 8, cm srgb). v3 left both out, so Hyprland kept the previous
+            # step's HDR: every "from-hdr" step stayed in HDR at 144 (10 bpc, the HDR infoframe on) and the capture had no
+            # way back from HDR to SDR
+            rule = f"{self.cname},{mode},0x0,1,vrr,{vrr}" + (f",bitdepth,{bpc},cm,hdr" if hdr else ",bitdepth,8,cm,srgb")
         self.say(f"== {name}: {rule or 'no switch'}{' (link forced HBR2 x4)' if link == 'hbr2' else ''}")
         if self.dry:
             return
@@ -364,6 +367,21 @@ class Cap:
             pair(f"hdr-{r}", (f"2560x1440@{r}", 10, "auto", True, 0))
         return steps
 
+    def hdr_pairs(self):
+        """v4 (2026-11-21): HDR only: the SDR 144 Hz hub, then for each 1440p rate SDR hub -> HDR at that rate (to-hdr-<r>)
+        and back to the SDR hub (from-hdr-<r>); each step's monitor rule names its colour mode, so every from-hdr ends in SDR."""
+        m = self.monitor()
+        rates = sorted({x.replace("Hz", "").strip().split("@")[1] for x in m.get("availableModes", []) if x.startswith("2560x1440@")}, key=float)
+        self.say(f"1440p rates: {' '.join(rates)}")
+        hub = "2560x1440@144"
+        STEPS["hub"] = (hub, 8, "auto", False, 0)
+        steps = ["base", "hub"]
+        for r in rates:
+            STEPS[f"to-hdr-{r}"] = (f"2560x1440@{r}", 10, "auto", True, 0)
+            STEPS[f"from-hdr-{r}"] = (hub, 8, "auto", False, 0)
+            steps += [f"to-hdr-{r}", f"from-hdr-{r}"]
+        return steps
+
     def run(self):
         steps = self.a.steps.split(",") if self.a.steps else (DEFAULT + (HBR2 if self.a.hbr2 else []) + (HDR if self.a.hdr else [])
                                                              + (R240 if self.a.r240 else []))
@@ -383,6 +401,8 @@ class Cap:
         self.find()
         if self.a.all_modes:
             steps = self.all_modes()
+        elif self.a.hdr_pairs:
+            steps = self.hdr_pairs()
         need = (512 if self.a.all_modes else 64) << 20
         st = shutil.disk_usage(self.a.outdir if os.path.isdir(self.a.outdir) else os.path.dirname(self.a.outdir.rstrip("/")) or "/")
         if st.free < need:
@@ -423,6 +443,7 @@ def main():
     ap.add_argument("--hdr", action="store_true", help="add the HDR steps (Hyprland cm,hdr)")
     ap.add_argument("--r240", action="store_true", help="add 240-10, hdr-240 and 240-nodsc")
     ap.add_argument("--all-modes", action="store_true", help="v3: every available mode from the 144 hub and back, VRR and HDR at every 1440p rate")
+    ap.add_argument("--hdr-pairs", action="store_true", help="v4: HDR only, SDR 144 hub -> HDR at each 1440p rate -> SDR hub")
     ap.add_argument("--steps", help="comma list, overrides the default set")
     ap.add_argument("--dry-run", action="store_true")
     Cap(ap.parse_args()).run()
