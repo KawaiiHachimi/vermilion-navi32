@@ -323,7 +323,8 @@ class PhxAMDFB : public IOFramebuffer {
     uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
     uint32_t fVrrMinHz = 0;   // Adaptive Sync: the EDID's minimum rate while Variable is offered (0 = not offered)
     uint32_t fVrrSaid = 0;
-    bool fHdrProbe = false;   // HDR probe: the timing range reports HDR10 (head 0, gPhxHdrProbe at its start)    // Adaptive Sync: mode ids whose extension was logged (bit per id)
+    bool fHdrProbe = false;   // HDR probe: the timing range reports HDR10 (head 0, gPhxHdrProbe at its start)
+    IOIndex fDepth = 0;       // HDR probe step 2: the depth macOS set (1 = 30-bit; the scan-out stays 8-bit, the copies narrow l10r)    // Adaptive Sync: mode ids whose extension was logged (bit per id)
     bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
     const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
         return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
@@ -813,7 +814,8 @@ public:
         return IODeviceMemory::withRange(fBase, (IOPhysicalLength)fRowBytes * fHeight);
     }
     IODeviceMemory *getVRAMRange() override { return getApertureRange(kIOFBSystemAperture); }
-    const char *getPixelFormats() override { return IO32BitDirectPixels "\0"; }
+    // HDR probe step 2: head 0 also offers Apple's AMD driver's depth 2, 30-bit (index 1 here; no 16-bit, no 64-bit float)
+    const char *getPixelFormats() override { return fHdrProbe ? IO32BitDirectPixels "\0" kIO30BitDirectPixels "\0" : IO32BitDirectPixels "\0"; }
     // head 0's offer gate (phxoffer.h): while closed only the lit mode is listed. getDisplayModes never writes more entries
     // than the count it follows reported (IOFramebuffer sizes the array by that count; the gate may open in between).
     bool offerClosed() const { return fHead == 0 && fNModes && !gHead0OfferOpen; }
@@ -842,7 +844,7 @@ public:
         if (phxRotOwns(fRot, fHead, mode)) return phxRotInfo(fRot, fHead, mode, info, rotModes().single);
         if (!listed(mode) || !info) return kIOReturnBadArgument;
         bzero(info, sizeof(*info));
-        info->maxDepthIndex = 0; info->nominalWidth = modeW(mode); info->nominalHeight = modeH(mode);   // b138: per mode
+        info->maxDepthIndex = fHdrProbe ? 1 : 0; info->nominalWidth = modeW(mode); info->nominalHeight = modeH(mode);   // b138: per mode
         const phxhead::HeadMode *hm = fNModes ? phxhead::headMode(fHead, (uint32_t)mode) : nullptr;
         const uint32_t mhz = hm ? hm->milliHz : fRefreshMilliHz;
         info->refreshRate = (IOFixed1616)(((uint64_t)mhz << 16) / 1000); info->flags = modeFlags(mode);
@@ -851,18 +853,25 @@ public:
     UInt64 getPixelFormatsForDisplayMode(IODisplayModeID, IOIndex) override { return 0; }
     IOReturn getPixelInformation(IODisplayModeID mode, IOIndex depth, IOPixelAperture aperture, IOPixelInformation *pi) override {
         if (phxRotOwns(fRot, fHead, mode)) return phxRotPixelInfo(fRot, mode, depth, aperture, pi);
-        if (!listed(mode) || depth != 0 || aperture != kIOFBSystemAperture || !pi) return kIOReturnUnsupportedMode;
+        if (!listed(mode) || (depth != 0 && !(depth == 1 && fHdrProbe)) || aperture != kIOFBSystemAperture || !pi) return kIOReturnUnsupportedMode;
         bzero(pi, sizeof(*pi));
         pi->bytesPerRow = modeRow(mode); pi->bitsPerPixel = 32; pi->pixelType = kIORGBDirectPixels;   // b138: per mode
-        pi->componentCount = 3; pi->bitsPerComponent = 8;
-        pi->componentMasks[0] = 0x00FF0000; pi->componentMasks[1] = 0x0000FF00; pi->componentMasks[2] = 0x000000FF;
-        strlcpy(pi->pixelFormat, IO32BitDirectPixels, sizeof(pi->pixelFormat));
+        pi->componentCount = 3;
+        if (depth == 1) {   // HDR probe step 2: 30-bit, Apple's AMD driver's depth 2 (2:10:10:10)
+            pi->bitsPerComponent = 10;
+            pi->componentMasks[0] = 0x3FF00000; pi->componentMasks[1] = 0x000FFC00; pi->componentMasks[2] = 0x000003FF;
+            strlcpy(pi->pixelFormat, kIO30BitDirectPixels, sizeof(pi->pixelFormat));
+        } else {
+            pi->bitsPerComponent = 8;
+            pi->componentMasks[0] = 0x00FF0000; pi->componentMasks[1] = 0x0000FF00; pi->componentMasks[2] = 0x000000FF;
+            strlcpy(pi->pixelFormat, IO32BitDirectPixels, sizeof(pi->pixelFormat));
+        }
         pi->activeWidth = modeW(mode); pi->activeHeight = modeH(mode);
         return kIOReturnSuccess;
     }
     IOReturn getCurrentDisplayMode(IODisplayModeID *mode, IOIndex *depth) override {
         // rot14: a rotated id only while its plan is still the raster (a resync may have moved fModeId, phxrot::currentId)
-        *mode = (IODisplayModeID)phxrot::currentId(fRot.curValid, fRot.cur.id, fRot.cur.plan, fNModes ? fModeId : 1); *depth = 0;
+        *mode = (IODisplayModeID)phxrot::currentId(fRot.curValid, fRot.cur.id, fRot.cur.plan, fNModes ? fModeId : 1); *depth = fHdrProbe ? fDepth : 0;
         return kIOReturnSuccess; }
     IOReturn getStartupDisplayMode(IODisplayModeID *mode, IOIndex *depth) override { return getCurrentDisplayMode(mode, depth); }
     // rotation S1: a rotated mode is its plan's raster (the pipe switches only when the rate differs), then the angle
@@ -871,11 +880,13 @@ public:
         const bool rot = phxRotOwns(fRot, fHead, mode);
         const IODisplayModeID hw = rot ? (IODisplayModeID)phxRotPlan(fRot, mode) : mode;
         IOReturn r;
-        if (!fNModes) r = (hw == 1 && depth == 0) ? kIOReturnSuccess : kIOReturnUnsupported;
-        else if (depth != 0 || !listed(hw)) r = kIOReturnUnsupportedMode;
+        const bool depthOk = depth == 0 || (depth == 1 && fHdrProbe && !fHead);   // HDR probe step 2: 30-bit, no hardware change
+        if (!fNModes) r = (hw == 1 && depthOk) ? kIOReturnSuccess : kIOReturnUnsupported;
+        else if (!depthOk || !listed(hw)) r = kIOReturnUnsupportedMode;
         else if (fHead) r = switchHead1Mode(hw);
         else { OSIncrementAtomic(&gHead0SwBusy); r = switchHead0Mode(hw); OSDecrementAtomic(&gHead0SwBusy); }   // hp0 holds meanwhile
         if (r == kIOReturnSuccess && (rot || fRot.curValid)) phxRotSelect(fRot, fHead, rot ? (uint32_t)mode : 0);
+        if (r == kIOReturnSuccess && fHdrProbe) fDepth = depth;
         return r;
     }
     IOReturn getTimingInfoForDisplayMode(IODisplayModeID mode, IOTimingInformation *info) override {
@@ -914,6 +925,10 @@ public:
                     PFBLOG("vrr: mode %d %ux%u: verticalBlankingExtension %u (to %u Hz)", (int)mode, t.hActive, t.vActive,
                            d.verticalBlankingExtension, fVrrMinHz);
                 }
+            }
+            if (fHdrProbe) {   // HDR probe step 2: what the pipe sends now (Apple's AMD driver copies these from its own timings)
+                d.pixelEncoding = kIOPixelEncodingRGB444; d.bitsPerColorComponent = kIOBitsPerColorComponent8;
+                d.colorimetry = kIOColorimetrysRGB; d.dynamicRange = kIODynamicRangeSDR;
             }
             info->flags = kIODetailedTimingValid;
         }
