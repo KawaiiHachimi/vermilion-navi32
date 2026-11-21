@@ -133,6 +133,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       2026-11-21 00:10 cleanup: the probe is the feature (`debug.phxfb0_vrr`, default 1; daemon opt-out
       `~/gpu/phxboot-novrr`, off on the safe desktop); probe diagnostics removed; docs/XTX.md updated. Installed, not
       booted (behaviour unchanged)
+- [~] 2026-11-21 **HDR, step 1: Linux's HDR state read, a report-only PhxAccel probe** ([findings](findings/2026-11-21-hdr.md)).
+      Linux at every rate: ARGB2101010 scan-out, FMT 10 bpc, DP_PIXEL_FORMAT 0x42, MSA colorimetry, VSC SDP 0x206, the
+      HDR mastering infoframe in generic packet 3, identity gamut remap; no regamma table. Probe installed 00:40
+      (`~/gpu/phxboot-hdrprobe`): the timing range reports HDR10 / BT.2020 / 10 bpc, CoreDisplay's calls logged.
+      **Test:** restart; is "High Dynamic Range" offered in System Settings > Displays. **Rollback:** rm
+      ~/gpu/phxboot-hdrprobe; PhxAccel copies in `~/vermilion-rollback/`
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
