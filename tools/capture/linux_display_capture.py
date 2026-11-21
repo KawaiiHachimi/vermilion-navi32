@@ -367,11 +367,12 @@ class Cap:
             pair(f"hdr-{r}", (f"2560x1440@{r}", 10, "auto", True, 0))
         return steps
 
-    def hdr_pairs(self):
+    def hdr_pairs(self, rates=None):
         """v4 (2026-11-21): HDR only: the SDR 144 Hz hub, then for each 1440p rate SDR hub -> HDR at that rate (to-hdr-<r>)
         and back to the SDR hub (from-hdr-<r>); each step's monitor rule names its colour mode, so every from-hdr ends in SDR."""
-        m = self.monitor()
-        rates = sorted({x.replace("Hz", "").strip().split("@")[1] for x in m.get("availableModes", []) if x.startswith("2560x1440@")}, key=float)
+        if rates is None:
+            m = self.monitor()
+            rates = sorted({x.replace("Hz", "").strip().split("@")[1] for x in m.get("availableModes", []) if x.startswith("2560x1440@")}, key=float)
         self.say(f"1440p rates: {' '.join(rates)}")
         hub = "2560x1440@144"
         STEPS["hub"] = (hub, 8, "auto", False, 0)
@@ -393,6 +394,8 @@ class Cap:
         self.forced = False
         if self.dry:
             self.cname = "DP-?"
+            if self.a.hdr_pairs:   # the live list needs root and Hyprland: the LG's rates (capture v3) stand in
+                steps = self.hdr_pairs(["59.95", "120.00", "143.99", "239.97"])
             for s in steps:
                 self.step(s, "/nonexistent")
             return
