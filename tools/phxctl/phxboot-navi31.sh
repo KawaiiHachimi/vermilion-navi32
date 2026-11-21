@@ -474,13 +474,13 @@ novrr_boot(){ { [ -e "$G/phxboot-novrr" ] || [ $SAFE = 1 ]; } || return 0
   if sysctl -w debug.phxfb0_vrr=0 >/dev/null 2>&1; then echo "vrr: off (debug.phxfb0_vrr=0: $([ $SAFE = 1 ] && echo 'the safe desktop' || echo "$G/phxboot-novrr"))"
   else echo "vrr: no debug.phxfb0_vrr (PhxAccel before Adaptive Sync): nothing to turn off"; fi; }
 novrr_boot
-# HDR probe (2026-11-21, findings 2026-11-21-hdr.md): with $G/phxboot-hdrprobe, head 0's timing range also reports HDR10 /
-# BT.2020 / 10 bpc and CoreDisplay's HDR calls are logged; no register changes. Never on the safe desktop.
-# Rollback: rm ~/gpu/phxboot-hdrprobe.
-hdrprobe_boot(){ [ -e "$G/phxboot-hdrprobe" ] || return 0
-  if sysctl -w debug.phxfb0_hdrprobe=1 >/dev/null 2>&1; then echo "hdrprobe: on (debug.phxfb0_hdrprobe=1)"
-  else echo "hdrprobe: no debug.phxfb0_hdrprobe (PhxAccel without the probe): nothing armed"; fi; }
-[ $SAFE = 1 ] || hdrprobe_boot
+# HDR (2026-11-21, findings 2026-11-21-hdr.md): PhxAMDFB head 0 offers System Settings' "High Dynamic Range" by default
+# when the monitor and PhxBringup b145+ support it (debug.phxfb0_hdr, read when head 0 starts at the claim below).
+# $G/phxboot-nohdr turns it off; the safe desktop always does.
+nohdr_boot(){ { [ -e "$G/phxboot-nohdr" ] || [ $SAFE = 1 ]; } || return 0
+  if sysctl -w debug.phxfb0_hdr=0 >/dev/null 2>&1; then echo "hdr: off (debug.phxfb0_hdr=0: $([ $SAFE = 1 ] && echo 'the safe desktop' || echo "$G/phxboot-nohdr"))"
+  else echo "hdr: no debug.phxfb0_hdr (PhxAccel before HDR): nothing to turn off"; fi; }
+nohdr_boot
 WS0=$(wspid)                 # the first WindowServer (up since boot; it read com.apple.windowserver before this daemon ran)
 "$MB" claim 2>&1
 sysctl -w debug.phxbos_flush=0 >/dev/null 2>&1

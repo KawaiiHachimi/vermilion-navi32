@@ -78,9 +78,10 @@ static void panelTiming(IOService *fb, uint32_t t[NVK5_TIMING_WORDS])
     t[NVK5_T_REFRESH_MHZ] = mhz; t[NVK5_T_HSYNCPOS] = 1; t[NVK5_T_VSYNCPOS] = 0;
 }
 
-// HDR probe (2026-11-21, debug.phxfb0_hdrprobe, phxfb.cpp): AGDC 0x713 is Apple's AMD driver's setSecondaryDataPacket
-// (AGDCFBSDPPacket_t: the HDR infoframe CoreDisplay sends); accepted and kept (debug.phxagdc_sdp), never sent to the monitor
-extern int gPhxHdrProbe;
+// HDR (2026-11-21, debug.phxfb0_hdr, phxfb.cpp): AGDC 0x713 is Apple's AMD driver's setSecondaryDataPacket
+// (AGDCFBSDPPacket_t); CoreDisplay sent none on the XTX machine. Accepted and kept (debug.phxagdc_sdp), never sent to the
+// monitor (the HDR replay plans carry Linux's infoframe)
+extern int gPhxHdr;
 static uint8_t gSdp[64];
 static uint32_t gSdpLen = 0, gSdpN = 0;
 static int phxAgdcSdpSysctl SYSCTL_HANDLER_ARGS {
@@ -95,7 +96,7 @@ static int phxAgdcSdpSysctl SYSCTL_HANDLER_ARGS {
     return SYSCTL_OUT(req, b, (size_t)n + 1);
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxagdc_sdp, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, NULL, 0, phxAgdcSdpSysctl, "A",
-            "HDR probe: the last AGDC 0x713 secondary data packet CoreDisplay sent (kept, not sent to the monitor)");
+            "HDR: the last AGDC 0x713 secondary data packet CoreDisplay sent (kept, not sent to the monitor)");
 
 IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned long *in, unsigned long inSize,
                                                     unsigned long *out, unsigned long *outSize, IOExternalMethodArguments *)
@@ -156,11 +157,11 @@ IOReturn PhxDeviceControl::vendor_doDeviceAttribute(unsigned int cmd, unsigned l
         if (r == NVK5_R_BADARG) return kIOReturnBadArgument;
         if (r == NVK5_R_NOTFOUND) return kIOReturnNotFound;
     }
-    if (cmd == 0x713u && gPhxHdrProbe) {   // HDR probe: the packet, every time (the 40-line log cap does not apply)
+    if (cmd == 0x713u && gPhxHdr) {   // HDR: the packet, every time (the 40-line log cap does not apply)
         const uint32_t n = in && inSize ? (uint32_t)(inSize < sizeof gSdp ? inSize : sizeof gSdp) : 0;
         if (n) memcpy(gSdp, in, n);
         gSdpLen = n; gSdpN++;
-        AGLOG("hdrprobe: command 0x713 (secondary data packet) in %lu bytes, kept (packet %u)", inSize, gSdpN);
+        AGLOG("hdr: command 0x713 (secondary data packet) in %lu bytes, kept (packet %u)", inSize, gSdpN);
         return kIOReturnSuccess;
     }
     OSAddAtomic64(1, &gRefused); gLastRefused = (int)cmd;

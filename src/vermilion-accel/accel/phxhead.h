@@ -145,8 +145,8 @@ struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t
 // kStdVrrTwin = a variable-refresh twin (Adaptive Sync), never an other-size mode
 constexpr uint8_t kStdVrrTwin = 2;
 constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin; }
-// kStdHdrTwin = an HDR twin (HDR probe): CoreDisplay's SupportsHDRMode looks for another mode id of the current timing whose
-// timing reports kIODynamicRangeHDR10 (FindIOModeIDForIODynamicRange(..., 2)); offered only with the HDR probe
+// kStdHdrTwin = an HDR twin (HDR, 2026-11-21): CoreDisplay's SupportsHDRMode looks for another mode id of the current timing whose
+// timing reports kIODynamicRangeHDR10 (FindIOModeIDForIODynamicRange(..., 2)); offered only with HDR on (debug.phxfb0_hdr)
 constexpr uint8_t kStdHdrTwin = 3;
 constexpr bool isHdrTwin(const HeadMode &m) { return m.std == kStdHdrTwin; }
 static const HeadMode kHead1Modes[] = {
@@ -183,7 +183,7 @@ static const HeadMode kHead0Modes[] = {
     // (modeList vrr). The one mode whose timing carries verticalBlankingExtension: macOS folds every mode with one into
     // its "Variable (48-240 Hz)" entry, so the fixed rates keep none. The pipe runs id 6's timing (same switch key).
     {13, 2560, 1440, 239963, 105675, 2720, 1619, kStdVrrTwin},
-    // HDR probe (2026-11-21): the HDR twins of 3..6 (same timings; their timing info reports HDR10, 10 bpc, BT.2020)
+    // HDR (2026-11-21): the HDR twins of 3..6 (same timings; their timing info reports HDR10, 10 bpc, BT.2020)
     {14, 2560, 1440, 59951, 24150, 2720, 1481, kStdHdrTwin},
     {15, 2560, 1440, 119998, 49775, 2720, 1525, kStdHdrTwin},
     {16, 2560, 1440, 143991, 59375, 2720, 1516, kStdHdrTwin},

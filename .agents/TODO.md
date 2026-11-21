@@ -148,7 +148,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       **Rollback:** HDR off in System Settings; boot trouble: swap `EFI/OC` and `EFI/OC.prev`, rm ~/gpu/phxboot-hdrprobe.
       **2026-11-22 00:38 on the box: HDR works** (owner; log: HDR on = key 1440240 DONE, ODM + DSC + FEC; off 00:49 = 240
       DONE; 3 runs, 0 fall-backs; after it DP_PIXEL_FORMAT 0x41000000, FMT 0xc900, DP_SEC_CNTL 0x00501111). Left: HDR becomes
-      a feature (drop the probe flag), 10-bit drawing (the surface is 8-bit: banding), Variable + HDR together
+      a feature (done 01:00: `debug.phxfb0_hdr` default 1, needs the monitor and PhxBringup b145+; daemon opt-out
+      `~/gpu/phxboot-nohdr`, off on the safe desktop; the probe flag removed; installed, not booted), 10-bit drawing (the
+      surface is 8-bit: banding), Variable + HDR together
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
