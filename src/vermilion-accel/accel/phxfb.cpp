@@ -926,9 +926,14 @@ public:
                            d.verticalBlankingExtension, fVrrMinHz);
                 }
             }
-            if (fHdrProbe) {   // HDR probe step 2: what the pipe sends now (Apple's AMD driver copies these from its own timings)
-                d.pixelEncoding = kIOPixelEncodingRGB444; d.bitsPerColorComponent = kIOBitsPerColorComponent8;
-                d.colorimetry = kIOColorimetrysRGB; d.dynamicRange = kIODynamicRangeSDR;
+            if (fHdrProbe) {   // HDR probe: SDR modes as the pipe sends them; the HDR twins report HDR10 (Apple's AMD driver
+                // copies these from its own timings; CoreDisplay's SupportsHDRMode looks for the HDR10 twin of the current mode)
+                const phxhead::HeadMode *hm = fHead ? nullptr : phxhead::headMode(0, (uint32_t)mode);
+                const bool hdr = hm && phxhead::isHdrTwin(*hm);
+                d.pixelEncoding = kIOPixelEncodingRGB444;
+                d.bitsPerColorComponent = hdr ? kIOBitsPerColorComponent10 : kIOBitsPerColorComponent8;
+                d.colorimetry = hdr ? kIOColorimetryBT2020 : kIOColorimetrysRGB;
+                d.dynamicRange = hdr ? kIODynamicRangeHDR10 : kIODynamicRangeSDR;
             }
             info->flags = kIODetailedTimingValid;
         }
@@ -1471,7 +1476,7 @@ bool PhxAMDFB::start(IOService *provider)
             // Adaptive Sync: decided here, before the list (the twin is offered only with the range published)
             phxhead::EdidRange vr{};
             fVrrMinHz = gPhxVrr && vrrFn && phxhead::edidRange(fEdid, fEdidLen, &vr) ? vr.minVHz : 0;
-            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0);
+            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0, fVrrMinHz != 0 && gPhxHdrProbe);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
             PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");

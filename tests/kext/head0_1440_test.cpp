@@ -84,6 +84,18 @@ int main() {
         CHECK(detailedTiming(0, 13, &t13) && detailedTiming(0, 6, &t) && t13.pixelHz == t.pixelHz && t13.vBlank == t.vBlank &&
               t13.hSyncPos == t.hSyncPos && !t13.vSyncPos && vrrExtension(t13, 48) == 6474);
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, true) == 3);   // no 240 timing: no twin
+        // HDR probe: the HDR twins 14..17 (of 3..6) only with hdr, after the variable twin; timings and switch keys as their bases
+        const unsigned nh = modeList(0, full, sizeof full, 2560, 1440, ids, false, true, true);
+        CHECK(nh == 9 && ids[4] == 13 && ids[5] == 14 && ids[8] == 17 && isHdrTwin(*headMode(0, 14)) && !isHdrTwin(*headMode(0, 3)));
+        CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, false, true, false) == 5);
+        CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, false, true) == 6);   // 256 bytes: 3..5 and their twins 14..16
+        CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, false, true, true) == 2);   // the XT's AOC: unchanged
+        for (uint32_t b2 = 3; b2 <= 6; b2++) {
+            DetailedTiming tb{}, tt{};
+            CHECK(detailedTiming(0, b2, &tb) && detailedTiming(0, b2 + 11, &tt) && tb.pixelHz == tt.pixelHz && tb.vBlank == tt.vBlank &&
+                  switchKey(*headMode(0, b2), 2560, 1440) == switchKey(*headMode(0, b2 + 11), 2560, 1440));
+        }
+        CHECK(modeForTotals(0, 2720, 1481, ids, 0) == 0);
         CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, false, true) == 2);   // the XT's AOC: unchanged
         CHECK(modeList(1, full, sizeof full, 2560, 1440, ids, false, true) == 0);
     }

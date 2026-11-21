@@ -145,6 +145,10 @@ struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t
 // kStdVrrTwin = a variable-refresh twin (Adaptive Sync), never an other-size mode
 constexpr uint8_t kStdVrrTwin = 2;
 constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin; }
+// kStdHdrTwin = an HDR twin (HDR probe): CoreDisplay's SupportsHDRMode looks for another mode id of the current timing whose
+// timing reports kIODynamicRangeHDR10 (FindIOModeIDForIODynamicRange(..., 2)); offered only with the HDR probe
+constexpr uint8_t kStdHdrTwin = 3;
+constexpr bool isHdrTwin(const HeadMode &m) { return m.std == kStdHdrTwin; }
 static const HeadMode kHead1Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125, 0},    // CEA 1080p60 (the 60 plan)
     {2, 1920, 1080, 144000, 32508, 2056, 1098, 0},   // the Acer KG241QS DTD 1 (the 144 plan)
@@ -179,6 +183,11 @@ static const HeadMode kHead0Modes[] = {
     // (modeList vrr). The one mode whose timing carries verticalBlankingExtension: macOS folds every mode with one into
     // its "Variable (48-240 Hz)" entry, so the fixed rates keep none. The pipe runs id 6's timing (same switch key).
     {13, 2560, 1440, 239963, 105675, 2720, 1619, kStdVrrTwin},
+    // HDR probe (2026-11-21): the HDR twins of 3..6 (same timings; their timing info reports HDR10, 10 bpc, BT.2020)
+    {14, 2560, 1440, 59951, 24150, 2720, 1481, kStdHdrTwin},
+    {15, 2560, 1440, 119998, 49775, 2720, 1525, kStdHdrTwin},
+    {16, 2560, 1440, 143991, 59375, 2720, 1516, kStdHdrTwin},
+    {17, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrTwin},
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -281,13 +290,14 @@ inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool 
 // PhxBringup's phx-p0-keys, a 2560x1440 surface) also offers the rows of other sizes the EDID lists (the desktop resizes).
 // Adaptive Sync: vrr (head 0 publishes the VRR timing range) also offers the variable-refresh twins.
 inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out, bool anySize = false,
-                         bool vrr = false) {
+                         bool vrr = false, bool hdr = false) {
     const ModeTable t = headModes(head);
     unsigned n = 0;
     for (unsigned i = 0; i < t.n; i++) {
         const bool any = anySize && head == 0 && w == 2560 && h == 1440;
         const bool size = t.m[i].w == w && t.m[i].h == h;
         if (isVrrTwin(t.m[i]) && !(vrr && head == 0)) continue;
+        if (isHdrTwin(t.m[i]) && !(hdr && head == 0)) continue;
         if ((size || (any && t.m[i].std == 1)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
     }
     return n;
@@ -363,6 +373,10 @@ static const HeadSync kHead0Sync[] = {
     {11, 16, 96, 10, 2, false, false},
     {12, 16, 96, 10, 2, false, false},
     {13, 48, 32, 3, 5, true, false},  // the variable twin: id 6's
+    {14, 48, 32, 3, 5, true, false},  // the HDR twins: 3..6's
+    {15, 48, 32, 3, 5, true, false},
+    {16, 48, 32, 3, 5, true, false},
+    {17, 48, 32, 3, 5, true, false},
 };
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.
