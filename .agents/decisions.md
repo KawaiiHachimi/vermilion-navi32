@@ -307,3 +307,13 @@ disassembled: no `wrmsr`, no port I/O, one SMN index write as Linux `k10temp` do
 ([findings](findings/2026-11-22-cpu-sensors.md)).
 **Revisit:** if OS-level P-state control is ever wanted (then a Zen 4-correct implementation, tested on its own
 boot), or if per-core clocks are needed.
+
+## 2026-11-22: Bluetooth with MtkWirelessBT (same package as the Wi-Fi driver)
+
+**Decision:** MT7922 Bluetooth through Dino-VN/MtkWireless's `MtkWirelessBT` 1.1.1 + acidanthera BlueToolFixup
+2.7.2 + the two NVRAM variables it documents; `efi/build.py` gained `nvram_add` per stage for those.
+**Why:** it ships in the MtkWireless release already pinned for Wi-Fi, lists this board's USB ID, and documents
+26.7.1 25G241 x86_64 as tested; the alternatives were pulled (AirportMtkWlan's companion) or older and would need the
+ID added by hand (SimpleMtkBtFw). Verified on the XTX machine: AirPods pair and play
+([findings](findings/2026-11-22-bluetooth.md)).
+**Revisit:** after any macOS update (it patches bluetoothd by signature), or if bluetoothd starts crash-looping.

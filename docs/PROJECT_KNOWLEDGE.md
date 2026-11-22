@@ -63,7 +63,7 @@ says delete it and grow the container).
 | OpenGL / OpenCL / Vulkan | software GL, CPU-only CL, no Vulkan loader | baseline | 00.1 |
 | Video decode (VCN) | off | baseline | 00.1 |
 | Wi-Fi MT7922 | works (MtkWirelessWifi 1.1.1 + `pci=0x8000000`); throughput drops ~30 s every ~5 min | [wifi finding](../.agents/findings/2026-11-19-wifi-mt7922.md), `phase1-wifi` TODO note | 04 |
-| Bluetooth MT7922 (USB `0489:e0e2`) | enumerates since the USB map (2026-11-22); **no driver / firmware loader yet**. System Information shows a "BCM_4350C2, PCIe, firmware v0" placeholder | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 -> 04 |
+| Bluetooth MT7922 (USB `0489:e0e2`) | works since 2026-11-22: MtkWirelessBT 1.1.1 + BlueToolFixup 2.7.2 + 2 NVRAM variables; AirPods pair and play (owner). AirDrop / BLE advertising untested | [Bluetooth](../.agents/findings/2026-11-22-bluetooth.md) | 02 -> 04 |
 | Audio (ASUS USB `0b05:1a5c`) | enumerates since the USB map (2026-11-22): Realtek USB2.0 Audio, default input / output; sound by ear unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 -> 04 |
 | DP / HDMI audio | not implemented anywhere in the stack | TODO Phase 4 | 00 / 04 |
 | Ethernet I225-V | Apple's DriverKit E1000 bound, `en3` no link (cable?) | inventory | 04 |
@@ -85,9 +85,10 @@ This is the configuration the owner uses every day. Change it only through the o
   and `config.plist` is identical apart from `PlatformInfo` (the serials). **The repo is the source of truth for
   the EFI.**
   - OpenCore 1.0.8. Kexts: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
-    AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0 + UTBMap, SMCProcessorAMD 1.0.1 (both since 2026-11-22), AMFIPass 1.4.1, VermilionBoot b150. All pinned in
+    AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0 + UTBMap, SMCProcessorAMD 1.0.1, BlueToolFixup 2.7.2, MtkWirelessBT 1.1.1 (all since 2026-11-22), AMFIPass 1.4.1, VermilionBoot b150. All pinned in
     [`efi/components.json`](../efi/components.json).
   - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, plus 5 DSDT NOP patches.
+  - NVRAM (Apple GUID, set by OpenCore every boot): `bluetoothInternalControllerInfo`, `bluetoothExternalDongleFailed` (Bluetooth).
   - boot-args: `-v keepsyms=1 debug=0x100 pci=0x8000000 amfi=0x80 ipc_control_port_options=0 phxdebug=1`;
     `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
   - Since 2026-11-22 20:00 `EFI/OC.prev` = the same b150 EFI without the USB map (b149's EFI is in `~/vermilion-rollback/EFI-OC.b149-20261122`). Before that: `EFI/OC.prev` held b149, the rollback. VermilionBoot sha256 starts `3806555e` (b150), and `d34093c0` in
@@ -164,7 +165,7 @@ The details are in TODO. This list is for finding the right owner quickly.
 
 | Issue | Since | Owner | Where |
 |---|---|---|---|
-| Bluetooth enumerates but has no driver (USB map done 2026-11-22) | 2026-11-19 | 02 -> 04 | [USB map](../.agents/findings/2026-11-22-usb-map.md) |
+| A failed DP link training at a login mode switch leaves a black image and blocks later switches until reboot (seen once, 2026-11-22 20:19) | 2026-11-22 | 00 | [Bluetooth findings, Boots](../.agents/findings/2026-11-22-bluetooth.md) |
 | Ethernet: no link | 2026-11-19 | 04 | inventory |
 | Wi-Fi throughput drops periodically | 2026-11-19 | 04 | `phase1-wifi` TODO note |
 | Kernel panic at a restart, no panic report saved (`DisableVariableWrite` blocks the NVRAM log) | 2026-11-19 | 07 | TODO, [flicker / heat finding](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) |

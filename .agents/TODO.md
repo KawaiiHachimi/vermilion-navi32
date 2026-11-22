@@ -62,7 +62,32 @@ Ethernet checks, one EFI change per boot.
       - Hangs or panics at boot: hold power to switch off, power on, **F8 > Limine** (Linux), `sudo mv /boot/EFI/OC
         /boot/EFI/OC.smcp && sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on (OpenCore >
         Macintosh HD).
-- [ ] Bluetooth loader (one only) once `0489:e0e2` enumerates
+- [x] 2026-11-22 **EFI change 3: Bluetooth, works** (owner paired AirPods, sound plays; boot 20:27). Was: **EFI change 3: Bluetooth** ([findings](findings/2026-11-22-bluetooth.md)): MtkWirelessBT 1.1.1 (from the
+      pinned MtkWireless package) + BlueToolFixup 2.7.2 (pinned) + NVRAM `bluetoothInternalControllerInfo` (14 zero
+      bytes) and `bluetoothExternalDongleFailed` (`00`), `base` stage. `efi/build.py` gained `nvram_add` (output
+      byte-identical without it). Built 2026-11-22: `ocvalidate` clean; against the live `EFI/OC` (sensor EFI) only
+      the two kexts, two `Kernel > Add` entries and the two NVRAM Add/Delete entries differ. Installed with
+      `efi/build.py install`: `EFI/OC.prev` = the sensor EFI (USB map + SMCProcessorAMD). ESP staging empty.
+      **Boot 1 (20:19):** Bluetooth up (`THIRD_PARTY_DONGLE`, On, firmware v9489 c6166), but a **black image**:
+      at login macOS asked for 1440p60 HDR first, `PhxFB: switch to id 14 (target 1440060) ... FAILED: link training
+      failed`, fell back to id 5 (144 Hz), then refused 240 ("a run failed in this boot: nothing more until reboot").
+      The good boot at 20:11 went straight to 240 HDR (`DONE`). `debug.phxscan=0` didn't help (set back to 1).
+      State saved: `~/vermilion-captures/black-20261122-2025.txt`. Restarted from T3 at ~20:30 to retry; if black
+      again, roll Bluetooth back (below) to tell whether it is related. For thread 00: the link-training failure.
+      **Boot 2 (20:27, restart from T3):** straight to 1440p240 HDR (`DONE: ODM 2:1 + DSC + FEC`), daemon `SUCCESS`
+      (8098 frames), Bluetooth On, Wi-Fi, sensors fine. So the black boot was a one-off DP link-training failure on the
+      60 Hz request, not Bluetooth (unverified beyond one good boot). **Open for thread 00:** a failed switch leaves a
+      black image and blocks every later switch until reboot.
+      **Boot:** Apple menu > Restart, OpenCore > Macintosh HD, no Reset NVRAM.
+      **Check:** `system_profiler SPBluetoothDataType` (THIRD_PARTY_DONGLE, On); pair a device; Wi-Fi still up;
+      CPU sensors, USB, the GPU desktop as before; no `bluetoothd` crash loop (`log show --last 5m --predicate
+      'process == "bluetoothd"'`).
+      **Rollback:**
+      - Boots but Bluetooth misbehaves / bluetoothd crash loop: `sudo mv "/Volumes/NO NAME/EFI/OC"
+        "/Volumes/NO NAME/EFI/OC.bt"`, then `sudo mv "/Volumes/NO NAME/EFI/OC.prev" "/Volumes/NO NAME/EFI/OC"`,
+        Restart. The two NVRAM variables stay set (inert without the kexts).
+      - Hangs or panics at boot: hold power, power on, **F8 > Limine**, `sudo mv /boot/EFI/OC /boot/EFI/OC.bt &&
+        sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on (OpenCore > Macintosh HD).
 - [ ] Audio by ear (owner), Ethernet with a cable; `efi/README.md` stale sections
 
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)

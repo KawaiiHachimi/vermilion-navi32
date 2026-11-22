@@ -56,6 +56,11 @@
       "url": "https://github.com/macos86/SMCProcessorAMD/releases/download/1.0.1/SMCProcessorAMD-1.0.1-RELEASE.zip",
       "sha256": "2622e54c69b38a5e491edd2c9532d98a01a3d3ba23316adaed28af8f4efa8638"
     },
+    "BrcmPatchRAM": {
+      "version": "2.7.2",
+      "url": "https://github.com/acidanthera/BrcmPatchRAM/releases/download/2.7.2/BrcmPatchRAM-2.7.2-RELEASE.zip",
+      "sha256": "e1c1c55347526d031a8ae2fdd1f52efa3019161e497fb38e1cfa809752f8af21"
+    },
     "MtkWireless": {
       "version": "1.1.1",
       "url": "https://github.com/Dino-VN/MtkWireless/releases/download/v1.1.1/MtkWireless-1.1.1-RELEASE.zip",
@@ -74,6 +79,8 @@
     "AMFIPass":                 {"from": "AMFIPass",       "path": "AMFIPass.kext",              "exec": "Contents/MacOS/AMFIPass",       "min_kernel": "",       "comment": "amfi=0x80 support, needed by Vermilion"},
     "AirportMtkWlan":           {"from": "AirportMtkWlan", "path": "AirportMtkWlan.kext",        "exec": "Contents/MacOS/AirportMtkWlan", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Tahoe build only: other macOS versions need their own build)"},
     "MtkWirelessWifi":          {"from": "MtkWireless",    "path": "MtkWireless-1.1.1-RELEASE/Kexts/MtkWirelessWifi.kext", "exec": "Contents/MacOS/MtkWirelessWifi", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Dino-VN/MtkWireless, Tahoe only)"},
+    "BlueToolFixup":            {"from": "BrcmPatchRAM",   "path": "BlueToolFixup.kext",         "exec": "Contents/MacOS/BlueToolFixup",  "min_kernel": "21.0.0", "comment": "bluetoothd fixes for third-party Bluetooth controllers (needed by MtkWirelessBT)"},
+    "MtkWirelessBT":            {"from": "MtkWireless",    "path": "MtkWireless-1.1.1-RELEASE/Kexts/MtkWirelessBT.kext", "exec": "Contents/MacOS/MtkWirelessBT", "min_kernel": "", "comment": "MediaTek MT7922 Bluetooth firmware loader + bluetoothd fixes (Dino-VN/MtkWireless)"},
     "VermilionBoot":            {"from": "vermilion",      "path": "VermilionBoot.kext",         "exec": "Contents/MacOS/VermilionBoot",  "min_kernel": "25.0.0", "comment": "Vermilion boot kext (build/VermilionBoot.kext)"}
   }
 }

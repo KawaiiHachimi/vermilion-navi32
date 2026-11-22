@@ -78,9 +78,11 @@
     "base": {
       "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot. Wi-Fi: AirportMtkWlan 2.1.6 loaded but never attached to the card (boot 1, 2026-11-19); MtkWirelessWifi 1.1.1 since then (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "install",
-      "kexts_add": ["MtkWirelessWifi", "USBToolBox", "UTBMap", "SMCProcessorAMD"],
+      "kexts_add": ["MtkWirelessWifi", "USBToolBox", "UTBMap", "SMCProcessorAMD", "BlueToolFixup", "MtkWirelessBT"],
       "_kexts_add": "USBToolBox 1.2.0 + UTBMap (efi/kexts/UTBMap.kext): the USB map, added 2026-11-22 (findings/2026-11-22-usb-map.md). The firmware's _UPC marks the chipset ports of the USB audio (11) and Bluetooth (16) not connectable, so macOS never created them; USBToolBox detaches the ACPI ports and builds each controller's ports from the map instead.",
       "_SMCProcessorAMD": "macos86/SMCProcessorAMD 1.0.1, added 2026-11-22 (findings/2026-11-22-cpu-sensors.md): the CPU temperature (SMN 0x59800 through the host bridge's index/data pair, as Linux k10temp), package power (RAPL energy MSR) and core clocks (P-state status MSR) as VirtualSMC keys. It only reads (binary checked: no wrmsr, one config write = the SMN index). AMDRyzenCPUPowerManagement was rejected: it replaces the kernel's CPU power management and rewrites a P-state definition MSR; its Tahoe fork also polls the GPU's registers.",
+      "_Bluetooth": "BlueToolFixup 2.7.2 + MtkWirelessBT 1.1.1 + the two NVRAM variables below, added 2026-11-22 (findings/2026-11-22-bluetooth.md): the MT7922's Bluetooth (USB 0489:e0e2, matched by MtkWirelessBT's own list) gets its firmware, and bluetoothd stops assuming Apple's Broadcom module. MtkWirelessBT documents 26.7.1 25G241 x86_64 as tested.",
+      "nvram_add": {"bluetoothInternalControllerInfo": "0000000000000000000000000000", "bluetoothExternalDongleFailed": "00"},
       "boot_args_add": ["pci=0x8000000"],
       "_boot_args_add": "pci=0x8000000 = kIOPCIConfiguratorDefaultETF (IOPCIFamily-726 IOPCIConfigurator.h): macOS keeps the firmware's extended/10-bit tag settings. Without it IOPCIBridge::probeBusGated sets 10-Bit Tag Requester Enable on the GPP7 root port (Linux leaves it off), and the MT7922 and I225-V, the only chipset endpoints without 10-bit tag completer support, stop answering (2026-11-19, findings/2026-11-19-wifi-mt7922.md). AMD_Vanilla's 'Disable 10 bit tags' patch is enabled but the bit was set anyway."
     },
