@@ -92,6 +92,21 @@ Ethernet checks, one EFI change per boot.
       CPU sensors, Bluetooth, installing from macOS)
 - [ ] Audio by ear (owner), Ethernet with a cable. Installer partition `disk0s4`: kept for now (owner, 2026-11-22)
 
+## Storage and filesystems (thread 03, branch `ownback/storage`, started 2026-11-22)
+
+[Finding](findings/2026-11-22-storage-baseline.md). Nothing on the boot path changed.
+
+- [x] 2026-11-22 Inventory: Gen 5 x4 at both ends, NVMeFix APST on, TRIM / Unmap, SMART clean, APFS sealed system
+      + separate Data, no host throttling (IOReport), no thermal throttling (max 65 C sustained)
+- [x] 2026-11-22 Baseline with `tools/storage/nvmebench.sh` (fio 3.38 `--disable-shm`, smartmontools 7.5 in `~/.local`)
+- [ ] Linux reference run of `raw-read.fio` (read-only) on the next Linux boot, and check LUKS discards
+      (`lsblk --discard`, `cryptsetup status`, `fstrim.timer`): owner
+- [ ] SMART "Unsafe Shutdowns" was 212 on 2026-11-22 21:07: read it after the next macOS restart and shutdown
+- [ ] "External" label: add `device_properties` to `efi/build.py` and the machine profile, `built-in = <01>` on
+      `PciRoot(0x0)/Pci(0x1,0x2)/Pci(0x0,0x0)`; one EFI change, owner's OK first (cosmetic)
+- [ ] Time Machine once the owner attaches a backup disk
+- [ ] Installer partition `disk0s4`: delete and grow the container when the owner says so (Phase 1)
+
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
 Owner's goal: "I need this GPU perfectly working". Baseline, measured on the XTX machine:

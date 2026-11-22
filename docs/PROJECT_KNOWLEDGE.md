@@ -33,7 +33,7 @@ and the live XTX machine (macOS 26.7.1 25G241).
 | **00.1 — GPU Performance** | GPU and CPU performance, power, heat, graphics APIs | `ownback/gpu-performance` (merged: PR #2) | baseline measured, then **paused** by the owner until the platform work is done |
 | **01 — Shared Repo Intelligence** | this file, the dependency map, the performance record | `ownback/hackintosh-thread-setup` -> `main` | active |
 | **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19 ([finding](../.agents/findings/2026-11-19-postinstall-inventory.md)), plan waiting for the owner; branch fast-forwarded to `main` 2026-11-22 |
-| **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | none yet | dormant |
+| **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | `ownback/storage` | inventory and baseline done 2026-11-22 ([finding](../.agents/findings/2026-11-22-storage-baseline.md)); proposals waiting for the owner |
 | **04 — Audio & Connectivity** | AppleALC / USB audio, DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | none yet | dormant |
 | **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | none yet | dormant |
 | **06 — macOS Integration & Peripherals** | system apps, window management, input devices, sharing, dev workflows | none yet | dormant |
@@ -70,7 +70,8 @@ says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 | USB | mapped (2026-11-22): USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`, all 8 rear ports + internal audio / Bluetooth; USB 3 halves unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 |
 | CPU sensors / package power | work since 2026-11-22: SMCProcessorAMD 1.0.1 (read-only), `tools/sensors/cpusensors.py`; per-core clocks not published | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) | 02 |
 | CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`; real P-state behaviour unmeasured | inventory | 02 / 07 |
-| NVMe | native driver + NVMeFix 1.1.3, TRIM yes, SMART verified, x4; link speed field empty; diskutil reports disk0 as "external" | survey 2026-11-22 | 03 |
+| NVMe | works: Apple driver + NVMeFix 1.1.3 (APST on), **Gen 5 x4** (System Information's empty "Link Speed" is only a missing label), TRIM / Unmap yes, SMART clean (2 % used), no thermal throttling (max 65 C sustained, limit 87 C). Cosmetic: shown as "external" (no `built-in` property; fix proposed) | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) | 03 |
+| APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 03 |
 | Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path | TODO, pmset | 07 (with 00) |
 | NVRAM | read-only from macOS (`DisableVariableWrite`) | efi/machines | 02 / 05 |
 | SIP / AMFI | SIP custom `0x0A03`, `amfi=0x80` + AMFIPass (needed by Vermilion) | config | 05 |
@@ -176,6 +177,7 @@ The details are in TODO. This list is for finding the right owner quickly.
 | Metal reports the XT's name, 6 GiB working set; apps get no Mesa shader disk cache | 2026-11-22 | 00.1 | baseline |
 | GPU idle 62-70 W board, no Linux comparison yet | 2026-11-19 | 00.1 | baseline |
 | Installer partition `disk0s4` not deleted yet | 2026-11-19 | 03 | TODO Phase 1 |
+| NVMe shown as "external" (cosmetic) | 2026-11-22 | 03 | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) |
 | Mock tests run on macOS only; no CI | 2026-11-18 | (unassigned) | TODO Phase 0 |
 
 ## What was tried and failed
@@ -221,6 +223,8 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | `~/gpu/smumetrics.py` | the SMU metrics table: GPU clocks, power, temperatures, fan |
 | `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
 | `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
+| `tools/storage/nvmebench.sh` | NVMe / APFS throughput, latency, flush cost, SSD temperature, SMART before / after (fio, smartctl; writes 60-80 GB per run). Pitfalls in its README |
+| `tools/storage/nvmeior.c` | IOReport `NVMe` group: power-state residency, Apple's bandwidth-throttle tiers |
 | `powermetrics` (macOS) | per-task CPU and wakeups. Its CPU power, thermal and C-state figures are **meaningless on this AMD CPU** (Intel counters) |
 | kext sysctls `debug.phxwait_lat`, `debug.phxvrr_stat`, ... | fence-wait latency, VRR, mode-set state ([XTX.md](XTX.md)) |
 
@@ -237,7 +241,10 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-22 | Submit round trip | `metalbench submit` | 101 us average per waited submit (median 89, p99 566), 6 us of it on the GPU | same |
 | 2026-11-22 | CPU wakeups | idle desktop, `powermetrics --samplers tasks` | WindowServer 123-127 ms/s CPU, ~280 wakeups/s; all tasks ~1760 wakeups/s | same |
 | 2026-11-22 | CPU package | idle desktop 1-4 min after boot, 1440p, b150; then 24 busy shell loops for 10 s | idle 53-57 C / 39-41 W; all-thread 85-87 C / 120-121 W | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) |
-| — | Storage, audio, network throughput, sleep | — | **no baseline yet** | 03, 04, 07 |
+| 2026-11-22 | Storage, APFS | `nvmebench.sh`, 1 h after boot, b150, 1440p desktop idle; SLC cache not rested | seq read 9.13 GB/s; seq write 9.54 GB/s fresh / 1.73 GB/s while folding; 4 KiB QD1 read 19.9 k IOPS (p50 48 us); 4 KiB 8 threads 133 k IOPS read; `F_FULLFSYNC` p50 1.50 ms (668/s) | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) |
+| 2026-11-22 | Storage, raw device | same run, `/dev/rdisk0s2` read-only | seq read 7.0 GB/s (the raw path's limit, not the drive's); 4 KiB QD1 20.9 k IOPS; 64 threads 558 k IOPS at 5 cores of system CPU | same |
+| 2026-11-22 | Storage, sustained write | 180 s, 8 x 1 MiB, 886 GB | 9.6 GB/s for ~190 GB, then 1.46-9.6 GB/s (SLC folding); 54-65 C, no throttling | same |
+| — | Audio, network throughput, sleep | — | **no baseline yet** | 04, 07 |
 
 ### Known bottlenecks and limits
 
@@ -250,6 +257,11 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
   unknown.
 - OpenGL apps run on the CPU (Apple Software Renderer).
 - Debug boot settings (verbose boot, an OpenCore log file per boot) cost boot time *(unmeasured)*.
+- Storage: random 4 KiB I/O is CPU-bound in Apple's NVMe stack (~9 us of kernel CPU per I/O, 558 k IOPS at 64
+  threads). Every barrier / full fsync is a ~1.5 ms cache flush (the drive has no barrier support). APFS copy on
+  write fragments randomly overwritten files: sequential reads fell from 9.1 to 2.0 GB/s. Write speed depends on
+  the SLC cache, which may be smaller than it could be if Linux's LUKS doesn't pass discards *(unverified)*. How
+  far macOS is from the drive's ceiling needs a Linux run of the same jobs.
 
 ### Optimization decisions
 
@@ -284,3 +296,4 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 - 2026-11-22: created by thread 01. Covers the full survey of the repo, the live EFI and the system.
 - 2026-11-22: PR #2 merged (GPU baseline, `metalbench`, `apiprobe`); thread 02's inventory committed to `main`
   and its branch fast-forwarded to `main` (owner's OK).
+- 2026-11-22: thread 03 storage inventory and first storage baseline (`tools/storage/`, branch `ownback/storage`).
