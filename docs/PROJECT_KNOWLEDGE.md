@@ -30,9 +30,9 @@ and the live XTX machine (macOS 26.7.1 25G241).
 | Thread | Scope | Branch | State (2026-11-22) |
 |---|---|---|---|
 | **00 — GPU & Display** | Vermilion on the XTX, the LG at every mode, rate, HDR, VRR | `ownback/gpu-refresh-hdr` (merged: PR #1) | 1440p target done; open items in TODO "Display polish" |
-| **00.1 — GPU Performance** | GPU and CPU performance, power, heat, graphics APIs | `ownback/gpu-performance` (PR #2 open) | baseline measured, then **paused** by the owner until the platform work is done |
+| **00.1 — GPU Performance** | GPU and CPU performance, power, heat, graphics APIs | `ownback/gpu-performance` (merged: PR #2) | baseline measured, then **paused** by the owner until the platform work is done |
 | **01 — Shared Repo Intelligence** | this file, the dependency map, the performance record | `ownback/hackintosh-thread-setup` -> `main` | active |
-| **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19, plan waiting for the owner; branch is 86 commits behind `main` |
+| **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19 ([finding](../.agents/findings/2026-11-19-postinstall-inventory.md)), plan waiting for the owner; branch fast-forwarded to `main` 2026-11-22 |
 | **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | none yet | dormant |
 | **04 — Audio & Connectivity** | AppleALC / USB audio, DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | none yet | dormant |
 | **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | none yet | dormant |
@@ -57,7 +57,7 @@ says delete it and grow the container).
 | Area | State | Evidence | Owner |
 |---|---|---|---|
 | Boot (OpenCore 1.0.8, `vermilion` stage) | works | live `EFI/OC` = repo build (below) | 02 |
-| GPU acceleration (Metal) | works, Metal 3 | [baseline](https://github.com/ownback/vermilion/blob/ownback/gpu-performance/.agents/findings/2026-11-22-gpu-performance-baseline.md) (PR #2) | 00 / 00.1 |
+| GPU acceleration (Metal) | works, Metal 3 | [baseline](../.agents/findings/2026-11-22-gpu-performance-baseline.md) | 00 / 00.1 |
 | Display 1440p: 60/120/144/240, Variable 60-240, 10-bit HDR, HDR + VRR | works from System Settings | [XTX.md](XTX.md), TODO "Display polish" | 00 |
 | Other LG modes | fixed rates only, no VRR / HDR (owner's choice) | decisions 2026-11-22 | 00 |
 | OpenGL / OpenCL / Vulkan | software GL, CPU-only CL, no Vulkan loader | baseline | 00.1 |
@@ -164,7 +164,7 @@ The details are in TODO. This list is for finding the right owner quickly.
 
 | Issue | Since | Owner | Where |
 |---|---|---|---|
-| Bluetooth and USB audio not enumerated (USB map) | 2026-11-19 | 02 | inventory (uncommitted, see below) |
+| Bluetooth and USB audio not enumerated (USB map) | 2026-11-19 | 02 | [inventory](../.agents/findings/2026-11-19-postinstall-inventory.md) |
 | No CPU temperature / power | 2026-11-19 | 02 | inventory, baseline |
 | Ethernet: no link | 2026-11-19 | 04 | inventory |
 | Wi-Fi throughput drops periodically | 2026-11-19 | 04 | `phase1-wifi` TODO note |
@@ -217,8 +217,8 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 
 | Tool | Measures |
 |---|---|
-| `tools/metaltest/metalbench.m` (PR #2) | off-screen Metal render / compute / submit round trip |
-| `tools/metaltest/apiprobe.m` (PR #2) | what each graphics API reports to an app |
+| `tools/metaltest/metalbench.m` | off-screen Metal render / compute / submit round trip |
+| `tools/metaltest/apiprobe.m` | what each graphics API reports to an app |
 | `~/gpu/smumetrics.py` | the SMU metrics table: GPU clocks, power, temperatures, fan |
 | `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
 | `powermetrics` (macOS) | per-task CPU and wakeups. Its CPU power, thermal and C-state figures are **meaningless on this AMD CPU** (Intel counters) |
@@ -232,7 +232,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-19 | Present path | 1440p60, CPU copy (b126) | 10-12.6 ms copy + 15-20 ms flip wait per frame, ~20-33 frames/s | [1440p finding](../.agents/findings/2026-11-19-1440p-gpu-present.md) |
 | 2026-11-19 | Present path | 1440p60, GPU present | median 40 / max 59.5 frames/s | same |
 | 2026-11-19 | Wi-Fi | 802.11ax 5 GHz 80 MHz | 780 Mbit/s link rate (not a throughput test) | wifi finding |
-| 2026-11-22 | GPU idle | 1440p240 HDR, b150, 30 min after boot | 62-70 W board, 49-56 W socket; gfxclk avg ~180-210 MHz; uclk pinned 456, fclk 2301; hotspot 43-52 C, memory 64-70 C; fan stopped | baseline (PR #2) |
+| 2026-11-22 | GPU idle | 1440p240 HDR, b150, 30 min after boot | 62-70 W board, 49-56 W socket; gfxclk avg ~180-210 MHz; uclk pinned 456, fclk 2301; hotspot 43-52 C, memory 64-70 C; fan stopped | [baseline](../.agents/findings/2026-11-22-gpu-performance-baseline.md) |
 | 2026-11-22 | GPU load | `metalbench render 75 2000`, 2560x1440 off-screen | 192 frames/s, 4.82 ms GPU per frame; 389 W board, hotspot peak 88 C, fan 49 %; idle again within 3 s | same |
 | 2026-11-22 | Submit round trip | `metalbench submit` | 101 us average per waited submit (median 89, p99 566), 6 us of it on the GPU | same |
 | 2026-11-22 | CPU wakeups | idle desktop, `powermetrics --samplers tasks` | WindowServer 123-127 ms/s CPU, ~280 wakeups/s; all tasks ~1760 wakeups/s | same |
@@ -276,16 +276,10 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 
 ## Not yet in `main`
 
-These are tracked here until they merge:
-
-- PR #2 `ownback/gpu-performance`: the GPU baseline finding, `metalbench`, `apiprobe`, and the performance plan in
-  TODO.
-- `ownback/phase1-wifi` `da78524`: the TODO note on Wi-Fi throughput drops.
-- Thread 02's `.agents/findings/2026-11-19-postinstall-inventory.md`: **uncommitted** in its worktree. Its facts are
-  summarised above.
-- Thread 02's branch starts from `gpu-heat`, which is 86 commits behind `main`. Rebase it on `main` before
-  thread 02 resumes.
+- `ownback/phase1-wifi` `da78524`: the TODO note on Wi-Fi throughput drops (summarised above).
 
 ## Changelog of this file
 
 - 2026-11-22: created by thread 01. Covers the full survey of the repo, the live EFI and the system.
+- 2026-11-22: PR #2 merged (GPU baseline, `metalbench`, `apiprobe`); thread 02's inventory committed to `main`
+  and its branch fast-forwarded to `main` (owner's OK).
