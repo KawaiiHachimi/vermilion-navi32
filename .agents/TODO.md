@@ -150,7 +150,27 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       DONE; 3 runs, 0 fall-backs; after it DP_PIXEL_FORMAT 0x41000000, FMT 0xc900, DP_SEC_CNTL 0x00501111). Left: HDR becomes
       a feature (done 01:00: `debug.phxfb0_hdr` default 1, needs the monitor and PhxBringup b145+; daemon opt-out
       `~/gpu/phxboot-nohdr`, off on the safe desktop; the probe flag removed; installed, not booted), 10-bit drawing (the
-      surface is 8-bit: banding), Variable + HDR together
+      surface is 8-bit: banding), Variable + HDR together.
+      01:35 on the box: HDR offered without the flag, and **HDR stayed on across the restart** (mode 17 after boot).
+- [ ] 2026-11-22 **Display polish (owner asked, in this order):**
+  1. **10-bit drawing in HDR.** Today macOS picks depth 0 (32-bit) for the HDR twin and the plans keep pipe 0's 8-bit
+     surface. Plan: (a) PhxAccel offers the HDR twins with the 30-bit depth preferred / only (getInformationForDisplayMode
+     maxDepthIndex, getPixelInformation), check macOS then sets depth 1 on them; (b) on an HDR mode landing, HUBP0
+     DCSURF_SURFACE_CONFIG 0x3AA5 and CNVC_CFG0_CNVC_SURFACE_PIXEL_FORMAT 0x418F = 0xa (Linux's to-hdr values; 0x8 back
+     for SDR), with pipe 1's copies under ODM (the plans COPY pipe 1 from pipe 0 live); (c) GPU present: the kernel's
+     scanAllocSlot accepts ARGB2101010 (PHXN_SCAN_FMT_*), the Metal plugin copies l10r surfaces raw instead of through
+     `scan_l10r.comp` while HDR; (d) the CPU copy (nvrm-accel.cpp, the l10r branch) copies raw while HDR. Test: a gradient
+     in HDR without banding.
+  2. **Variable with HDR on.** Today picking HDR sends phxVrrSet(0). Plan: a VRR+HDR twin of 240 (HDR10 fields and the
+     verticalBlankingExtension, new std kind), offered with both features; PhxAccel calls phxVrrSet(1) for it; the kernel
+     side needs nothing new (vrrOnLocked works on key 1440240: h 1440, same V_TOTAL). Check CoreDisplay then shows
+     Variable in HDR.
+  3. **VRR and HDR at the other resolutions.** VRR: the CPU copy needs the per-flip trigger (a platform function to
+     PhxBringup after each copied frame, OTG_TRIGA_MANUAL_TRIG, while gVrrOn), vrrOnLocked must accept the other modes
+     (drop the h == 1440 gate; vrrRegs per mode), and per-size VRR twins in phxhead.h (48 Hz to the mode's rate; only
+     modes above 48 Hz). HDR: Linux's HDR mode sets at those modes are not captured: capture v5 in Omarchy
+     (`--hdr-pairs` for 1080p60 / 1080p120 / ...), then plans + twins as b145.
+
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
       capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
