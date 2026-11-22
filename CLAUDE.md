@@ -19,7 +19,9 @@ rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion](https://gith
 3. **Clean, documented, reusable code**, so the community can take over afterwards. Changes for this machine must
    not break the upstream XT setup.
 
-Where things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
+**Start at [`docs/PROJECT_KNOWLEDGE.md`](docs/PROJECT_KNOWLEDGE.md)**: the shared map of the project for every
+workstream (machine state, known-good configuration, dependencies, cross-thread rules, performance record). Where
+things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 
 ## Read before working
 

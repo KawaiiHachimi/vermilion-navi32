@@ -3,6 +3,9 @@
 Working notes for coding agents (and the humans steering them). The public, stable documentation is in
 [`../docs/`](../docs/). The rules are in [`../CLAUDE.md`](../CLAUDE.md).
 
+The shared map across all workstreams is [`../docs/PROJECT_KNOWLEDGE.md`](../docs/PROJECT_KNOWLEDGE.md): read it
+first, and update it when the machine's state, the known-good configuration or a cross-thread rule changes.
+
 | File | What | How to update |
 |---|---|---|
 | [TODO.md](TODO.md) | The plan, by phase, with checkboxes | Tick with a date when done; add items where they belong |

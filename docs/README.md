@@ -17,6 +17,7 @@ context before they change code. Coding agents also have [`../CLAUDE.md`](../CLA
 | get the AMD firmware it loads | [FIRMWARE.md](FIRMWARE.md) |
 | know why names start with `phx` / `nv` / `nmx` | [NAMING.md](NAMING.md) |
 | know where the fallback EDIDs come from | [EDID.md](EDID.md) |
+| see the machine's state, the known-good configuration and the cross-thread map | [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) |
 | see what is planned | [`../.agents/TODO.md`](../.agents/TODO.md) |
 
 ## Conventions in these docs

@@ -1,0 +1,291 @@
+# Project knowledge: the XTX Hackintosh
+
+The one shared map of this project for every workstream (T3 thread) and every agent. **Read this first**, then only
+the files your scope needs. It doesn't copy what the other files already say. It says where each fact lives, how
+the parts depend on each other, and what state the machine is in.
+
+Maintained by thread **01 — Shared Repo Intelligence**. Last full survey: **2026-11-22**, on `fork/main` `a177e96`
+and the live XTX machine (macOS 26.7.1 25G241).
+
+## How to use and update this file
+
+- **Before you start:** read the sections "Workstreams", "Machine state" and "Cross-thread rules", then your own
+  workstream's row and the files it links. Do not survey the whole repository again. If this file is wrong or
+  missing something you need, fix it here (or tell thread 01) instead of keeping a private index.
+- **Where details go** (unchanged, see [`.agents/README.md`](../.agents/README.md)):
+  - a dated investigation: [`.agents/findings/`](../.agents/findings/);
+  - the plan and its checkboxes: [`.agents/TODO.md`](../.agents/TODO.md);
+  - a design choice: [`.agents/decisions.md`](../.agents/decisions.md);
+  - an exact procedure: [`.agents/runbooks.md`](../.agents/runbooks.md).
+- **What goes here:** a change to the known-good configuration, a subsystem changing state (works / broken), a new
+  cross-thread dependency or rule, a performance baseline or bottleneck. Keep each one to a line or two, with a
+  date and a link to the finding. Mark anything not tested on the machine *(unverified)*.
+- **Branches:** this file lives on `fork/main`. A thread working on a side branch updates it there and the change
+  reaches the others when the branch merges. Changes that other threads need *now* (a new rule, a staged boot) go
+  straight to `main` through thread 01.
+- No serials, MLB, ROM, UUIDs, MAC addresses, passwords or e-mail addresses here ([CLAUDE.md](../CLAUDE.md) rules 3 and 4).
+
+## Workstreams
+
+| Thread | Scope | Branch | State (2026-11-22) |
+|---|---|---|---|
+| **00 — GPU & Display** | Vermilion on the XTX, the LG at every mode, rate, HDR, VRR | `ownback/gpu-refresh-hdr` (merged: PR #1) | 1440p target done; open items in TODO "Display polish" |
+| **00.1 — GPU Performance** | GPU and CPU performance, power, heat, graphics APIs | `ownback/gpu-performance` (PR #2 open) | baseline measured, then **paused** by the owner until the platform work is done |
+| **01 — Shared Repo Intelligence** | this file, the dependency map, the performance record | `ownback/hackintosh-thread-setup` -> `main` | active |
+| **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19, plan waiting for the owner; branch is 86 commits behind `main` |
+| **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | none yet | dormant |
+| **04 — Audio & Connectivity** | AppleALC / USB audio, DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | none yet | dormant |
+| **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | none yet | dormant |
+| **06 — macOS Integration & Peripherals** | system apps, window management, input devices, sharing, dev workflows | none yet | dormant |
+| **07 — Sleep, Power & Final Validation** | sleep / wake, power and thermals, stress, benchmarks, regression, updates | none yet | dormant |
+| Legacy Wi-Fi | the Wi-Fi bring-up of 2026-11-19 | `ownback/phase1-wifi` (1 commit not in `main`) | history only |
+
+Older branches `explore-7900xtx-efi-passthrough`, `gpu-1440p-polish`, `gpu-heat` are fully merged into `main`.
+
+## The machine
+
+Hardware: [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md) (ASUS ROG STRIX B650E-I, BIOS 4005, Ryzen 9 7900X3D, 48 GB,
+XFX RX 7900 XTX rev `0xC8`, LG 27GS95QE-B on DP, MT7922 Wi-Fi / BT, I225-V, one NVMe shared with Linux). Corrections
+from the 2026-11-22 survey: the NVMe is a **Corsair MP700 PRO** (Phison E26, firmware EQFM22.3).
+
+Disk (macOS view, 2026-11-22): `disk0s1` EFI (2 GB, shared with Linux's Limine), `disk0s2` Linux LUKS, `disk0s3` APFS
+container (83.8 GB; Macintosh HD + Data), `disk0s4` "Install macOS Tahoe" (23.6 GB HFS+, still present: TODO Phase 1
+says delete it and grow the container).
+
+## Machine state (2026-11-22, verified on the machine unless marked)
+
+| Area | State | Evidence | Owner |
+|---|---|---|---|
+| Boot (OpenCore 1.0.8, `vermilion` stage) | works | live `EFI/OC` = repo build (below) | 02 |
+| GPU acceleration (Metal) | works, Metal 3 | [baseline](https://github.com/ownback/vermilion/blob/ownback/gpu-performance/.agents/findings/2026-11-22-gpu-performance-baseline.md) (PR #2) | 00 / 00.1 |
+| Display 1440p: 60/120/144/240, Variable 60-240, 10-bit HDR, HDR + VRR | works from System Settings | [XTX.md](XTX.md), TODO "Display polish" | 00 |
+| Other LG modes | fixed rates only, no VRR / HDR (owner's choice) | decisions 2026-11-22 | 00 |
+| OpenGL / OpenCL / Vulkan | software GL, CPU-only CL, no Vulkan loader | baseline | 00.1 |
+| Video decode (VCN) | off | baseline | 00.1 |
+| Wi-Fi MT7922 | works (MtkWirelessWifi 1.1.1 + `pci=0x8000000`); throughput drops ~30 s every ~5 min | [wifi finding](../.agents/findings/2026-11-19-wifi-mt7922.md), `phase1-wifi` TODO note | 04 |
+| Bluetooth MT7922 (USB `0489:e0e2`) | **not enumerated** (needs the USB map first). System Information shows a "BCM_4350C2, PCIe, firmware v0" controller *(origin unverified)* | inventory 2026-11-19, survey 2026-11-22 | 02 -> 04 |
+| Audio (ASUS USB `0b05:1a5c`) | **no audio device at all** (not enumerated; USB map) | `system_profiler SPAudioDataType` empty | 02 -> 04 |
+| DP / HDMI audio | not implemented anywhere in the stack | TODO Phase 4 | 00 / 04 |
+| Ethernet I225-V | Apple's DriverKit E1000 bound, `en3` no link (cable?) | inventory | 04 |
+| USB | no map; chipset `XH00` has 17 ports, macOS creates 13 | inventory | 02 |
+| CPU sensors / package power | **none** (no AMD SMC plugin) | inventory, baseline | 02 |
+| CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`; real P-state behaviour unmeasured | inventory | 02 / 07 |
+| NVMe | native driver + NVMeFix 1.1.3, TRIM yes, SMART verified, x4; link speed field empty; diskutil reports disk0 as "external" | survey 2026-11-22 | 03 |
+| Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path | TODO, pmset | 07 (with 00) |
+| NVRAM | read-only from macOS (`DisableVariableWrite`) | efi/machines | 02 / 05 |
+| SIP / AMFI | SIP custom `0x0A03`, `amfi=0x80` + AMFIPass (needed by Vermilion) | config | 05 |
+| iServices, DRM | untested; FairPlay DRM is known lost with `amfi=0x80` | [ARCHITECTURE.md](ARCHITECTURE.md) | 05 |
+
+## Known-good configuration (2026-11-22)
+
+This is the configuration the owner uses every day. Change it only through the owning thread.
+
+- **EFI:** `efi/build.py install --stage vermilion` (machine `b650e-i-xtx`). On 2026-11-22 thread 01 built
+  `fork/main` `a177e96` with placeholder serials and compared it with the live `EFI/OC`. Every file is identical,
+  and `config.plist` is identical apart from `PlatformInfo` (the serials). **The repo is the source of truth for
+  the EFI.**
+  - OpenCore 1.0.8. Kexts: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
+    AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, AMFIPass 1.4.1, VermilionBoot b150. All pinned in
+    [`efi/components.json`](../efi/components.json).
+  - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, plus 5 DSDT NOP patches.
+  - boot-args: `-v keepsyms=1 debug=0x100 pci=0x8000000 amfi=0x80 ipc_control_port_options=0 phxdebug=1`;
+    `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
+  - `EFI/OC.prev` holds b149, the rollback. VermilionBoot sha256 starts `3806555e` (b150), and `d34093c0` in
+    `OC.prev`.
+- **Outside the EFI:** VermilionAccel (mode id 18) in `/Library/Extensions` (AuxKC). Metal plugin b149 in
+  `/Library/GPUBundles/`. Boot daemon `~/gpu/phxboot-navi31.sh` with flags `sdma`, `cg`, `uclk` (456), `p0modes`,
+  `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`. Hashes and rollback commands are in TODO
+  "Display polish".
+- **EFI partition staging area** `<ESP>/vermilion/`: on 2026-11-22 nothing was staged (no `run-once.sh`,
+  `flags/` empty). The partition holds 95 OpenCore logs (`Target = 67`, about 24 MB).
+- **Rollback copies:** `~/vermilion-rollback/`, `EFI/OC.prev`, `~/gpu/*.prev`.
+- **Outside git, never to commit:** `~/.config/vermilion/` (SMBIOS serials, ACPI dump incl. VBIOS),
+  `~/vermilion-captures/`, `build/`.
+
+## Dependency map
+
+### Boot chain
+
+```
+UEFI (BIOS 4005: dGPU = boot display, ReBAR on, CSM off)
+ └─ firmware boot order: OpenCore first ─ (F8 -> Limine for Linux; never Linux through OpenCore)
+     └─ OpenCore: DSDT NOP patches + SSDT-CPUR + SSDT-EC-USBX, AMD_Vanilla, quirks, boot-args, SMBIOS
+         └─ XNU 25.6.0 + injected kexts (Lilu -> VirtualSMC / NVMeFix / RestrictEvents / AMFIPass, MtkWirelessWifi,
+            AppleMCEReporterDisabler, VermilionBoot)
+             └─ boot daemon (~/gpu/phxboot-navi31.sh, LaunchDaemon) + pre-hook esp_flags.sh (<ESP>/vermilion flags, run-once)
+                 └─ GPU bring-up (SMU / PSP / DMUB from ~/gpu/fw) -> VermilionAccel (AuxKC) PhxAMDFB / NMXAccel
+                     └─ WindowServer restart -> Metal plugin NVMTLDriver -> translator (AIR -> SPIR-V) -> RADV -> N48N user client
+```
+
+How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTALL.md](INSTALL.md). Source layout:
+[CLAUDE.md](../CLAUDE.md) "Layout".
+
+### Configuration relationships (cause -> effect)
+
+| Setting | Why | What depends on it / what it costs | Threads |
+|---|---|---|---|
+| `pci=0x8000000` | macOS otherwise sets 10-bit tags on the GPP7 root port | Wi-Fi and I225-V answer at all; must stay while either is used | 02, 04 |
+| `DisableVariableWrite` | the installer hangs on Ryzen 7000 boards while writing NVRAM | macOS cannot write NVRAM: no startup-disk change, **no NVRAM panic log**, `phxfb-squat` must be set from Linux | 02, 05, 07 |
+| `phxfb-squat` EFI variable (set from Linux) | every OpenCore boot is a squat boot (no phantom display) | **Reset NVRAM deletes it**: never Reset NVRAM | 00 |
+| SIP `0x0A03` + `amfi=0x80` + AMFIPass | the ad-hoc signed plugin and the AuxKC kext load | no FairPlay DRM; third-party privacy prompts denied | 00, 05 |
+| `SecureBootModel = Disabled` | injected kexts are unsigned | no Apple Secure Boot | 05 |
+| macOS pinned to 26.7.1 | the plugin uses private Metal interfaces of that build | no macOS updates without a plan (`BlacklistAppleUpdate`) | 05, 07 |
+| SMBIOS MacPro7,1 | upstream's choice | needs RestrictEvents (memory-slot warnings) and AppleMCEReporterDisabler (MCE panic on AMD); also decides iServices | 05 |
+| `ResizeAppleGpuBars = 0` | Vermilion was validated with BAR0 256 MiB; ReBAR stays on for Linux | VRAM window size in the kext | 00 |
+| AGDP board-id patch (pikera) | Navi cards hang without it on Tahoe; WhateverGreen breaks on 26 | graphics takeover | 00 |
+| USB: 17 ports on `XH00` > 15 limit, no map | | Bluetooth and USB audio not enumerated: USB map (02) before BT / audio (04) | 02, 04 |
+| No AMD CPU sensor kext | | no CPU temperature / package power: CPU heat and power work (00.1, 07) is blind | 02, 00.1, 07 |
+| Sleep off (`pmset`) | Vermilion has no GPU resume | sleep work only on a `-phxbringupoff` boot, with the owner | 07, 00 |
+| Debug: `-v`, `debug=0x100`, `keepsyms=1`, OpenCore log `Target = 67` | bring-up diagnostics | slower boot, a log file per boot on the ESP; keep until the platform is stable, then revisit | 02, 07 |
+| Linux shares the GPU and the ESP | dual boot | Linux -> macOS needs a **full power-off** (cold GPU); Limine files on the ESP must not be touched | all |
+
+## Cross-thread rules
+
+The full rules are in [CLAUDE.md](../CLAUDE.md) "Hard rules" and in the owner's instructions for each thread. The
+ones that cross workstreams:
+
+1. **One EFI change per boot**, built and installed only with `efi/build.py install` (keeps `EFI/OC.prev`). Write
+   the rollback steps into `.agents/TODO.md` before the boot.
+2. **The ESP staging area is shared.** Before staging `<ESP>/vermilion/run-once.sh` or `flags/`, check what is
+   already there. Never overwrite another thread's staged files. If two threads need the same boot, ask the owner
+   which goes first.
+3. **The GPU side** (Vermilion kexts, plugin, daemon, `~/gpu` flags, GPU registers / SMU / PSP / DAL messages)
+   belongs to threads 00 / 00.1. Other threads don't touch it, and the GPU must keep working after every change.
+4. **Boot routine:** Apple menu > Restart, OpenCore > Macintosh HD, **no Reset NVRAM**. Linux -> macOS is always a
+   full power-off. Don't reboot while the owner is away.
+5. **Research first, then propose, then act.** Measure before and after (see "Performance record").
+6. **Root:** follow the owner's current instructions on sudo. Never write a password into the repo, docs, logs or
+   commits.
+7. **Commit or push only when the owner asks.** No personal data in git (CLAUDE.md rules 3 and 4).
+
+## Known problems and open issues (index)
+
+The details are in TODO. This list is for finding the right owner quickly.
+
+| Issue | Since | Owner | Where |
+|---|---|---|---|
+| Bluetooth and USB audio not enumerated (USB map) | 2026-11-19 | 02 | inventory (uncommitted, see below) |
+| No CPU temperature / power | 2026-11-19 | 02 | inventory, baseline |
+| Ethernet: no link | 2026-11-19 | 04 | inventory |
+| Wi-Fi throughput drops periodically | 2026-11-19 | 04 | `phase1-wifi` TODO note |
+| Kernel panic at a restart, no panic report saved (`DisableVariableWrite` blocks the NVRAM log) | 2026-11-19 | 07 | TODO, [flicker / heat finding](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) |
+| b138 froze the machine at 1280x1024 (cause open) | 2026-11-20 | 00 | [finding](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md) |
+| Tearing at 1440p60 with GPU present; input lag at 60 Hz | 2026-11-19 | 00.1 | TODO |
+| Residual VRR flicker (the OLED panel's; accepted) | 2026-11-22 | 00 | TODO "Display polish" |
+| A VRR floor change resets the display identity (colour profile) | 2026-11-22 | 00 | TODO "Display polish" |
+| Metal reports the XT's name, 6 GiB working set; apps get no Mesa shader disk cache | 2026-11-22 | 00.1 | baseline |
+| GPU idle 62-70 W board, no Linux comparison yet | 2026-11-19 | 00.1 | baseline |
+| Installer partition `disk0s4` not deleted yet | 2026-11-19 | 03 | TODO Phase 1 |
+| Stale docs: `efi/README.md` (the DSDT section and the stage table name AirportMtkWlan) | 2026-11-19 | 02 | inventory |
+| Mock tests run on macOS only; no CI | 2026-11-18 | (unassigned) | TODO Phase 0 |
+
+## What was tried and failed
+
+The reasons behind each one are in decisions and findings. Don't repeat these without a new reason:
+
+- **Wi-Fi:** AirportMtkWlan 2.1.6 loaded but never attached; BIOS ASPM off made no difference. The cause was
+  10-bit tags (`pci=0x8000000`).
+- **DSDT:** a recompiled, resolved DSDT (`fix_dsdt.py resolve`) loaded but still hung at CoreAnalyticsHub. It was
+  replaced by in-place NOP patches.
+- **Display:** b135's 240 -> 60 Hz switch went dark (fixed in b136). b138 froze at 1280x1024, and the recovery
+  looped on `phxfb-squat`. The `ws-cdcopy-hold` tweak made no difference to tearing.
+- **Heat:** wait step 200 us vs 50 us made no visible difference to the owner in a blind A/B test, but cut
+  WindowServer wakeups about 10x, so 200 was kept.
+- The run-once sysctl at boot fails with `unknown oid`, because PhxBringup registers its sysctls only with the first
+  user client. Set it from the daemon instead.
+
+## Performance record
+
+The one place for baselines, bottlenecks and optimization decisions across all workstreams. Detailed measurements
+stay in findings; each one gets one row here.
+
+### Method (for every measurement)
+
+Record each of these:
+
+- the date and time;
+- the exact installed state: EFI build / VermilionBoot build, PhxAccel, plugin, daemon flags, boot-args;
+- the display mode: resolution, rate, HDR, Variable;
+- the time since boot, and what else was running;
+- the tool and its exact command;
+- the number of samples and their spread (median and 99th percentile, not just the mean).
+
+Compare only runs taken under the same conditions, and put each before / after pair in one finding. Prefer real
+workloads, and say whether the path is hardware-accelerated or a fallback (software GL, CPU copy, CPU-only CL).
+
+### Tools in the repo
+
+| Tool | Measures |
+|---|---|
+| `tools/metaltest/metalbench.m` (PR #2) | off-screen Metal render / compute / submit round trip |
+| `tools/metaltest/apiprobe.m` (PR #2) | what each graphics API reports to an app |
+| `~/gpu/smumetrics.py` | the SMU metrics table: GPU clocks, power, temperatures, fan |
+| `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
+| `powermetrics` (macOS) | per-task CPU and wakeups. Its CPU power, thermal and C-state figures are **meaningless on this AMD CPU** (Intel counters) |
+| kext sysctls `debug.phxwait_lat`, `debug.phxvrr_stat`, ... | fence-wait latency, VRR, mode-set state ([XTX.md](XTX.md)) |
+
+### Baselines
+
+| Date | Area | Conditions | Result | Source |
+|---|---|---|---|---|
+| 2026-11-19 | GPU idle power | 1440p60 SDR desktop, b126 | 66-67 W board / 53 W socket | TODO "GPU idle power" |
+| 2026-11-19 | Present path | 1440p60, CPU copy (b126) | 10-12.6 ms copy + 15-20 ms flip wait per frame, ~20-33 frames/s | [1440p finding](../.agents/findings/2026-11-19-1440p-gpu-present.md) |
+| 2026-11-19 | Present path | 1440p60, GPU present | median 40 / max 59.5 frames/s | same |
+| 2026-11-19 | Wi-Fi | 802.11ax 5 GHz 80 MHz | 780 Mbit/s link rate (not a throughput test) | wifi finding |
+| 2026-11-22 | GPU idle | 1440p240 HDR, b150, 30 min after boot | 62-70 W board, 49-56 W socket; gfxclk avg ~180-210 MHz; uclk pinned 456, fclk 2301; hotspot 43-52 C, memory 64-70 C; fan stopped | baseline (PR #2) |
+| 2026-11-22 | GPU load | `metalbench render 75 2000`, 2560x1440 off-screen | 192 frames/s, 4.82 ms GPU per frame; 389 W board, hotspot peak 88 C, fan 49 %; idle again within 3 s | same |
+| 2026-11-22 | Submit round trip | `metalbench submit` | 101 us average per waited submit (median 89, p99 566), 6 us of it on the GPU | same |
+| 2026-11-22 | CPU wakeups | idle desktop, `powermetrics --samplers tasks` | WindowServer 123-127 ms/s CPU, ~280 wakeups/s; all tasks ~1760 wakeups/s | same |
+| — | Storage, audio, network throughput, CPU power, sleep | — | **no baseline yet** | 03, 04, 02, 07 |
+
+### Known bottlenecks and limits
+
+- **CPU temperature and power are not measurable** (no AMD sensor kext). This blocks any CPU power or thermal
+  conclusion.
+- Buffer objects live in system memory, not VRAM (the kext's comment, `phx_globals.cpp`). The cost for
+  memory-bound loads is unmeasured.
+- Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits exist but are off and unverified on the XTX.
+- The UCLK hard minimum of 456 MHz is never released, and FCLK stays at 2301 MHz. Whether Linux idles lower is
+  unknown.
+- OpenGL apps run on the CPU (Apple Software Renderer).
+- Debug boot settings (verbose boot, an OpenCore log file per boot) cost boot time *(unmeasured)*.
+
+### Optimization decisions
+
+| Date | Decision | Measured reason | Source |
+|---|---|---|---|
+| 2026-11-19 | Fence-wait step 200 us (daemon flag `phxboot-waitstep`) | WindowServer wakeups 137-352/s vs 1673-2458/s at 50 us; no visible regression in a blind A/B | decisions.md |
+| 2026-11-19 | GPU present via E3 (CoreDisplay's display surfaces) | fixed the flicker; WindowServer wakeups 700-1050/s from 1300-1400 | decisions.md |
+| 2026-11-19 | GPU-present slots above BAR0 for frames over 8 MiB | removes the per-frame CPU copy at 1440p | decisions.md |
+| 2026-11-22 | VRR floor 60 Hz, ramp 5 % | the OLED flickers near 48 Hz; the ramp reduces desktop flicker | decisions.md |
+
+## Shared-knowledge tooling (evaluated 2026-11-22)
+
+- **Claude Code auto memory** (`~/.claude/projects/<the main checkout's path>/memory/`): every Claude
+  session in any worktree of this repo loads the same folder. Only Claude sessions see it, it isn't versioned, and
+  it holds personal and machine notes. **Use:** short owner preferences and pointers to this file. Never put
+  project facts there that aren't also here.
+- **T3 thread tools** (`t3_thread_list` / `t3_thread_read`): read another thread's history when needed. Thread 01
+  used them to collect the workstream scopes.
+- **Code graph:** none is installed. The tracked code is 823 files: C / C++ / Objective-C kexts and plugin, the
+  Rust translator, shell tools and Mesa patches. The architecture is already documented, and agents find code with
+  `grep` and the layout table. A graph tool (an MCP server or an indexer) would need installing and maintaining for
+  little gain. **Not recommended now.** Revisit if the large refactors in TODO Phase 6 start.
+- **Claude Docs connector:** available, but a doc outside git doesn't reach Codex or other providers and can't be
+  versioned with the code. Not used.
+
+## Not yet in `main`
+
+These are tracked here until they merge:
+
+- PR #2 `ownback/gpu-performance`: the GPU baseline finding, `metalbench`, `apiprobe`, and the performance plan in
+  TODO.
+- `ownback/phase1-wifi` `da78524`: the TODO note on Wi-Fi throughput drops.
+- Thread 02's `.agents/findings/2026-11-19-postinstall-inventory.md`: **uncommitted** in its worktree. Its facts are
+  summarised above.
+- Thread 02's branch starts from `gpu-heat`, which is 86 commits behind `main`. Rebase it on `main` before
+  thread 02 resumes.
+
+## Changelog of this file
+
+- 2026-11-22: created by thread 01. Covers the full survey of the repo, the live EFI and the system.
