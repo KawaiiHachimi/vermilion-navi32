@@ -268,3 +268,17 @@ during the switch gets one clear and one more full post check.
 The owner runs only 2560x1440, where every rate, Variable (60-240 Hz, ramp), 10-bit HDR and Variable + HDR work on the box.
 VRR and HDR at the other sizes would need a CPU-copy trigger, per-size twins and a Linux capture per HDR mode: dropped.
 The other resolutions are left on (fixed rates): they work, cost nothing at 1440p and serve other machines.
+
+## 2026-11-22: the pre-merge clean-up is proven by identical binaries; the 10-bit pixel helper stays in two places
+
+The clean-up of `ownback/gpu-refresh-hdr` was held to "no behaviour change" by a check, not by review: both kexts and
+the Metal plugin build reproducibly, so each cleaned source had to produce the sha256 of the binary installed on the
+XTX machine (VermilionBoot b150 3806555e..., VermilionAccel c6341e87..., NVMTLDriver 7f46d89b...). A tidy-up that moved
+the machine code was taken back (a hoisted condition in `scanPresent`, a hoisted assignment in `PhxAMDFB::start`).
+Consequence: sysctl description strings, log texts and non-static names were left as they are, also where a better
+name exists (`phxVrrOids` registers four sysctls now). `PHX_KEXT_BUILD` stays 150 and nothing was reinstalled.
+
+`bgraTo2101010` exists twice: `phxhead::bgraTo2101010` (PhxAccel, C++) and `nvmtl_bgra_to_2101010` (Metal plugin, C).
+Both are PolyForm Noncommercial, so the licence would allow one shared header. They stay apart because the plugin is
+built without any kext header and mirrors the kernel ABI by hand already; one four-line function does not justify the
+first include across that line. Both comments name the other copy. **Revisit:** when the plugin gets a shared ABI header.

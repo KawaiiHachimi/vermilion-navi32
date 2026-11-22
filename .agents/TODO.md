@@ -7,7 +7,16 @@ same install as a VFIO VM. Then clean up, document and hand over to the communit
 Rules: tick items when done (with the date), add new ones where they belong, link findings. `[ ]` open, `[~]` in
 progress, `[x]` done, `[-]` dropped (say why).
 
-## Current state (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; E3 permanent (verified); wait step 200 daemon flag installed, first active next restart; one panic at a restart, cause unknown
+## Current state (2026-11-22): the display works fully at 2560x1440
+
+On the XTX machine, from System Settings: every rate to 240 Hz, Variable (60-240 Hz) with the ramp, 10-bit HDR, and
+Variable with HDR on (VermilionBoot b150). Summary, installed binaries, rollback and the open items: "Display polish"
+below; how it works: [docs/XTX.md](../docs/XTX.md). Branch `ownback/gpu-refresh-hdr` (PR #1 to `fork/main`) had its
+clean-up pass on 2026-11-22: comments and docs only, the binaries unchanged.
+
+Next, in the owner's order (2026-11-22): performance and heat, the remaining APIs, sleep / wake, audio, HDMI.
+
+## Earlier (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; E3 permanent (verified); wait step 200 daemon flag installed, first active next restart; one panic at a restart, cause unknown
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
 
@@ -74,12 +83,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       copy (code). 22:55 `ws-cdcopy-hold` 1000 us: no change, 1.1 % of presents superseded; deleted (live test 5).
       Next: a phone video of the tearing (where, which motion) before any further change
 - [ ] Input lag at 60 Hz (owner: "always been bad"): part may be macOS pointer acceleration; measure before changing anything
-- [ ] **TARGET (owner, restated 2026-11-20): the LG at every resolution and refresh rate it supports, incl. 2560x1440 at
-      240 Hz, with HDR and Adaptive Sync, all from System Settings.** Status 15:50: 1440p 60/120/144/240 in System
-      Settings, switching in any order works (b136); other resolutions, HDR, VRR not
-      started. Capture v3 (2026-11-20 130351, all 12 EDID modes from the 144 hub, VRR and HDR at 60/120/144/240) is in
-      `~/vermilion-captures/capture/` (outside git). Order: (1) b135 every 1440p rate both ways, (2) the other EDID
-      resolutions (needs PhxAccel surface sizes), (3) Adaptive Sync from the vrr-* traces, (4) HDR from the hdr-* traces
+- [x] 2026-11-22 **TARGET (owner, restated 2026-11-20): the LG at every resolution and refresh rate it supports, incl.
+      2560x1440 at 240 Hz, with HDR and Adaptive Sync, all from System Settings.** Reached at 2560x1440 (every rate,
+      Variable, HDR, both together); the other resolutions run at their fixed rates, without VRR / HDR by the owner's
+      choice (see "Display polish" below). The captures behind the replay plans (v2, v3, v4) are in
+      `~/vermilion-captures/capture/` (outside git).
 - [ ] 2026-11-20 **b138 froze the machine at 1280x1024; the recovery looped** ([findings](findings/2026-11-20-b138-freeze-and-squat-loop.md)).
       16:39:21 the switch to 1280x1024@75 landed (75.000 Hz), ~0.5 s later the whole machine stopped (no log, no panic
       report: DisableVariableWrite also blocks the NVRAM panic log). Then three boots in a row rebooted "onto IONDRV" and
@@ -100,7 +108,7 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       1280x1024@75, 1024x768@60, 800x600@60, 640x480 at 59.94 / 60. No freeze. The boot itself went black: macOS applied
       the saved 1280x1024 at login, the plugin kept the 1440p plane, the CPU copy skipped every frame as foreign;
       `debug.phxscan=0` gave the plane back (fix: b139 kernel)
-- [~] 2026-11-20 **Adaptive Sync, step 1: the macOS side mapped, PhxAccel probe built** ([findings](findings/2026-11-20-adaptive-sync-research.md)).
+- [x] 2026-11-20 **Adaptive Sync** (done, see "Display polish" below; this is the log of its steps). **Step 1: the macOS side mapped, PhxAccel probe built** ([findings](findings/2026-11-20-adaptive-sync-research.md)).
       Apple's AMD driver: `IOFBTimingRange` with sync flag 0x10, the range per mode in `verticalBlankingExtension`, AGDC
       command 0x979 (VRR capability), an Adaptive Sync SDP. Probe (PhxAccel, flag `~/gpu/phxboot-vrrprobe`, off by
       default): publishes the range (48-240 Hz from the EDID) with the flag, answers 0x979, logs CoreDisplay's timing and
@@ -133,7 +141,7 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       2026-11-21 00:10 cleanup: the probe is the feature (`debug.phxfb0_vrr`, default 1; daemon opt-out
       `~/gpu/phxboot-novrr`, off on the safe desktop); probe diagnostics removed; docs/XTX.md updated. Installed, not
       booted (behaviour unchanged)
-- [~] 2026-11-21 **HDR, step 1: Linux's HDR state read, a report-only PhxAccel probe** ([findings](findings/2026-11-21-hdr.md)).
+- [x] 2026-11-21 **HDR** (done, see "Display polish" below; this is the log of its steps). **Step 1: Linux's HDR state read, a report-only PhxAccel probe** ([findings](findings/2026-11-21-hdr.md)).
       Linux at every rate: ARGB2101010 scan-out, FMT 10 bpc, DP_PIXEL_FORMAT 0x42, MSA colorimetry, VSC SDP 0x206, the
       HDR mastering infoframe in generic packet 3, identity gamut remap; no regamma table. Probe installed 00:40
       (`~/gpu/phxboot-hdrprobe`): the timing range reports HDR10 / BT.2020 / 10 bpc, CoreDisplay's calls logged.
@@ -152,102 +160,45 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       `~/gpu/phxboot-nohdr`, off on the safe desktop; the probe flag removed; installed, not booted), 10-bit drawing (the
       surface is 8-bit: banding), Variable + HDR together.
       01:35 on the box: HDR offered without the flag, and **HDR stayed on across the restart** (mode 17 after boot).
-- [ ] 2026-11-22 **Display polish (owner asked, in this order):**
-  1. **10-bit drawing in HDR.** **b149 + PhxAccel + plugin installed 2026-11-22 18:00** (EFI `OC` = b149 sha d34093c0,
-     `OC.prev` = b148 sha 0a680199; `~/vermilion-rollback/`: VermilionBoot.kext.b148, VermilionAccel.kext.pre-hdr10,
-     NVMTLDriver.b139). Done as: the HDR plans keep Linux's pipe-0 format writes (generator `--pixel-format`: CNVC0 0x418F /
-     HUBP0 0x3AA5 = 0xa in, 0x8 out; pipe 1 follows by its live copies); GPU present accepts the 10-bit scan-out and flags it
-     (FMT10), the plugin then copies l10r raw (BGRA widened on the CPU), the CPU copy likewise (`debug.phxfb0_scan10`).
-     MPCC0 blends with global alpha (0xffff0461) so l10r's top bits do not matter. The depth macOS picks stays (WindowServer
-     draws l10r anyway). (unverified) **Test:** restart; SDR as before; HDR on: colours right, a dark gradient without
-     banding; `sysctl debug.phxfb0_scan10` = 1 in HDR, 0 in SDR; plugin log "scan-out ARGB2101010". **Rollback:** wrong
-     colours in HDR: HDR off (the from plan sets 0x8); boot trouble: swap `EFI/OC` / `EFI/OC.prev`; plugin trouble:
-     `sudo cp ~/vermilion-rollback/NVMTLDriver.b139 /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver`.
-     Was: Today macOS picks depth 0 (32-bit) for the HDR twin and the plans keep pipe 0's 8-bit
-     surface. Plan: (a) PhxAccel offers the HDR twins with the 30-bit depth preferred / only (getInformationForDisplayMode
-     maxDepthIndex, getPixelInformation), check macOS then sets depth 1 on them; (b) on an HDR mode landing, HUBP0
-     DCSURF_SURFACE_CONFIG 0x3AA5 and CNVC_CFG0_CNVC_SURFACE_PIXEL_FORMAT 0x418F = 0xa (Linux's to-hdr values; 0x8 back
-     for SDR), with pipe 1's copies under ODM (the plans COPY pipe 1 from pipe 0 live); (c) GPU present: the kernel's
-     scanAllocSlot accepts ARGB2101010 (PHXN_SCAN_FMT_*), the Metal plugin copies l10r surfaces raw instead of through
-     `scan_l10r.comp` while HDR; (d) the CPU copy (nvrm-accel.cpp, the l10r branch) copies raw while HDR. Test: a gradient
-     in HDR without banding.
-  - **Display identity follows the EDID copy (2026-11-22):** PhxAccel's floor patch (getDDCBlock) changes macOS's EDID, and
-    macOS made a new display (new UUID, profile `LG ULTRAGEAR+-<UUID>.icc`, 01:32 / 02:23 / 17:26) each time the floor
-    changed (48 / 90 / 60): the owner's display profiles and settings looked gone. The floor is stable at 60 now. Owner's
-    profiles (LG 27GS95QE-B SDR / HDR, "corrected for macOS from LG/Microsoft-generated data") re-installed in
-    /Library/ColorSync/Profiles/Displays/; a copy in ~/Documents/ColorSync originals 2026-11-22/corrected/. Consider: keep
-    the label patch only when it does not change identity, or document that a floor change resets the display's settings.
-  2. **Variable with HDR on.** **PhxAccel with id 18 installed 2026-11-22 18:40** (kStdHdrVrrTwin: id 17's timing with the
-     HDR10 fields and the VRR extension, key 1440240, "phxVrrSet" 1; offered with both features; rollback
-     `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr`). Needs Allow in Privacy & Security before the restart (AuxKC).
-     b150 on the box (owner 18:30): HDR works (LG in HDR, `debug.phxfb0_scan10` 1); Variable was off in HDR (no twin).
-     (unverified) **Test:** HDR on, then the refresh menu offers Variable; pick it: the LG's overlay moves, `debug.phxvrr_stat`
-     on=1. Was: Today picking HDR sends phxVrrSet(0). Plan: a VRR+HDR twin of 240 (HDR10 fields and the
-     verticalBlankingExtension, new std kind), offered with both features; PhxAccel calls phxVrrSet(1) for it; the kernel
-     side needs nothing new (vrrOnLocked works on key 1440240: h 1440, same V_TOTAL). Check CoreDisplay then shows
-     Variable in HDR.
-  3. **Dropped (owner, 2026-11-22):** 2560x1440 works fully (every rate to 240, Variable 60-240 with the ramp, 10-bit HDR,
-     Variable + HDR); the owner uses only that. The other resolutions stay as they are (fixed rates, no VRR / HDR); not
-     disabled. Was: **VRR and HDR at the other resolutions.** VRR: the CPU copy needs the per-flip trigger (a platform function to
-     PhxBringup after each copied frame, OTG_TRIGA_MANUAL_TRIG, while gVrrOn), vrrOnLocked must accept the other modes
-     (drop the h == 1440 gate; vrrRegs per mode), and per-size VRR twins in phxhead.h (48 Hz to the mode's rate; only
-     modes above 48 Hz). HDR: Linux's HDR mode sets at those modes are not captured: capture v5 in Omarchy
-     (`--hdr-pairs` for 1080p60 / 1080p120 / ...), then plans + twins as b145.
-  0. **VRR minimum (owner, 2026-11-22):** the LG flickers in VRR near the low end (also on Windows and Linux: the monitor's
-     VRR, brightness swings between long and short frames). Fix: a configurable floor, `~/gpu/phxboot-vrrmin` (Hz, default
-     the EDID's 48), read by the daemon into a PhxAccel sysctl before the claim; PhxAccel uses it for the twin's
-     verticalBlankingExtension and the timing range's minFrameRate (menu "Variable (N-240 Hz)") and passes it to
-     "phxVrrSet" (io = 1 | min << 8, VermilionBoot b146: vrrRegs with that min instead of the fixed gVrrMinHz 48).
-     **b146 + PhxAccel installed 2026-11-22 02:10** (EFI `OC` = b146 sha 132f6c02, `OC.prev` = b145 sha 281f119c; b144 / b145
-     kexts, PhxAccel `.hdr2` and the daemon `.pre-vrrmin` in `~/vermilion-rollback/`). Default floor 60 Hz (PhxAccel
-     `debug.phxfb0_vrrmin`; the menu uses it only with PhxBringup b146+, else the EDID's 48), daemon `~/gpu/phxboot-vrrmin`
-     (0 = the EDID's, 24-240). Host tests: p0odm 684978, head0_1440 66; mocks 225 + 159. (unverified on the box)
-     **Test:** restart; System Settings shows "Variable (60-240 Hz)"; pick it, the LG's FPS overlay stays at 60 or above,
-     `sysctl debug.phxvrr_stat` names floor 60 Hz and MAX 0x194b (6475) at 240. **Rollback:** boot trouble: swap `EFI/OC`
-     and `EFI/OC.prev` (from macOS or Linux); only the menu wrong: `echo 0 > ~/gpu/phxboot-vrrmin` and restart.
-     **2026-11-22 on the box:** the floor works (OTG0 MAX 0x194b, the LG's overlay at 60, `debug.phxvrr_stat` floor 60), the
-     flicker is less but still there (owner), and the menu still said "Variable (48-240 Hz)" although IOFBTimingRange said 60:
-     CoreDisplay takes the label from the EDID (the LG has 48 in its 0xFD descriptor and in AMD's FreeSync VSDB). PhxAccel
-     now serves macOS an EDID copy with the floor as both minima (phxhead::edidFloorPatch; the monitor's EDID kept inside).
-     Floor set to 90 for the next test (`~/gpu/phxboot-vrrmin`). **On the box:** menu "Variable (90-240 Hz)", still flickers
-     (owner). Web (Blur Busters, RTINGS on the 27GR95QE): the LG OLEDs flicker with frame-time swings; no firmware fix; the
-     other OSes hide it by running the desktop at a fixed rate. Owner's preference: **60-240 with a ramp** (floor back to 60).
-     **b147 installed 2026-11-22** (EFI `OC` = b147 sha 6213fecd, `OC.prev` = b146 sha 132f6c02; b144-b146 in
-     `~/vermilion-rollback/`): the ramp (PhxVrrRamp.h, `debug.phxvrr_ramp` % per flip, default 10, 0 = off) and a live
-     floor (`debug.phxvrr_floor`). Host test vrr_ramp 13/13. (unverified)
-     **Test:** restart, Variable (60-240 Hz); flicker? Tune live as root: `sysctl -w debug.phxvrr_ramp=5` (gentler) / `20` /
-     `0` (off); `sysctl debug.phxvrr_stat` shows the window and the writes. **Rollback:** black screen or flicker worse:
-     `sudo sysctl -w debug.phxvrr_ramp=0`; boot trouble: swap `EFI/OC` and `EFI/OC.prev`.
-     **On the box (b147, owner):** Variable 60-240 works with the ramp; flicker less. Ramp 5: typing 60-100 Hz, still 60,
-     mouse 240, "way less flickering", animations very smooth; 10 and 20 alike (more flicker); 0 stuck at 137 Hz (bug: the
-     last window stayed). Some flicker remains (the panel; maybe no way around it). The boot before, one replay run toward
-     HDR 240 failed its post check after the 240 -> 144 leg (details cleared by the refusals after it).
-     **b148 installed** (EFI `OC` = b148 sha 0a680199, `OC.prev` = b147 sha 6213fecd; b147 in `~/vermilion-rollback/`):
-     ramp default 5, ramp 0 restores the full range, `debug.phxp0odm_stat` keeps a failed run's post check
-     (`last_fail_post`). **Test:** restart; Variable feels as with ramp 5; `sudo sysctl -w debug.phxvrr_ramp=0` gives the full
-     range (no stuck rate). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`.
-  00. **2026-11-22 the failed Variable -> HDR switch, the white flashes, PhxAccel not loaded**
-     ([findings](findings/2026-11-22-vrr-underflow-and-auxkc.md)). The run failed on HUBP0's sticky underflow status alone
-     (twice: b147, b149); on the box the range / ramp writes took effect mid-frame (OTG0 DRR double buffer mode 0; Linux
-     runs 2) and raised that sticky at 144 Hz by hand (4 in 27 000 window changes; 0 in 19 600 with mode 2). PhxAccel:
-     the AuxKC is only rebuilt by the Allow click in Privacy & Security, the 17:57 restart skipped it.
-     **b150 installed 2026-11-22 18:25** (EFI `OC` = b150 sha 3806555e, `OC.prev` = b149 sha d34093c0;
-     `~/vermilion-rollback/`: VermilionBoot.kext.b149, AuxiliaryKernelExtensions.kc.0222). The AuxKC was rebuilt 18:22 with
-     b149's PhxAccel (UUID F954FE49; the 10-bit CPU copy, `debug.phxfb0_scan10`); the plugin is b149's, installed 18:00.
-     Host tests: p0odm 686405, the other tests/kext suites, mocks 225 + 159. (unverified at 240 / in HDR)
-     **Test:** restart. (1) `kmutil showloaded | grep vermilion.accel` shows F954FE49. (2) Variable for a while: no white
-     flash; `sysctl debug.phxvrr_stat` shows `dbuf now 0x02000000` and HUBP0 with bits 30:28 = 0 (0x0...). (3) HDR on from
-     Variable: the LG's OSD shows HDR; `sysctl debug.phxfb0_scan10` = 1; `sysctl debug.phxp0odm_stat` result=done
-     (`stale_cleared` / `post_retries` say whether a sticky was met). (4) HDR off: SDR again, scan10 = 0.
-     **Rollback:** Variable worse: pick a fixed rate (the range and the double buffer go off with it). Boot trouble: mount
-     the ESP and swap `EFI/OC` and `EFI/OC.prev` (from macOS: `sudo diskutil mount disk0s1`, then in
-     `/Volumes/NO NAME/EFI`: `mv OC OC.bad && mv OC.prev OC`; or from Linux). PhxAccel trouble:
-     `sudo cp -R ~/vermilion-rollback/VermilionAccel.kext.pre-hdr10 /Library/Extensions/VermilionAccel.kext`, chown
-     root:wheel, `sudo kmutil load -p ...`, **Allow** in Privacy & Security, restart.
-
-      **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
-      does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
-      capture of OTG0 V_TOTAL_MIN / MAX / CONTROL (0x4ff0-0x4ff4) with VRR active (capture v3 did not read them)
+- [x] 2026-11-22 **Display polish at 2560x1440: done on the XTX machine** (owner). From System Settings > Displays:
+      every rate to 240; Variable (60-240 Hz) with the ramp; High Dynamic Range drawn in 10 bits; Variable with HDR on.
+      How it works: [docs/XTX.md](../docs/XTX.md); the install and test log of each step:
+      [findings](findings/2026-11-22-display-polish-log.md); reasons: [decisions.md](decisions.md) (2026-11-20 and
+      2026-11-22).
+  - **Installed** (2026-11-22; the clean-up pass after it changed comments and docs only, all three binaries rebuild
+    byte for byte, nothing was reinstalled):
+    - VermilionBoot b150 on the EFI partition (`EFI/OC`, sha256 3806555e...; `EFI/OC.prev` = b149, d34093c0...);
+    - VermilionAccel with mode id 18 in `/Library/Extensions` (sha256 c6341e87...);
+    - the Metal plugin of b149 (sha256 7f46d89b...);
+    - the daemon with `phxboot-novrr` / `-nohdr` / `-vrrmin` in `~/gpu`; `~/gpu/phxboot-vrrmin` holds 60.
+  - **Knobs:** `~/gpu/phxboot-vrrmin` (the floor in Hz), `~/gpu/phxboot-novrr`, `~/gpu/phxboot-nohdr`; live as root
+    `debug.phxvrr_ramp` (default 5) and `debug.phxvrr_floor`; state in `debug.phxvrr_stat`, `debug.phxp0odm_stat`,
+    `debug.phxfb0_scan10`. Table: docs/XTX.md, "Display settings".
+  - **Rollback** (copies in `~/vermilion-rollback/`; one EFI change per boot):
+    - a feature misbehaves: `touch ~/gpu/phxboot-novrr` or `~/gpu/phxboot-nohdr` and restart; Variable alone: pick a
+      fixed rate (the range and the double buffer go off with it);
+    - boot trouble: `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`: `mv OC OC.bad && mv OC.prev OC` (or
+      the same from Linux); older kexts: `VermilionBoot.kext.b134` .. `.b149`;
+    - PhxAccel: `sudo rm -rf /Library/Extensions/VermilionAccel.kext && sudo cp -R
+      ~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr /Library/Extensions/VermilionAccel.kext`, `sudo chown -R
+      root:wheel` it, `sudo kmutil load -p /Library/Extensions/VermilionAccel.kext`, **Allow** in Privacy & Security,
+      restart (without the Allow click the AuxKC is not rebuilt and the old PhxAccel keeps loading);
+    - the plugin: `sudo cp ~/vermilion-rollback/NVMTLDriver.b139
+      /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver`, restart.
+  - **Open:**
+    - [ ] Some flicker is left in Variable (owner: "way less" with ramp 5). It is the panel's: the same monitor does
+          it on Windows and Linux. Nothing planned.
+    - [ ] A floor change resets macOS's display identity (colour profile, per-display settings), because the floor
+          is in the EDID PhxAccel serves. Either keep the label patch only when it does not change the identity, or
+          leave it documented (docs/XTX.md does). The owner's two profiles are set with `~/gpu/tools/colorprofile.swift`
+          (outside the repo).
+    - [ ] b150's own checks were not written down after the restart: over a long Variable session no white flash,
+          `debug.phxvrr_stat` shows `dbuf now 0x02000000` while Variable is on and HUBP0's bits 30:28 = 0.
+    - [ ] 10-bit HDR: a dark gradient without banding, by eye (not written down).
+    - [ ] DRR double buffer for the whole boot, as Linux has it, instead of only while the range is on
+          (decisions.md 2026-11-22, "Revisit").
+    - [-] VRR / HDR below 1440p: dropped by the owner 2026-11-22 (decisions.md). What it would need: a per-flip
+          trigger from the CPU copy, per-size VRR twins, and a Linux capture per HDR mode (the log has the plan).
 - [x] 2026-11-20 **b140: the login screen gets its saved rate** (verified 21:54) (installed 20:55, EFI `OC` = b140 sha 8b5ead5b, `OC.prev`
       = b139; b138 kext in `~/vermilion-rollback/`). b139's login screen ran at the firmware's 60 Hz: its 240 Hz request
       (20:39:39) was refused "not ready" because the scanout lock only existed after GPU present's first acquire (20:39:46).
@@ -651,13 +602,16 @@ Goal: an accelerated desktop at 1440p60 on the GOP mode, stable across many cold
   - [ ] `amdgpu_dm_dtn_log` per mode, DPCD dump from `/dev/drm_dp_aux*`, ftrace of `amdgpu_device_wreg` during mode
         changes
   - [ ] Install `umr` (optional)
-- [ ] Captures at 1440p 60/120/144/165/240 on this card and monitor
-- [ ] A plan generator (upstream's is not public): capture to `phx_p0_plan_*.inc`, with self-tests
+- [x] 2026-11-21 Captures at 1440p 60/120/144/240 on this card and monitor, SDR and HDR, plus the other EDID modes
+      (capture v2-v4, `tools/capture/linux_display_capture.py`; the LG has no 165 Hz mode)
+- [x] 2026-11-20 A plan generator (upstream's is not public): `tools/capture/p0odm_from_trace.py`, capture to
+      `phx_p0odm_*.inc`; all 29 plans regenerate byte for byte (checked 2026-11-22). Its only test is that comparison
+      and `tests/kext/p0odm_test.cpp` running the plans; the comparison is not scripted in the repo yet
 - [x] 2026-11-19 Scan slots for 1440p and up (b126, `PhxScanLayout.h`: 32 MiB slots at 256 MiB, unverified on hardware)
 - [ ] EDID: E-DDC segment pointer, serve all 384 bytes (`PhxDdc.h`, `PhxEdid.h`)
 - [ ] Mode matching by EDID timings instead of the two fixed 1080p entries (`PhxPipe0.h`, `PhxPipe2.h`, the scripts)
-- [ ] DP link retraining on the GOP connector (DP B / DIG1) to HBR2, later HBR3 (`PhxDpLink.h`)
-- [ ] 240 Hz: HBR3 x4 or DSC (research: does DCN 3.2 DSC need DMUB support we don't have?)
+- [x] 2026-11-20 DP link retraining on the GOP connector (DP B / DIG1) to HBR2 and HBR3 (`PhxDpLink.h`, `PhxDpbRetrain.h`)
+- [x] 2026-11-20 240 Hz: HBR3 x4 with FEC + DSC + ODM 2:1, as Linux (`PhxP0Odm.h`)
 - [ ] Watermarks/DET/DAL tables for each mode (re-captured on the 384-bit XTX)
 - [ ] Display power recipe (`b15`) for one 1440p monitor, with its underflow watchdog
 - [ ] Mock tests for every new engine path
@@ -692,6 +646,10 @@ When the VM shuts down, the dGPU goes back to Linux.
 
 ## Phase 6: Clean up and hand over
 
+- [x] 2026-11-22 Clean-up pass on the display code of `ownback/gpu-refresh-hdr` before the merge: comments say what
+      the code does (history in CHANGELOG / findings), docs/XTX.md and docs/INSTALL.md list the display knobs. No
+      behaviour change: both kexts and the plugin rebuild byte for byte
+- [ ] A script in the repo that regenerates every replay plan from a capture directory and compares (today by hand)
 - [ ] Replace the hardcoded connector table with the VBIOS parser (`PhxVbios.h` already produces the same table)
 - [ ] Split the remaining machine-specific values into per-board / per-monitor data files with detection
 - [ ] Refactor the largest files where it makes reviews easier (`nvmtl_vk.c`, `NVMTLObjects.m`, `nvrm-accel.cpp`),
