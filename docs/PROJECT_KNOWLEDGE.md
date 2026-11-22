@@ -50,7 +50,7 @@ from the 2026-11-22 survey: the NVMe is a **Corsair MP700 PRO** (Phison E26, fir
 
 Disk (macOS view, 2026-11-22): `disk0s1` EFI (2 GB, shared with Linux's Limine), `disk0s2` Linux LUKS, `disk0s3` APFS
 container (83.8 GB; Macintosh HD + Data), `disk0s4` "Install macOS Tahoe" (23.6 GB HFS+, still present: TODO Phase 1
-says delete it and grow the container).
+says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 
 ## Machine state (2026-11-22, verified on the machine unless marked)
 
@@ -176,7 +176,6 @@ The details are in TODO. This list is for finding the right owner quickly.
 | Metal reports the XT's name, 6 GiB working set; apps get no Mesa shader disk cache | 2026-11-22 | 00.1 | baseline |
 | GPU idle 62-70 W board, no Linux comparison yet | 2026-11-19 | 00.1 | baseline |
 | Installer partition `disk0s4` not deleted yet | 2026-11-19 | 03 | TODO Phase 1 |
-| Stale docs: `efi/README.md` (the DSDT section and the stage table name AirportMtkWlan) | 2026-11-19 | 02 | inventory |
 | Mock tests run on macOS only; no CI | 2026-11-18 | (unassigned) | TODO Phase 0 |
 
 ## What was tried and failed

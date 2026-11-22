@@ -88,7 +88,9 @@ Ethernet checks, one EFI change per boot.
         Restart. The two NVRAM variables stay set (inert without the kexts).
       - Hangs or panics at boot: hold power, power on, **F8 > Limine**, `sudo mv /boot/EFI/OC /boot/EFI/OC.bt &&
         sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on (OpenCore > Macintosh HD).
-- [ ] Audio by ear (owner), Ethernet with a cable; `efi/README.md` stale sections
+- [x] 2026-11-22 `efi/README.md` brought up to date (stages, DSDT patches instead of the resolved DSDT, USB map,
+      CPU sensors, Bluetooth, installing from macOS)
+- [ ] Audio by ear (owner), Ethernet with a cable. Installer partition `disk0s4`: kept for now (owner, 2026-11-22)
 
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
