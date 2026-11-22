@@ -29,7 +29,12 @@
 // fingerprint of everything outside pipes 0 / 1 (OTG1-3, HUBP2-3, MPCC2-3, DSC2-3, DIG0 / DIG2-4 back ends): a change =
 // `halted` (shared latch).
 // While pipe 0 runs ODM 2:1 the flip path writes HUBP1's address with HUBP0's (phx_scan.cpp, gP0OdmActive).
-// Kernel-free; glue phx_p0odm.cpp; host test tests/kext/p0odm_test.cpp.
+//
+// Also here, because they act on the mode this engine lit:
+//   HDR             the 1440p rates' HDR variants are modes of the same set (keys 1440060 .. 1440240, capture v4);
+//   Adaptive Sync   OTG0's V_TOTAL range for the lit mode, double buffered (vrrRegs, vrrWriteOn, vrrWriteOff);
+//   underflow       HUBPn's sticky underflow status around a run (clearUnderflow, post, leg).
+// Kernel-free; glue phx_p0odm.cpp; host test tests/kext/p0odm_test.cpp. Build history: CHANGELOG.md.
 #pragma once
 #include <stdint.h>
 #include "PhxDpbRetrain.h"
@@ -89,7 +94,7 @@ inline bool detApplied(uint32_t v) { return (v & 0x1fu) == ((v >> 8) & 0x1fu); }
 
 struct Fail {
     const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target;
-    // b148: the failed run's post check, kept (later refused runs clear the run's own copy)
+    // the failed run's post check, kept here because a later refused run clears the run's own copy
     uint32_t hz, v, h, odm, stream, stream2, hubp0, hubp1, det0, det1, compbuf;
 };
 
@@ -100,7 +105,7 @@ struct Run {
     uint32_t attempts, refusals, dones, fellBacks, sames;
     uint32_t fbCount[kMaxModes];    // fall-backs per target mode (2 = refused for the boot)
     const char *lastRefusal;
-    Fail last;                      // the last failure (kept across runs: b134 lost its DAL response)
+    Fail last;                      // the last failure, kept across runs
     // this run
     int sel, res, phase;            // phase: 0 gates, 1 leg 1, 2 leg 2, 3 fall-back, 4 post
     uint32_t target;
@@ -116,8 +121,8 @@ struct Run {
     uint32_t fp[kNFp];
     uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
     uint32_t postDet0, postDet1, postCompbuf, postH;
-    uint32_t staleUf;               // b150: HUBP underflow stickies set before the plans, cleared (bit 0 HUBP0, bit 1 HUBP1)
-    uint32_t postRetries;           // b150: post checks repeated after clearing an underflow sticky the switch raised
+    uint32_t staleUf;               // HUBP underflow stickies set before the plans, cleared (bit 0 HUBP0, bit 1 HUBP1)
+    uint32_t postRetries;           // post checks repeated after clearing an underflow sticky the switch raised
 };
 
 inline int refuse(Run &r, const char *why) { r.res = kRefused; r.why = r.lastRefusal = why; r.refusals++; return kRefused; }
@@ -257,7 +262,6 @@ inline int runPlan(Ctx &x, const Plan &p) {
     return 0;
 }
 
-
 // OTG0 frames over ~250 ms -> Hz.
 inline uint32_t measureHz(const Env &e) {
     const uint32_t f0 = rd(e, kOtg0Frame) & 0xffffff;
@@ -282,13 +286,14 @@ inline int findMode(const Set &s, uint32_t key) {
     for (unsigned i = 0; i < s.n; i++) if (s.m[i].key == key) return static_cast<int>(i);
     return -1;
 }
-// ---- b142 Adaptive Sync (findings 2026-11-20-adaptive-sync-research.md) --------------------------------------------------
+// ---- Adaptive Sync (.agents/findings/2026-11-20-adaptive-sync-research.md) ---------------------------------------------
 // Linux's DCN 3.2 DRR on a firmware without fw-assisted mclk switching (the GOP build reports none, debug.phxdmub_caps):
 // optc32_set_drr -> optc1_set_vtotal_min_max writes OTG_V_TOTAL_MAX, then OTG_V_TOTAL_MIN (lines - 1 each), then
-// optc32_setup_manual_trigger updates OTG_V_TOTAL_CONTROL (MIN_SEL 1, MAX_SEL 1, FORCE_LOCK_ON_EVENT 0, SET_V_TOTAL_MIN_MASK
-// = TRIGA); each flip, optc2_program_manual_trigger writes OTG_TRIGA_MANUAL_TRIG = 1. The range for a mode: min = its
-// V_TOTAL, max = its lines at minHz with integer Hz (Linux at 144: 1516 * 144 / 48 = 4548 lines -> 0x11c3, capture v3).
-constexpr uint32_t kOtg0VMin = 0x04FF0, kOtg0VMax = 0x04FF1, kOtg0VCtl = 0x04FF3, kOtg0TrigAMan = 0x04FFA;
+// optc32_setup_manual_trigger updates OTG_V_TOTAL_CONTROL (MIN_SEL 1, MAX_SEL 1, FORCE_LOCK_ON_EVENT 0,
+// SET_V_TOTAL_MIN_MASK = TRIGA); each flip, optc2_program_manual_trigger writes OTG_TRIGA_MANUAL_TRIG = 1 (phx_scan.cpp
+// scanPresent, kOtg0TrigAManualTrig). The range for a mode: min = its V_TOTAL, max = its lines at minHz with integer Hz
+// (Linux at 144 with a 48 Hz floor: 1516 * 144 / 48 = 4548 lines -> 0x11c3, capture v3).
+constexpr uint32_t kOtg0VMin = 0x04FF0, kOtg0VMax = 0x04FF1, kOtg0VCtl = 0x04FF3;
 constexpr uint32_t kVCtlMinSel = 1u, kVCtlMaxSel = 2u, kVCtlForceLock = 0x10u, kVCtlMinMask = 0xffff0000u;
 constexpr uint32_t kVCtlTrigA = (1u << 1) << 16;   // SET_V_TOTAL_MIN_MASK bit 1 = TRIGA
 struct VrrRegs { uint32_t vmin, vmax, ctl; };
@@ -301,13 +306,13 @@ inline bool vrrRegs(const Mode &m, uint32_t minHz, uint32_t ctlNow, VrrRegs *o) 
     o->ctl = (ctlNow & ~(kVCtlMinSel | kVCtlMaxSel | kVCtlForceLock | kVCtlMinMask)) | kVCtlMinSel | kVCtlMaxSel | kVCtlTrigA;
     return true;
 }
-// b150: Linux's DRR double buffer. optc3_tg_init (dcn30_optc.c, dcn32's .tg_init, run for every OTG at init_hw) sets
+// Linux's DRR double buffer. optc3_tg_init (dcn30_optc.c, dcn32's .tg_init, run for every OTG at init_hw) sets
 // OTG_DOUBLE_BUFFER_CONTROL.OTG_DRR_TIMING_DBUF_UPDATE_MODE = 2, so V_TOTAL_MIN / MAX and their selectors latch at the
-// start of a frame. The GOP leaves the mode at 0 (any time; read on the XTX machine 2026-11-22): b142-b149's range and
-// ramp writes took effect mid-frame, a MAX below the current line ended the frame at the write, and HUBP0's underflow
-// sticky came up (4 times in 27 000 window changes at 144 Hz; none in 19 600 with mode 2; findings 2026-11-22). While the
-// range is on the mode is Linux's 2; off waits for the latch (Linux optc3_wait_drr_doublebuffer_pending_clear) and puts
-// the boot mode back, so the replay plans run as they always did here.
+// start of a frame. The GOP leaves the mode at 0 (any time; read on the XTX machine): a range or ramp write then takes
+// effect mid-frame, a MAX below the current line ends the frame at the write, and HUBP0's underflow sticky comes up
+// (measured on the XTX machine: .agents/findings/2026-11-22-vrr-underflow-and-auxkc.md). So while the range is on the
+// mode is Linux's 2; off waits for the latch (Linux optc3_wait_drr_doublebuffer_pending_clear) and puts the boot mode
+// back, so the replay plans run under the GOP's mode, as they always have here.
 constexpr uint32_t kOtg0Dbuf = 0x0501B, kDbufDrrMode = 0x03000000u, kDbufDrrFrameStart = 0x02000000u, kDbufDrrPending = 0x10u;
 inline uint32_t dbufWith(uint32_t now, uint32_t mode) { return (now & ~kDbufDrrMode) | (mode & kDbufDrrMode); }
 // The range on (Linux's order: MAX, MIN, then the CONTROL fields), double buffered. *bootDbuf = the register before.
@@ -340,9 +345,9 @@ inline uint32_t vrrWriteOff(const Env &e, const uint32_t boot[3], uint32_t bootD
     if ((db & kDbufDrrMode) != (bootDbuf & kDbufDrrMode)) e.io.wr(e.io.c, kOtg0Dbuf, dbufWith(db, bootDbuf));
     return us;
 }
-// b150: HUBPn's underflow status is sticky (read on the XTX machine: set after a failed run, cleared by
-// HUBP_UNDERFLOW_CLEAR, not back in 25 s at a fixed rate). One set before a run says nothing about the run: clear it
-// (Linux hubp1_clear_underflow's bit; 1 then 0 as the pipe-0 engine's stage 10 does) so the post check sees only its own.
+// HUBPn's underflow status is sticky (read on the XTX machine: set after a failed run, cleared by HUBP_UNDERFLOW_CLEAR,
+// not back in 25 s at a fixed rate). One set before a run says nothing about the run: clear it (Linux
+// hubp1_clear_underflow's bit; 1 then 0 as the pipe-0 engine's stage 10 does) so the post check sees only its own.
 constexpr uint32_t kHubpUfClear = 0x80000000u;
 inline bool clearUnderflow(const Env &e, uint32_t reg) {
     const uint32_t v = rd(e, reg);
@@ -352,10 +357,13 @@ inline bool clearUnderflow(const Env &e, uint32_t reg) {
     e.io.wr(e.io.c, reg, keep);
     return true;
 }
-inline const Mode *curMode(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? &s.m[r.cur] : nullptr; }
+// The mode pipe 0 is on, once a replay landed (null in the mac state).
+inline const Mode *curMode(const Run &r, const Set &s) {
+    return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n ? &s.m[r.cur] : nullptr;
+}
 inline uint32_t curHz(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->hz : 0; }
 inline uint32_t curKey(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m ? m->key : 0; }
-inline bool odmActive(const Run &r, const Set &s) { return r.where == kLinux && r.cur >= 0 && static_cast<unsigned>(r.cur) < s.n && s.m[r.cur].odm; }
+inline bool odmActive(const Run &r, const Set &s) { const Mode *m = curMode(r, s); return m && m->odm; }
 inline bool setOk(const Set &s) {
     if (!s.m || !s.n || s.n > kMaxModes || s.hub >= s.n || s.entryMode >= s.n || !s.entry || !s.entry->n) return false;
     for (unsigned i = 0; i < s.n; i++) {
@@ -423,18 +431,22 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
     return nullptr;
 }
 
-// After a plan: pipe 0 on mode m (frame rate, V_TOTAL, the stream twice 0.5 s apart, no underflow).
+// After a plan: pipe 0 on mode m (frame rate, totals, ODM select, DET applied, the stream twice 0.5 s apart, no
+// underflow). *onlyUnderflow = everything on the mode except an underflow sticky.
 inline bool post(const Env &e, Run &r, const Mode &m, bool *onlyUnderflow = nullptr) {
     r.postHz = measureHz(e);
-    r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postH = rd(e, kOtg0H); r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
+    r.postOdm = rd(e, kOdmSrc); r.postV = rd(e, kOtg0V); r.postH = rd(e, kOtg0H);
+    r.postHubp0 = rd(e, kHubp0Cntl); r.postHubp1 = rd(e, kHubp1Cntl);
     r.postStream = rd(e, phxdpb::kR.vidStream); r.postDphy = rd(e, kDphyCntl);
-    e.io.delayUs(e.io.c, 500000);   // b133: the stream once went off after the first read (box b132)
+    e.io.delayUs(e.io.c, 500000);   // the stream once went off after the first read (XTX machine, b132)
     r.postStream2 = rd(e, phxdpb::kR.vidStream); r.postPixFmt = rd(e, phxdpb::kR.pixFmt); r.postPixDiv = rd(e, phxdpb::kPixDiv);
     r.postDet0 = rd(e, kDet0); r.postDet1 = rd(e, kDet1); r.postCompbuf = rd(e, kCompbuf);
-    // b136: +-4 Hz on top of 5 %: measureHz counts whole frames in 250 ms (60 Hz reads 56 or 60 by phase)
+    // +-4 Hz on top of 5 %: measureHz counts whole frames in 250 ms (60 Hz reads 56 or 60 by phase)
     const uint32_t lo = m.hz * 95 / 100 - 4, hi = m.hz * 105 / 100 + 4;
-    const bool rest = detApplied(r.postDet0) && detApplied(r.postDet1) && (r.postDet0 & 0x1fu) && !(r.postCompbuf & kCompbufErr) && r.postHz >= lo && r.postHz <= hi && r.postV == m.vTotal && r.postH == m.hTotal && r.postOdm == (m.odm ? kOdmTwo : kOdmOne) &&
-           (r.postStream & phxdpl::kStreamStatus) && (r.postStream2 & phxdpl::kStreamStatus);
+    const bool rest = detApplied(r.postDet0) && detApplied(r.postDet1) && (r.postDet0 & 0x1fu) && !(r.postCompbuf & kCompbufErr) &&
+                      r.postHz >= lo && r.postHz <= hi && r.postV == m.vTotal && r.postH == m.hTotal &&
+                      r.postOdm == (m.odm ? kOdmTwo : kOdmOne) &&
+                      (r.postStream & phxdpl::kStreamStatus) && (r.postStream2 & phxdpl::kStreamStatus);
     const bool uf = (r.postHubp0 & phxp2::kUnderflow) || (m.odm && (r.postHubp1 & phxp2::kUnderflow));
     if (onlyUnderflow) *onlyUnderflow = rest && uf;
     return rest && !uf;
@@ -442,7 +454,8 @@ inline bool post(const Env &e, Run &r, const Mode &m, bool *onlyUnderflow = null
 
 inline void keepFail(Run &r, const char *plan) {
     r.last = Fail{r.why, plan, r.step, r.line, r.op, r.reg, r.val, r.got, r.dalResp, r.target,
-                  r.postHz, r.postV, r.postH, r.postOdm, r.postStream, r.postStream2, r.postHubp0, r.postHubp1, r.postDet0, r.postDet1, r.postCompbuf};
+                  r.postHz, r.postV, r.postH, r.postOdm, r.postStream, r.postStream2, r.postHubp0, r.postHubp1,
+                  r.postDet0, r.postDet1, r.postCompbuf};
 }
 
 // One leg: the plan, then the post check on mode m. 0 = landed, 1 = failed (r.why set), -1 = halted / DMUB dead.
@@ -453,8 +466,8 @@ inline int leg(Ctx &x, const Plan &p, const Mode &m) {
     bool onlyUf = false;
     if (post(*x.e, *x.r, m, &onlyUf)) return 0;
     if (onlyUf) {
-        // b150: everything on the mode, only an underflow sticky: one the switch itself raised (the pipe-0 engine clears
-        // its own the same way, stage 10). Cleared once and the whole check again (0.75 s): a live underflow is back by then.
+        // Everything on the mode, only an underflow sticky: one the switch itself raised (the pipe-0 engine clears its
+        // own the same way, stage 10). Cleared once and the whole check again (0.75 s): a live underflow is back by then.
         clearUnderflow(*x.e, kHubp0Cntl);
         if (m.odm) clearUnderflow(*x.e, kHubp1Cntl);
         x.r->postRetries++;
@@ -485,14 +498,15 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
     const uint32_t target = sel == kSel240 ? 240u : sel == kSelBack ? 144u : sel == kSelSurvey ? 0u : static_cast<uint32_t>(sel);
     r.target = target;
     const int ti = target ? findMode(s, target) : -1;
-    if (sel != kSelSurvey && (ti < 0 || sel <= 0)) return refuse(r, "target: 1 survey, or a mode of the set (1440p 60 / 120 / 144 / 240, or height * 1000 + Hz)");
+    if (sel != kSelSurvey && (ti < 0 || sel <= 0))
+        return refuse(r, "target: 1 survey, or a mode of the set (1440p 60 / 120 / 144 / 240, or height * 1000 + Hz)");
     if (ti >= 0 && r.fbCount[ti] >= 2) return refuse(r, "this rate fell back twice in this boot");
     const char *g = gates(e, st, r, restartDone, aux, s, ti);
     if (g) return refuse(r, g);
     if (sel == kSelSurvey) { r.res = kSurveyed; r.why = "gates pass (reads only, nothing written)"; return kSurveyed; }
     if (r.where == kLinux && ti == r.cur) { r.sames++; r.res = kSame; r.why = "already at that rate"; return kSame; }
 
-    // b150: underflow stickies from before this run (Adaptive Sync time, an earlier switch) are not this run's
+    // underflow stickies from before this run (Adaptive Sync time, an earlier switch) are not this run's
     if (clearUnderflow(e, kHubp0Cntl)) r.staleUf |= 1u;
     if (clearUnderflow(e, kHubp1Cntl)) r.staleUf |= 2u;
     Ctx x{&e, &st, &r, aux};

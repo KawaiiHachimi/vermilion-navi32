@@ -305,20 +305,22 @@ SYSCTL_PROC(_debug, OID_AUTO, phxdal_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG
 static int gScanLatchFix = 0;
 // b131: 1 = pipe 0 runs ODM 2:1 (debug.phxp0odm at 240 Hz): every flip goes to HUBP1 too (the right half of the same surface)
 static volatile int gP0OdmActive = 0;
-// b142 Adaptive Sync: 1 while debug.phxvrr has OTG0's V_TOTAL range on (phx_p0odm.cpp); the scan-out's flip then fires
-// Linux's per-flip manual trigger (OTG_TRIGA_MANUAL_TRIG), which ends the stretched frame
+// Adaptive Sync state shared by phx_scan.cpp (the flip path) and phx_p0odm.cpp (the range), which are included after
+// this file; all of it is read and written with scanLock held.
+// gVrrOn: 1 while OTG0's V_TOTAL range is on (phx_p0odm.cpp); the scan-out's flip then fires Linux's per-flip manual
+// trigger (OTG_TRIGA_MANUAL_TRIG), which ends the stretched frame.
 static volatile int gVrrOn = 0;
 static volatile SInt64 gVrrTrigs = 0;
-// b144: System Settings' Variable (PhxAccel "phxVrrSet") wants VRR; it is on only while GPU present scans (the per-flip trigger
-// ends each frame; without it every frame would run to 48 Hz). Both with scanLock held, defined in phx_p0odm.cpp.
+// gVrrWant: System Settings' Variable (PhxAccel "phxVrrSet") wants the range. It is on only while GPU present scans:
+// without the per-flip trigger every frame would run to the floor.
 static volatile int gVrrWant = 0;
 static void phxVrrDropLocked();     // GPU present stopped (scanRestoreLocked): range off, the want kept
 static void phxVrrResumeLocked();   // GPU present (re)acquired (scanAcquire): range on again if wanted
-// b147 Adaptive Sync ramp (PhxVrrRamp.h): at each flip the next frames may be at most debug.phxvrr_ramp % shorter or
-// longer than the frames since the previous flip. Set by vrrOnLocked / vrrOffLocked (phx_p0odm.cpp), used by scanPresent
-// (phx_scan.cpp), all with scanLock held.
+// The ramp (PhxVrrRamp.h): at each flip the next frames may be at most debug.phxvrr_ramp % shorter or longer than the
+// frames since the previous flip. Set by vrrOnLocked / vrrOffLocked (phx_p0odm.cpp), used by scanPresent (phx_scan.cpp).
 #include "PhxVrrRamp.h"
-static int gVrrRampPct = 5;   // b148: 5 (owner on the box: least flicker, smoothest; 10 and 20 felt the same, flicker more)
+// 5 %: on the XTX machine's LG OLED it flickered least and felt smoothest; 10 and 20 flickered more (CHANGELOG 148)
+static int gVrrRampPct = 5;
 static uint32_t gVrrRampVMin = 0, gVrrRampVMax = 0, gVrrRampHz = 0;   // the lit mode's range while VRR is on (0 = off)
 static uint32_t gVrrRampLo = 0, gVrrRampHi = 0, gVrrRampLines = 0;     // the window now, the last measured frame length
 static uint64_t gVrrRampFrame = 0, gVrrRampNs = 0;                     // OTG0's frame count and the time at the last flip

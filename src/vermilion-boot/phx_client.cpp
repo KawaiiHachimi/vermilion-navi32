@@ -32,9 +32,9 @@ struct phx_pipe2_gamma;
 static IOReturn phxPipe2SetGammaFn(phx_pipe2_gamma *g);    // b98, phx_gamma.cpp (PhxGamma.h)
 struct phx_pipe0_setmode;
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m);   // b101, phx_pipe0.cpp (PhxSwitchABI.h)
-// b149: PhxAccel's CPU copy after a landed switch: *io = HUBP0's scan-out format now (8 ARGB8888, 10 ARGB2101010 in HDR)
-static IOReturn phxScanFmtFn(uint32_t *io);   // phx_p0odm.cpp
-static IOReturn phxVrrSetFn(uint32_t *io);   // b144, phx_p0odm.cpp: param1 = uint32_t * (in 1 Variable / 0 fixed, out 1 = range on)
+// phx_p0odm.cpp, for PhxAccel head 0 after a landed switch; param1 = uint32_t *io for both
+static IOReturn phxScanFmtFn(uint32_t *io);   // b149: out HUBP0's scan-out format now (8 ARGB8888, 10 ARGB2101010 in HDR)
+static IOReturn phxVrrSetFn(uint32_t *io);    // b144: in bit 0 Variable / fixed, bits 8-15 the floor in Hz; out 1 = range on
 IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool waitForFunction, void *param1, void *param2,
                                           void *param3, void *param4) {
     if (functionName && functionName->isEqualTo("phxPipe2SetMode"))
@@ -168,7 +168,8 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxdplink); sysctl_register_oid(&sysctl__debug_phxdplink_stat);   // b116
         sysctl_register_oid(&sysctl__debug_phxdpstream); sysctl_register_oid(&sysctl__debug_phxdpstream_stat);   // b117
         sysctl_register_oid(&sysctl__debug_phxdpb_retrain); sysctl_register_oid(&sysctl__debug_phxdpb_retrain_stat);   // b129
-        sysctl_register_oid(&sysctl__debug_phxp0odm); sysctl_register_oid(&sysctl__debug_phxp0odm_stat); sysctl_register_oid(&sysctl__debug_phxp0odm_active);   // b131
+        sysctl_register_oid(&sysctl__debug_phxp0odm); sysctl_register_oid(&sysctl__debug_phxp0odm_stat);   // b131
+        sysctl_register_oid(&sysctl__debug_phxp0odm_active);
         sysctl_register_oid(&sysctl__debug_phxvrr); sysctl_register_oid(&sysctl__debug_phxvrr_stat);   // b142
         sysctl_register_oid(&sysctl__debug_phxvrr_ramp); sysctl_register_oid(&sysctl__debug_phxvrr_floor);   // b147
         sysctl_register_oid(&sysctl__debug_phxdpwatch); sysctl_register_oid(&sysctl__debug_phxdpwatch_stat); sysctl_register_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122

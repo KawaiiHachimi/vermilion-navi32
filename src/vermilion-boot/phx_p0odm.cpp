@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
-// phx_p0odm.cpp: the pipe-0 replay engine's glue (PhxP0Odm.h): debug.phxp0odm + debug.phxp0odm_stat, and System Settings'
-// 1440p rates through phxPipe0SetMode (p0OdmRoute).
-//   debug.phxp0odm (int): root writes 1 = survey, a target rate (60, 120, 144, 240), or the b131 aliases 2 = 240, 3 = 144;
-//     b137: the other EDID modes as height * 1000 + Hz (1080060 1920x1080@60, 1080120, 1024075 1280x1024@75, 768060,
-//     600060, 480060, 480059 = 640x480@59.94). The other resolutions run under macOS's 2560x1440 desktop for now: the
-//     monitor gets the real mode and shows the desktop's top-left corner (PhxAccel does not resize the desktop yet).
-//     Reads return the last selector (-1 = never). Inert until written.
-// Under gP2Busy, the EDID/AUX lock and scanLock (no flip while a plan runs; the flip path then follows gP0OdmActive).
-// b135: one set of Linux replays for 60 / 120 / 144 / 240 through Linux's 144 (capture v3), replacing b134's 240-only
-// routing (60 / 120 refused after 240, a DAL refusal latched).
+// phx_p0odm.cpp: the pipe-0 replay engine's glue (PhxP0Odm.h), for the XTX machine's 2560x1440 monitor.
+//   The plan set: Linux's 144 Hz as the hub, every other mode as a to / from pair (kOdmModes).
+//   System Settings' modes through phxPipe0SetMode (p0OdmRoute); PhxAccel resizes the desktop for the other sizes.
+//   Adaptive Sync on the lit mode: "phxVrrSet" (PhxAccel, System Settings' Variable), debug.phxvrr, debug.phxvrr_floor,
+//     debug.phxvrr_ramp, debug.phxvrr_stat. The per-flip part (the trigger, the ramp's window) is in phx_scan.cpp.
+//   "phxScanFmt": HUBP0's scan-out format, for PhxAccel's CPU copy (10-bit HDR).
+//   debug.phxp0odm (int): root writes 1 = survey, a 1440p rate (60, 120, 144, 240; aliases 2 = 240, 3 = 144), or any
+//     other mode of the set by its key, height * 1000 + Hz (1080060 = 1920x1080@60, 1024075 = 1280x1024@75, 480059 =
+//     640x480@59.94, 1440240 = 1440p240 HDR). A key written here does not tell PhxAccel: the desktop keeps its size.
+//     Reads return the last selector (-1 = never). Inert until written. debug.phxp0odm_stat: the last run.
+// Engine runs and range changes hold gP2Busy and scanLock (no flip while a plan runs; the flip path then follows
+// gP0OdmActive); an engine run also holds the EDID/AUX lock.
 // Part of the PhxBringup.cpp translation unit, included after phx_dpbretrain.cpp; not compiled on its own.
 
 #include "PhxP0Odm.h"
-#include "phx_p0odm_1440p240.inc"        // b133: the entry, macOS's 144 (one pixel per clock) -> 240 (capture v2)
-// capture v3: Linux's 144 hub -> each mode and back (b135 the 1440p rates, b137 the other resolutions)
+#include "phx_p0odm_1440p240.inc"        // the entry: macOS's 144 (one pixel per clock) -> 240 (capture v2)
+// capture v3: Linux's 144 hub -> each mode and back (the 1440p rates, the other resolutions)
 #include "phx_p0odm_1440p60_to.inc"
 #include "phx_p0odm_1440p60_from.inc"
 #include "phx_p0odm_1440p120_to.inc"
@@ -34,7 +36,7 @@
 #include "phx_p0odm_480p60_from.inc"
 #include "phx_p0odm_480p59_to.inc"
 #include "phx_p0odm_480p59_from.inc"
-// capture v4 (2026-11-21): Linux's SDR 144 hub -> HDR at each 1440p rate and back (two mode sets each, b145)
+// capture v4: Linux's SDR 144 hub -> HDR at each 1440p rate and back (two mode sets each)
 #include "phx_p0odm_1440p60hdr_to.inc"
 #include "phx_p0odm_1440p60hdr_from.inc"
 #include "phx_p0odm_1440p120hdr_to.inc"
@@ -67,8 +69,9 @@ static const phxodm::Plan kOdm480p60To = PHX_ODM_PLAN(kPhxP0odm_480p60_to, "640x
 static const phxodm::Plan kOdm480p60From = PHX_ODM_BACK(kPhxP0odm_480p60_from, "640x480p60-from");
 static const phxodm::Plan kOdm480p59To = PHX_ODM_PLAN(kPhxP0odm_480p59_to, "640x480p59.94-to", 60, 0x20c, 0x06, 1);
 static const phxodm::Plan kOdm480p59From = PHX_ODM_BACK(kPhxP0odm_480p59_from, "640x480p59.94-from");
-// b145 HDR: the "to" plans end in HDR at the rate on Linux's link for 10 bpc (HBR at 60, HBR2 at 120, HBR3 at 144 / 240),
-// the "from" plans back in the SDR hub (8 bpc, the SDR mastering infoframe Linux sends to leave HDR)
+// HDR: the "to" plans end in HDR at the rate, on Linux's link for 10 bpc (HBR at 60, HBR2 at 120, HBR3 at 144 / 240) and
+// on Linux's 10-bit scan-out format; the "from" plans end back in the SDR hub (8 bpc, the 8-bit format, the SDR
+// mastering infoframe Linux sends to leave HDR)
 static const phxodm::Plan kOdm60hTo = PHX_ODM_PLAN(kPhxP0odm_1440p60hdr_to, "1440p60hdr-to", 60, 0x5c8, 0x0a, 4);
 static const phxodm::Plan kOdm60hFrom = PHX_ODM_BACK(kPhxP0odm_1440p60hdr_from, "1440p60hdr-from");
 static const phxodm::Plan kOdm120hTo = PHX_ODM_PLAN(kPhxP0odm_1440p120hdr_to, "1440p120hdr-to", 120, 0x5f4, 0x14, 4);
@@ -79,7 +82,8 @@ static const phxodm::Plan kOdm240hTo = PHX_ODM_PLAN(kPhxP0odm_1440p240hdr_to, "1
 static const phxodm::Plan kOdm240hFrom = PHX_ODM_BACK(kPhxP0odm_1440p240hdr_from, "1440p240hdr-from");
 #undef PHX_ODM_BACK
 #undef PHX_ODM_PLAN
-// Linux's totals per mode (capture v3 regs.txt) and the link Linux trained for each (rate, lanes).
+// Linux's totals per mode (capture v3 regs.txt) and the link Linux trained for each (rate, lanes). Columns: key, width,
+// height, Hz, H_TOTAL, V_TOTAL, ODM 2:1, link rate, lanes, to plan, from plan (phxodm::Mode).
 static const phxodm::Mode kOdmModes[] = {
     {60, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &kOdm60To, &kOdm60From},
     {120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &kOdm120To, &kOdm120From},
@@ -92,34 +96,40 @@ static const phxodm::Mode kOdmModes[] = {
     {600060, 800, 600, 60, 0x41f, 0x273, 0, 0x06, 1, &kOdm600p60To, &kOdm600p60From},
     {480060, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p60To, &kOdm480p60From},
     {480059, 640, 480, 60, 0x31f, 0x20c, 0, 0x06, 1, &kOdm480p59To, &kOdm480p59From},
-    // b145 HDR (keys height * 1000 + Hz, PhxAccel's HDR twins): the SDR modes' timings, Linux's 10 bpc link
+    // HDR (keys height * 1000 + Hz, PhxAccel's HDR twins): the SDR modes' timings, Linux's 10 bpc link
     {1440060, 2560, 1440, 60, 0xa9f, 0x5c8, 0, 0x0a, 4, &kOdm60hTo, &kOdm60hFrom},
     {1440120, 2560, 1440, 120, 0xa9f, 0x5f4, 0, 0x14, 4, &kOdm120hTo, &kOdm120hFrom},
     {1440144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x1e, 4, &kOdm144hTo, &kOdm144hFrom},
     {1440240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, &kOdm240hTo, &kOdm240hFrom},
 };
-static const phxodm::Set kOdmSet = {kOdmModes, sizeof kOdmModes / sizeof kOdmModes[0], 2, &kOdmEntry, 3};
+static const phxodm::Set kOdmSet = {kOdmModes, sizeof kOdmModes / sizeof kOdmModes[0], 2, &kOdmEntry, 3};   // hub 144, entry 240
 
-static int gOdmLast = -1;
-static phxodm::Run gOdm;
+static int gOdmLast = -1;   // the last selector written to debug.phxp0odm
+static phxodm::Run gOdm;    // where = kMac until the first run lands (cur is read only in kLinux)
 
-// b142 Adaptive Sync (debug.phxvrr): OTG0's V_TOTAL range as Linux's DCN 3.2 register path writes it (PhxP0Odm.h
-// vrrRegs), only on a 1440p mode the replay engine lit. Off puts back the three values the first on found (the GOP's: 0);
-// every engine run turns it off first (the plans were captured without a range). Under gP2Busy and scanLock.
-static uint32_t gVrrBoot[3];   // OTG0 V_TOTAL_MIN, MAX, CONTROL before the first on
-static phxodm::VrrRegs gVrrSet{};
+// ---- Adaptive Sync -----------------------------------------------------------------------------------------------------
+// OTG0's V_TOTAL range as Linux's DCN 3.2 register path writes it (PhxP0Odm.h vrrRegs), only on a 1440p mode the replay
+// engine lit. Off puts back the values the first on found (the GOP's); every engine run turns the range off first (the
+// plans were captured without one). Callers hold gP2Busy and scanLock.
+//   gVrrWant (phx_sysctl.cpp)   System Settings' Variable, or debug.phxvrr, asked for the range
+//   gVrrOn   (phx_sysctl.cpp)   the range is on. "phxVrrSet" keeps it on only while GPU present scans: its flips fire
+//                               the trigger that ends each stretched frame
+//   gVrrMinHz                   the floor: 48 until PhxAccel sends its own (debug.phxfb0_vrrmin) or debug.phxvrr_floor
+static uint32_t gVrrBoot[3];       // OTG0 V_TOTAL_MIN, MAX, CONTROL before the first on
+static uint32_t gVrrBootDbuf = 0;  // OTG0's double-buffer control before the first on
+static phxodm::VrrRegs gVrrSet{};  // the range last written
 static uint32_t gVrrMinHz = 48, gVrrOns = 0, gVrrOffs = 0, gVrrRefusals = 0;
 static const char *gVrrWhy = "never run";
-static uint32_t gVrrBootDbuf = 0, gVrrOffWaitUs = 0, gVrrOffWaitMaxUs = 0, gVrrOffTimeouts = 0;   // b150: the DRR double buffer
+static uint32_t gVrrOffWaitUs = 0, gVrrOffWaitMaxUs = 0, gVrrOffTimeouts = 0;   // off's wait for the frame-start latch
 static void vrrOffLocked(const phxp2::Env &e) {
     if (!gVrrOn) return;
     gVrrOn = 0;   // first: no flip writes a window or a trigger from here (scanPresent runs under the same scanLock)
-    bool to = false;
-    gVrrOffWaitUs = phxodm::vrrWriteOff(e, gVrrBoot, gVrrBootDbuf, &to);   // b150: latched at a frame start, then the boot mode
+    bool timedOut = false;
+    gVrrOffWaitUs = phxodm::vrrWriteOff(e, gVrrBoot, gVrrBootDbuf, &timedOut);   // latched at a frame start, then the boot mode
     if (gVrrOffWaitUs > gVrrOffWaitMaxUs) gVrrOffWaitMaxUs = gVrrOffWaitUs;
-    if (to) gVrrOffTimeouts++;
+    if (timedOut) gVrrOffTimeouts++;
     gVrrOffs++; gVrrWhy = "off";
-    gVrrRampVMin = gVrrRampVMax = gVrrRampHz = 0; gVrrRampPrimed = false;   // b147: no ramp while off
+    gVrrRampVMin = gVrrRampVMax = gVrrRampHz = 0; gVrrRampPrimed = false;   // no ramp while off
 }
 static int vrrOnLocked(const phxp2::Env &e) {
     const phxodm::Mode *m = phxodm::curMode(gOdm, kOdmSet);
@@ -129,21 +139,31 @@ static int vrrOnLocked(const phxp2::Env &e) {
     phxodm::VrrRegs v{};
     if (!phxodm::vrrRegs(*m, gVrrMinHz, ctl, &v)) { gVrrWhy = "no range for this mode"; return EINVAL; }
     if (!gVrrOn) { gVrrBoot[0] = phxp2::rd(e, phxodm::kOtg0VMin); gVrrBoot[1] = phxp2::rd(e, phxodm::kOtg0VMax); gVrrBoot[2] = ctl; }
-    uint32_t db = 0;
-    phxodm::vrrWriteOn(e, v, &db);   // b150: Linux's DRR double buffer mode first, then MAX, MIN, the CONTROL fields
-    if (!gVrrOn) gVrrBootDbuf = db;
+    uint32_t dbufBefore = 0;
+    phxodm::vrrWriteOn(e, v, &dbufBefore);   // Linux's DRR double buffer mode first, then MAX, MIN, the CONTROL fields
+    if (!gVrrOn) gVrrBootDbuf = dbufBefore;
     gVrrSet = v; gVrrOn = 1; gVrrOns++; gVrrWhy = "on";
-    gVrrRampVMin = v.vmin; gVrrRampVMax = v.vmax; gVrrRampHz = m->hz;   // b147: the ramp starts from the full range
+    gVrrRampVMin = v.vmin; gVrrRampVMax = v.vmax; gVrrRampHz = m->hz;   // the ramp starts from the full range
     gVrrRampLo = v.vmin; gVrrRampHi = v.vmax; gVrrRampPrimed = false;
     return 0;
 }
+// GPU present stopped / started (phx_scan.cpp, scanLock held): the range follows it, the want stays.
 static uint32_t gVrrDrops = 0, gVrrResumes = 0;
-static void phxVrrDropLocked() { if (!gVrrOn || !p2Up()) return; vrrOffLocked(p2Env()); gVrrDrops++; gVrrWhy = "off: GPU present stopped (wanted)"; }
-static void phxVrrResumeLocked() { if (gVrrOn || !gVrrWant || !p2Up()) return; if (!vrrOnLocked(p2Env())) gVrrResumes++; }
-// b144: PhxAccel head 0 after each landed switch: *io bit 0 = 1 (System Settings' Variable, the VRR twin) or 0 (a fixed
-// rate); out: 1 when the range is on. On needs GPU present (scanAcquiredLocked); otherwise it is remembered and comes on
-// with it. b146: bits 8-15 = the floor in Hz (debug.phxfb0_vrrmin; 0 = keep the current one, 48 at boot, as a b144/b145
-// PhxAccel sends), 24 or more; the range then runs from the mode's V_TOTAL to that rate.
+static void phxVrrDropLocked() {
+    if (!gVrrOn || !p2Up()) return;
+    vrrOffLocked(p2Env());
+    gVrrDrops++; gVrrWhy = "off: GPU present stopped (wanted)";
+}
+static void phxVrrResumeLocked() {
+    if (gVrrOn || !gVrrWant || !p2Up()) return;
+    if (!vrrOnLocked(p2Env())) gVrrResumes++;
+}
+// "phxVrrSet": PhxAccel head 0 calls it after each landed switch.
+//   in   *io bit 0      1 = System Settings' Variable (a VRR twin), 0 = a fixed rate
+//        *io bits 8-15  the floor in Hz (debug.phxfb0_vrrmin), 24 or more; 0 = keep the current one (48 at boot; what a
+//                       PhxAccel before the floor sends). The range runs from the mode's V_TOTAL to that rate.
+//   out  *io            1 when the range is on
+// On needs GPU present (scanAcquiredLocked); otherwise the want is remembered and the range comes on with it.
 static IOReturn phxVrrSetFn(uint32_t *io) {
     if (!io || (*io & ~0xff01u)) return kIOReturnBadArgument;
     const uint32_t floorHz = (*io >> 8) & 0xffu;
@@ -161,9 +181,9 @@ static IOReturn phxVrrSetFn(uint32_t *io) {
     IOLockUnlock(gPhx->scanLockForEngines());
     OSCompareAndSwap(1, 0, &gP2Busy);
     return kIOReturnSuccess;
-}   // where = kMac until the first run lands (cur is read only in kLinux)
+}
 
-// b149: HUBP0's scan-out format now (8 ARGB8888; 10 ARGB2101010 after an HDR plan), for PhxAMDFB's CPU copy
+// "phxScanFmt": HUBP0's scan-out format now (8 ARGB8888; 10 ARGB2101010 after an HDR plan), for PhxAMDFB's CPU copy
 static IOReturn phxScanFmtFn(uint32_t *io) {
     if (!io) return kIOReturnBadArgument;
     if (!p2Up()) return kIOReturnNotReady;
@@ -179,8 +199,8 @@ static int odmRunLocked(int sel, int *err) {
     if (!p2I2cLock(gPhx, 1)) { OSCompareAndSwap(1, 0, &gP2Busy); *err = EBUSY; return -1; }
     gOdmLast = sel;
     IOLockLock(gPhx->scanLockForEngines());
-    vrrOffLocked(p2Env());   // b142: the plans run without a V_TOTAL range
-    {   // b139: a size change first takes the plane back from GPU present (sel: 1 survey, 2 = 240, 3 = 144, else a key)
+    vrrOffLocked(p2Env());   // the plans run without a V_TOTAL range
+    {   // a size change first takes the plane back from GPU present (sel: 1 survey, 2 = 240, 3 = 144, else a key)
         const uint32_t key = sel == 2 ? 240u : sel == 3 ? 144u : static_cast<uint32_t>(sel);
         const int mi = sel == 1 ? -1 : phxodm::findMode(kOdmSet, key);
         if (mi >= 0) gPhx->scanYieldForModeLocked(kOdmSet.m[mi].h);
@@ -202,11 +222,11 @@ static int odmRunLocked(int sel, int *err) {
 //   macOS's own state (the GOP's / the pipe-0 engine's): 60 / 120 / 144 stay with the pipe-0 engine; 240 = the pipe-0
 //   engine to 144 first when needed (the entry plan's start), then the entry.
 //   After the first 240 (Linux's state): every rate here, through Linux's 144.
-//   b138: PhxAccel's other resolutions (keys height * 1000 + Hz): from macOS's state the entry first, then the key.
+//   PhxAccel's other resolutions and HDR twins (keys height * 1000 + Hz): from macOS's state the entry first, then the key.
 static bool p0OdmKnows(uint32_t key) { return phxodm::findMode(kOdmSet, key) >= 0; }
 static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret) {
     const uint32_t t = m->target_hz;
-    // macOS's own 60 / 120 / 144 stay with the pipe-0 engine; 240 and (b138) every other resolution start with the entry
+    // macOS's own 60 / 120 / 144 stay with the pipe-0 engine; 240 and every keyed mode start with the entry
     if (gOdm.where == phxodm::kMac && (t == 60 || t == 120 || t == 144)) return false;
     int err = 0;
     *ret = kIOReturnSuccess;
@@ -221,7 +241,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret) {
         }
     }
     int r;
-    if (gOdm.where == phxodm::kMac && t != 240) {   // b138: another resolution from macOS's state: the entry (240) first
+    if (gOdm.where == phxodm::kMac && t != 240) {   // a keyed mode from macOS's state: the entry (240) first
         r = odmRunLocked(240, &err);
         if (r == phxodm::kDone || (r == phxodm::kFellBack && gOdm.where == phxodm::kLinux)) r = odmRunLocked(static_cast<int>(t), &err);
     } else {
@@ -264,8 +284,8 @@ static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     IOFree(b, kN);
     return e;
 }
-// b142: root writes 1 (OTG0's range from the lit 1440p mode's V_TOTAL down to the floor: 48 Hz, b146 PhxAccel's) or 0 (back to the boot values); reads
-// 1 while on. debug.phxvrr_stat: the registers now, the range set, the triggers fired, OTG0's frame rate over 250 ms.
+// debug.phxvrr: root writes 1 (OTG0's range from the lit 1440p mode's V_TOTAL down to the floor) or 0 (back to the boot
+// values); reads 1 while on. For tests by hand: System Settings' Variable goes through "phxVrrSet".
 static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
     int v = gVrrOn;
     const int err = sysctl_handle_int(oidp, &v, 0, req);
@@ -287,7 +307,8 @@ static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrSysctl, "I",
             "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to the floor (48 Hz; b146: PhxAccel's) on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
-// b147: the ramp, % per flip (0 = off: the mode's full range; 1-50); takes effect at the next flip. Root.
+// debug.phxvrr_ramp: the ramp (PhxVrrRamp.h), % per flip (0 = off: the mode's full range; 1-50); takes effect at the
+// next flip. Root.
 static int phxVrrRampSysctl SYSCTL_HANDLER_ARGS {
     int v = gVrrRampPct;
     const int err = sysctl_handle_int(oidp, &v, 0, req);
@@ -300,8 +321,9 @@ static int phxVrrRampSysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr_ramp, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrRampSysctl, "I",
             "b147 Adaptive Sync ramp (root): the next frames may be at most this % shorter or longer than the last ones (1-50, default 5; 0 = off, the full range)");
-// b147: the floor in Hz, live (root; 24 or more, below the lit mode's rate). On: the range is set again at once. PhxAccel's
-// next "phxVrrSet" (a mode switch) puts back its own floor (debug.phxfb0_vrrmin), and System Settings' label stays its.
+// debug.phxvrr_floor: the floor in Hz, live (root; 24 or more, below the lit mode's rate). While on, the range is set
+// again at once. PhxAccel's next "phxVrrSet" (a mode switch) puts back its own floor (debug.phxfb0_vrrmin), and System
+// Settings' label stays PhxAccel's. For tests by hand; the lasting knob is ~/gpu/phxboot-vrrmin.
 static int phxVrrFloorSysctl SYSCTL_HANDLER_ARGS {
     int v = static_cast<int>(gVrrMinHz);
     const int err = sysctl_handle_int(oidp, &v, 0, req);
@@ -323,6 +345,8 @@ static int phxVrrFloorSysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr_floor, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrFloorSysctl, "I",
             "b147 Adaptive Sync floor in Hz (root, live; 24 or more): OTG0's V_TOTAL_MAX goes to it; a mode switch puts back PhxAccel's");
+// debug.phxvrr_stat: the registers now, the range set, the triggers fired, the ramp's window, the counters, OTG0's frame
+// rate over 250 ms (the read sleeps that long), the boot values, the double buffer, HUBP0's control (underflow 30:28).
 static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
@@ -334,12 +358,20 @@ static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
         const uint32_t f0 = phxp2::rd(e, phxodm::kOtg0Frame);
         IOSleep(250);
         const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
-        n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
-                     "triggers %lld | ramp %d %% window 0x%x-0x%x last %u lines writes %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x | dbuf now 0x%08x boot 0x%08x off wait %u us max %u timeouts %u | HUBP0 0x%08x",
+        n = snprintf(b, sizeof b,
+                     "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
+                     "triggers %lld | ramp %d %% window 0x%x-0x%x last %u lines writes %lld | "
+                     "floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | "
+                     "boot MIN 0x%x MAX 0x%x CONTROL 0x%x | dbuf now 0x%08x boot 0x%08x off wait %u us max %u timeouts %u | "
+                     "HUBP0 0x%08x",
                      gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
-                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrRampPct, gVrrRampLo, gVrrRampHi, gVrrRampLines, (long long)gVrrRampWrites, gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs,
-                     gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2],
-                     phxp2::rd(e, phxodm::kOtg0Dbuf), gVrrBootDbuf, gVrrOffWaitUs, gVrrOffWaitMaxUs, gVrrOffTimeouts, phxp2::rd(e, phxodm::kHubp0Cntl));
+                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl,
+                     (long long)gVrrTrigs, gVrrRampPct, gVrrRampLo, gVrrRampHi, gVrrRampLines, (long long)gVrrRampWrites,
+                     gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs, gVrrRefusals, gVrrDrops, gVrrResumes,
+                     (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4,
+                     gVrrBoot[0], gVrrBoot[1], gVrrBoot[2],
+                     phxp2::rd(e, phxodm::kOtg0Dbuf), gVrrBootDbuf, gVrrOffWaitUs, gVrrOffWaitMaxUs, gVrrOffTimeouts,
+                     phxp2::rd(e, phxodm::kHubp0Cntl));
     }
     if (n < 0) n = 0;
     if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;

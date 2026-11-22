@@ -94,7 +94,7 @@ bool PhxBringup::scanRestoreLocked() {
     scan.acquired = false;
     scan.front = scan.pending = PHXN_SCAN_NO_SLOT;
     scan.restores++;
-    if (gVrrOn) phxVrrDropLocked();   // b144: no flips, no trigger: the range goes off with GPU present
+    if (gVrrOn) phxVrrDropLocked();   // Adaptive Sync: no flips, no trigger, so the range goes off with GPU present
     IOLog("PhxBringup: scanout restored to the console (%s)\n", ok ? "verified" : "NOT verified");
     return ok;
 }
@@ -132,18 +132,17 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->hubp_format = rreg(kHubp0SurfaceConfig) & 0x7f;
     q->sw_mode = rreg(kHubp0TilingConfig) & 0x1f;
     q->dcc_en = rreg(kHubpreq0SurfaceControl) & 1;
-    // b138: the visible width is HUBP0's viewport (the replay plans write Linux's pitch, wider than the mode below 1440p:
-    // 1920 -> 2048); with pitch == viewport, as on every mode before b138, this is the pitch as before
-    // b143: under ODM 2:1 (240 Hz, gP0OdmActive) HUBP0's viewport is the left half and HUBP1 scans the right half of the same
-    // surface: the plane is twice HUBP0's viewport. b138-b142 reported 1280 at 240, so GPU present never started when the
-    // first acquire came after a switch to 240 (b140+: the login screen's switch; box 2026-11-20 22:46, CPU copy at 240)
+    // The visible width is HUBP0's viewport: the replay plans write Linux's pitch, wider than the mode below 1440p
+    // (1920 -> 2048). Under ODM 2:1 (240 Hz, gP0OdmActive) HUBP0's viewport is the left half and HUBP1 scans the right
+    // half of the same surface, so the plane is twice HUBP0's viewport.
     const uint32_t vpw = (rreg(kHubp0PriViewportDim) & 0x3fff) * (gP0OdmActive ? 2u : 1u);
     q->plane_w = q->h_active = vpw && vpw <= q->pitch_px ? vpw : q->pitch_px;
     q->plane_h = q->v_active = vbs > vbe ? vbs - vbe : 0;
     q->flags = ((rreg(kOtg0Control) & 1) ? PHXN_SCANQ_LIT : 0) | PHXN_SCANQ_NATIVE;
     const uint64_t bytes = static_cast<uint64_t>(q->pitch_px) * 4 * q->plane_h;
-    // b149: ARGB2101010 too (HDR's 10-bit scan-out, the replay plans): the same 4 bytes per pixel, the plugin copies l10r raw
-    if ((q->hubp_format == PHXN_SCAN_FMT_ARGB8888 || q->hubp_format == PHXN_SCAN_FMT_ARGB2101010) && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
+    // ARGB2101010 too (the HDR replay plans' 10-bit scan-out): the same 4 bytes per pixel, the plugin copies l10r raw
+    const bool fmtOk = q->hubp_format == PHXN_SCAN_FMT_ARGB8888 || q->hubp_format == PHXN_SCAN_FMT_ARGB2101010;
+    if (fmtOk && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
         q->flags |= PHXN_SCANQ_GEOM_OK;
     if (scanLock) IOLockLock(scanLock);
     q->frame_count = scanFrameLocked();
@@ -156,12 +155,12 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->otg = 0;
 }
 
-// b139: before a mode change to another size, with scanLock held: a GPU-present acquisition's slots have the old size,
-// so HUBP0 goes back to the console surface A now (the same flip a release does) and the CPU copy draws the new mode.
-// 2026-11-20 on the XTX machine: macOS applied a saved 1280x1024 at login, the plugin never saw a frame at the new size,
-// kept the plane, and the CPU copy skipped every frame as foreign: a black screen until debug.phxscan=0. A rate change
-// at the same size keeps the acquisition (the slots stay valid). The owner keeps its handle; its next call is refused
-// (not acquired) and the plugin treats that as a lost plane. true = a restore ran.
+// Before a mode change to another size, with scanLock held: a GPU-present acquisition's slots have the old size, so
+// HUBP0 goes back to the console surface A now (the same flip a release does) and the CPU copy draws the new mode.
+// Without this the plugin, which never sees a frame at the new size, keeps the plane while the CPU copy skips every
+// frame as foreign: a black screen (seen on the XTX machine with a saved 1280x1024 applied at login). A rate change at
+// the same size keeps the acquisition (the slots stay valid). The owner keeps its handle; its next call is refused (not
+// acquired) and the plugin treats that as a lost plane. true = a restore ran.
 bool PhxBringup::scanYieldForModeLocked(uint32_t targetH) {
     if (!mmio || !scan.acquired || !targetH || targetH == scan.planeH)
         return false;
@@ -236,7 +235,7 @@ IOReturn PhxBringup::scanAcquire(const void *who, uint64_t out[2]) {
         scan.lastCallAbs = mach_absolute_time();
         out[0] = scan.consoleMc;
         out[1] = scanFrameLocked();
-        if (gVrrWant) phxVrrResumeLocked();   // b144: System Settings' Variable, back with GPU present
+        if (gVrrWant) phxVrrResumeLocked();   // Adaptive Sync: System Settings' Variable, back with GPU present
         IOLog("PhxBringup: scanout acquired (console MC 0x%llx, %ux%u, slots %s at VRAM 0x%llx + k * 0x%llx)%s\n", scan.consoleMc,
               q.pitch_px, q.plane_h, phxscanlay::name(scan.lay.kind), scan.lay.base, scan.lay.stride, prev ? " (previous owner dropped)" : "");
     }
@@ -298,15 +297,18 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
         }
         scanFlipLocked(scan.slotMc[slot], false);
         if (gVrrOn) {
-            if (gVrrRampPct <= 0 && gVrrRampVMax > gVrrRampVMin && (gVrrRampLo != gVrrRampVMin || gVrrRampHi != gVrrRampVMax)) {
-                // b148: ramp turned off: the full range back (b147 kept the last window: stuck at one rate)
+            // Adaptive Sync, per flip: the ramp's window for the next frames (PhxVrrRamp.h), then Linux's manual trigger,
+            // which ends the stretched frame so this flip shows at once. OTG0's DRR double buffer is on (vrrOnLocked), so
+            // a window written here latches at the next frame start, never mid-frame.
+            if (gVrrRampPct <= 0 && gVrrRampVMax > gVrrRampVMin &&
+                (gVrrRampLo != gVrrRampVMin || gVrrRampHi != gVrrRampVMax)) {
+                // the ramp was turned off: the mode's full range back, or the last window would stay
                 wreg(kOtg0VTotalMin, gVrrRampVMin); wreg(kOtg0VTotalMax, gVrrRampVMax);
                 gVrrRampLo = gVrrRampVMin; gVrrRampHi = gVrrRampVMax; gVrrRampPrimed = false;
                 OSIncrementAtomic64(&gVrrRampWrites);
             }
-            if (gVrrRampPct > 0 && gVrrRampVMax > gVrrRampVMin) {   // b147: the ramp's window for the next frames
-                // b150: the window latches at the next frame start (Linux's DRR double buffer, set by vrrOnLocked); b147-b149
-                // changed it mid-frame, which cut frames short and raised HUBP0's underflow sticky (PhxP0Odm.h)
+            if (gVrrRampPct > 0 && gVrrRampVMax > gVrrRampVMin) {
+                // the frame length since the previous flip, from OTG0's frame counter and the clock, sets the window
                 const uint64_t f = scanFrameLocked();
                 uint64_t ns = 0;
                 absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
@@ -323,7 +325,7 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
                 }
                 if (f > gVrrRampFrame || !gVrrRampPrimed) { gVrrRampFrame = f; gVrrRampNs = ns; gVrrRampPrimed = true; }
             }
-            wreg(kOtg0TrigAManualTrig, 1u); OSIncrementAtomic64(&gVrrTrigs);   // b142: Linux's per-flip trigger
+            wreg(kOtg0TrigAManualTrig, 1u); OSIncrementAtomic64(&gVrrTrigs);   // Linux's per-flip trigger
         }
         scan.pending = slot;
         scan.presents++;
@@ -346,7 +348,8 @@ IOReturn PhxBringup::scanStatus(const void *who, phxn_scan_status *st) {
     if (scan.acquired) scanPollLocked();
     const uint64_t earliest = scanEarliest();
     st->acquired = scan.acquired && scan.owner == who;
-    if (mmio && (rreg(kHubp0SurfaceConfig) & 0x7f) == PHXN_SCAN_FMT_ARGB2101010) st->flags |= PHXN_SCANST_FMT10;   // b149
+    // 10-bit HDR: tells the plugin to copy l10r as it is
+    if (mmio && (rreg(kHubp0SurfaceConfig) & 0x7f) == PHXN_SCAN_FMT_ARGB2101010) st->flags |= PHXN_SCANST_FMT10;
     st->front_slot = scan.front;
     st->pending_slot = scan.pending;
     st->frame_count = scanFrameLocked();
