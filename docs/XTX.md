@@ -4,7 +4,9 @@ Status of running Vermilion on an RX 7900 XTX (Navi 31, PCI `1002:744c`, revisio
 tested only on an RX 7900 XT (revision `0xCC`). This page lists what is the same, what differs and what needs
 doing. The audit behind it: [`.agents/findings/2026-11-18-xtx-port-audit.md`](../.agents/findings/2026-11-18-xtx-port-audit.md).
 
-**Status (2026-11-18): audited from source and from Linux on the XTX; not yet run on macOS.**
+**Status (2026-11-22):** macOS runs accelerated on the XTX machine ([REFERENCE-MACHINES.md](REFERENCE-MACHINES.md)); its
+2560x1440 monitor works fully (every rate to 240 Hz, Adaptive Sync, HDR; section "A 1440p monitor"). The table of
+differences below is from the source audit of 2026-11-18 and was not re-checked when this status was written.
 
 ## Same as the XT (no change needed)
 
@@ -32,28 +34,82 @@ The XTX is the same die with nothing disabled. These were checked against the XT
 
 ## A 1440p monitor (LG ULTRAGEAR+, 2560x1440 at up to 240 Hz)
 
-Upstream's display code is built around two 1080p monitors. On the XTX machine, with one 2560x1440 DisplayPort
-monitor, this works from System Settings > Displays (verified on the XTX machine, 2026-11-20):
+Upstream's display code is built around two 1080p monitors. On the XTX machine, with one 2560x1440 DisplayPort monitor
+(LG 27GS95QE, an OLED), all of this works from System Settings > Displays. Verified on the XTX machine, 2026-11-20 to
+2026-11-22, with VermilionBoot b150; nothing here has run on another card or monitor.
 
-- **Every rate at 2560x1440: 60, 120, 144 and 240 Hz**, in any order. 240 Hz runs HBR3 with DSC and ODM 2:1, as Linux
-  drives it. VermilionBoot's replay engine (`PhxP0Odm.h`, b135+) replays Linux's own mode sets, captured on the same card
-  and monitor (`tools/capture/linux_display_capture.py`, `tools/capture/p0odm_from_trace.py`). Every switch goes through
-  Linux's 144 Hz and retrains the link at the lowest rate that fits.
-- **Every other mode the monitor lists:** 1920x1080 at 60 and 120 Hz, 1280x1024, 1024x768, 800x600 and 640x480. The
-  desktop resizes (PhxAccel reports each mode's own geometry with Linux's 256-pixel pitch, b138).
-- **The login screen comes up at the saved rate** (b140).
-- **Adaptive Sync:** System Settings offers "Variable (48-240 Hz)" next to the fixed rates (PhxAccel publishes the
-  timing range with Apple's VRR flag and a variable twin of the 240 Hz mode). Picking it turns on OTG0's V_TOTAL range
-  the way Linux's DCN 3.2 code does on a firmware without fw-assisted mclk switching, which the GOP's DMCUB build is
-  (b141-b144; `debug.phxvrr`, `debug.phxvrr_stat`). It works only at 2560x1440: the per-flip trigger that ends a frame
-  comes from GPU present, and the other sizes are drawn by the CPU copy. `~/gpu/phxboot-novrr` turns the offer off.
-- **GPU present** draws 2560x1440 at every rate (b126 slots, b143 under ODM 2:1). It runs only at the size it started at
-  (Metal plugin): the other sizes are drawn by the CPU copy. A size change gives the plane back first (b139).
+| At 2560x1440 | State |
+|---|---|
+| 60, 120, 144 and 240 Hz, in any order | works |
+| Variable (60-240 Hz): Adaptive Sync | works; some flicker is left near the low end (the panel's, see below) |
+| High Dynamic Range at 60, 120, 144 and 240 Hz, drawn in 10 bits per colour | works |
+| Variable with High Dynamic Range on | works |
+| The login screen at the saved rate | works |
 
-Not done yet: HDR (the Linux traces are in capture v3), and Variable at the other sizes.
+The other modes the monitor lists (1920x1080 at 60 and 120 Hz, 1280x1024, 1024x768, 800x600, 640x480) work at their
+fixed rates and the desktop resizes. They have no Variable and no HDR: the owner of the machine uses only 2560x1440
+([decisions.md](../.agents/decisions.md), 2026-11-22).
 
-What macOS needs for Adaptive Sync, and where each value comes from:
-[findings/2026-11-20-adaptive-sync-research.md](../.agents/findings/2026-11-20-adaptive-sync-research.md).
+How each part works:
+
+- **The rates.** 240 Hz runs HBR3 with FEC, DSC and ODM 2:1, as Linux drives it. VermilionBoot's replay engine
+  (`PhxP0Odm.h`, `phx_p0odm.cpp`) replays Linux's own mode sets, captured on the same card and monitor
+  (`tools/capture/linux_display_capture.py`) and turned into plans by `tools/capture/p0odm_from_trace.py`. Every switch
+  goes through Linux's 144 Hz and retrains the link at the rate Linux used for the mode. The plans hold only what Linux
+  wrote on this ASIC; a switch that fails its checks goes back to 144 Hz with the mode's own return plan.
+- **The other sizes.** PhxAccel reports each mode's own geometry with Linux's 256-pixel pitch and the desktop resizes.
+- **GPU present** (the Metal plugin flips the display itself) draws 2560x1440 at every rate. It runs only at the size
+  it started at; the other sizes are drawn by the CPU copy. A size change gives the plane back first.
+- **Adaptive Sync.** PhxAccel publishes the timing range with Apple's VRR flag and a variable twin of the 240 Hz mode,
+  so System Settings offers "Variable (60-240 Hz)" next to the fixed rates. Picking it turns on OTG0's V_TOTAL range
+  the way Linux's DCN 3.2 code does on a firmware without fw-assisted mclk switching (which the GOP's DMCUB build is),
+  double buffered as on Linux, and each flip fires Linux's manual trigger. The trigger comes from GPU present, so
+  Variable exists only at 2560x1440.
+- **The floor and the ramp.** The LG flickers when the frame length jumps (an OLED's brightness follows it; the same
+  monitor does it on Windows and Linux). Two things reduce it. The floor: Variable goes down to 60 Hz, not to the
+  EDID's 48. The ramp (`PhxVrrRamp.h`): from one flip to the next the frame length may change by at most 5 %. Some
+  flicker is left.
+- **HDR.** PhxAccel lists an HDR10 twin of each 1440p rate (and one of Variable); System Settings then shows "High
+  Dynamic Range". The twins switch to Linux's HDR mode sets: 10 bpc on the link, BT.2020, the PQ mastering infoframe,
+  and a 10-bit scan-out (ARGB2101010). WindowServer's 10-bit surfaces reach the screen without being narrowed to 8
+  bits, by GPU present and by the CPU copy. HDR is offered only together with Adaptive Sync's timing range.
+
+### Display settings
+
+Everything is on by default when the monitor and the installed kexts support it. The files live in `~/gpu` and are
+read by the boot daemon at the next restart ([INSTALL.md](INSTALL.md), 7.3); the sysctls take effect at once and
+last until the restart.
+
+| Knob | What it does |
+|---|---|
+| `~/gpu/phxboot-p0modes` (present) | needed for all of the above: head 0 lists the monitor's modes instead of one |
+| `~/gpu/phxboot-vrrmin` (value: Hz) | Variable's lowest rate: `0` = the EDID's minimum (48 on the LG), or 24-240. Without the file: 60. A new value makes macOS treat the monitor as a new display (below) |
+| `~/gpu/phxboot-novrr` (present) | no Variable in System Settings. HDR goes with it |
+| `~/gpu/phxboot-nohdr` (present) | no High Dynamic Range in System Settings |
+| `sudo sysctl -w debug.phxvrr_ramp=N` | the ramp in % per flip: 1-50, default 5; `0` = no ramp (the full range at once). On the LG, 5 flickered least; 10 and 20 flickered more |
+| `sudo sysctl -w debug.phxvrr_floor=N` | the floor in Hz, live (24-255), for trying values. The next mode switch puts back the boot value, and the label in System Settings does not change |
+| `sysctl debug.phxvrr_stat` | Adaptive Sync's state: on / off and why, OTG0's range registers, the ramp's window, the floor, the measured rate |
+| `sysctl debug.phxp0odm_stat` | the replay engine's last run: result, the mode now, the last failure |
+| `sysctl debug.phxfb0_scan10` | 1 while the scan-out is 10-bit (HDR on) |
+
+Things to know:
+
+- **A floor change resets the display's settings in macOS.** System Settings names "Variable (N-240 Hz)" after the
+  EDID's minimum rate, so PhxAccel serves macOS an EDID with the floor in it. macOS identifies a display by its EDID:
+  with a new floor it sees a new display and starts over with the colour profile and the per-display settings. Seen
+  on the XTX machine. Leave the floor alone and nothing resets.
+- **Colour profiles.** macOS keeps one colour profile per display, not one for SDR and one for HDR. The XTX machine's
+  owner switches between two profiles with a small Swift script, `~/gpu/tools/colorprofile.swift` (`hdr`, `sdr`, or no
+  argument to show the current one). It is not part of this repository.
+- **After a PhxAccel update, click Allow** in System Settings > Privacy & Security before restarting. Without it macOS
+  does not rebuild the Auxiliary Kernel Collection and the old PhxAccel keeps loading
+  ([findings](../.agents/findings/2026-11-22-vrr-underflow-and-auxkc.md)).
+
+Background: what macOS needs for Adaptive Sync
+([findings](../.agents/findings/2026-11-20-adaptive-sync-research.md)), HDR
+([findings](../.agents/findings/2026-11-21-hdr.md)), the underflow that came with un-buffered range writes
+([findings](../.agents/findings/2026-11-22-vrr-underflow-and-auxkc.md)), and the install and test log
+([findings](../.agents/findings/2026-11-22-display-polish-log.md)).
 
 **NVRAM:** `DisableVariableWrite` stays on (the installer hangs on this board without it), so macOS can't clear
 `phxfb-squat`. A failed accelerated boot used to reboot in a loop; since 2026-11-20 the boot daemon notices that the

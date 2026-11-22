@@ -439,6 +439,14 @@ firmware, and loading it again into a running SMU is something the Linux driver 
    display power recipe, each behind its flag, then a watch that reverts to the firmware framebuffer after two
    WindowServer GPU hangs within five minutes.
 
+**A squat that cannot be cleared** (seen on the XTX machine, [XTX.md](XTX.md)). With OpenCore's
+`DisableVariableWrite`, macOS cannot delete `phxfb-squat`, so the reboots of steps 2 and 3 come back as squat boots. The
+daemon notices (`~/gpu/phxboot-nvstuck`: it rebooted to clear the squat and is squatting again) and does not reboot a
+second time. It brings up a **safe desktop** on the squat instead: the CPU copy at the boot mode, with no mode list,
+GPU present, flip, second monitor, display power recipe or VCN, and with Variable and HDR off. If that attempt does
+not finish either, the next boot stays dark but reachable over the network; it never loops. Reset NVRAM in the
+OpenCore picker clears the squat; `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back.
+
 **Nobody may be logged in at the console or over an interactive SSH session before the WindowServer restart**: the
 daemon checks `who` before arming and again right before the restart, and a logged-in user fails the attempt. Turn
 automatic login off.
@@ -460,12 +468,18 @@ stated.
 | `phxboot-cg` | after the bring-up and after `done` | GFX clock gating as Linux enables it (without it the idle card runs ~250 W at a 110 C hotspot with the fans at full) |
 | `phxboot-uclk` (value: MHz, e.g. `456`) | after the bring-up and after `done` | memory clock hard minimum; without it a memory clock switch under GPU load can underflow the display |
 | `phxboot-m7-aocmodes` or `phxboot-m7-aoc144` | before the claim | head 0 lists the DisplayPort monitor's 60 and 144 Hz modes |
+| `phxboot-p0modes` | before the claim | the XTX machine's 1440p monitor: switches the pipe-0 engine on and lets head 0 list the monitor's modes (`debug.phxpipe0_enable=1`, `debug.phxpipe0_modes=1`), so System Settings offers its rates, Variable and HDR ([XTX.md](XTX.md), "A 1440p monitor"). Needs VermilionBoot b128 or later |
+| `phxboot-novrr` | before the claim | `debug.phxfb0_vrr=0`: head 0 does not offer Adaptive Sync (System Settings' "Variable"). HDR is offered only with it, so HDR goes too. Default: offered when the monitor and the kexts support it |
+| `phxboot-vrrmin` (value: Hz; `0` or `24`-`240`) | before the claim | `debug.phxfb0_vrrmin`: the lowest rate Variable may reach. Absent = 60; `0` = the EDID's minimum. A new value makes macOS treat the monitor as a new display (its colour profile and per-display settings start over) |
+| `phxboot-nohdr` | before the claim | `debug.phxfb0_hdr=0`: head 0 does not offer "High Dynamic Range". Default: offered when the monitor and the kexts support it |
 | `phxboot-m7` | desktop arm | the second monitor at boot (`m7_boot.sh light` before the arm, `bind` after it); any failure = one monitor this boot |
 | `phxboot-aoc-rate` (value: `144`, `60` or `last`) | desktop arm, before the restart | puts the DisplayPort monitor at 144 Hz before the WindowServer restart. Needs the head-0 mode list flag and `phxboot-b15` (plus `phxboot-b15-2pipe` with two monitors, `phxboot-m7` with one); `last` = the rate remembered in `phxboot-rate-last` |
 | `phxboot-dispovr` | right before the restart | `dispovr.sh`: a CoreDisplay override per connected display so a new display set defaults to its highest refresh rate. It writes only files it created (key `phx-override`) under `/Library/Displays/Contents/Resources/Overrides` |
 | `phxboot-noflip` | after the restart | keeps the copy into the scanned surface instead of the DCN A/B flip (ignored when GPU present is on) |
 | `/Library/GPUBundles/nvmtl/ws-gpu-present` | before and after the restart | GPU present: the plugin flips the display itself (`debug.phxscan=1`) and the display pipe's copy is skipped |
 | `phxboot-wscdcopy` | before the restart | GPU present E3: `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1`, so the restarted WindowServer presents CoreDisplay's display surfaces instead of SkyLight's composite targets (fixes the flicker of redrawn regions; verified on the XTX machine at 1440p60). Needs `ws-gpu-present` and `/Library/GPUBundles/nvmtl/ws-gpu-present-async`, otherwise only logged |
+| `phxboot-waitstep` (value: microseconds, `20`-`1000`; empty = `200`) | before the restart | `debug.phxwait_step_us`: the timed step of a fence wait (the kext's default is 50). 200 cut WindowServer's wakeups on the XTX machine; only 50 and 200 were tried on hardware |
+| `phxboot-autologin` (value: the user name) | before the restart | automatic login by the accelerated login window: the daemon writes loginwindow's `autoLoginUser` right before the WindowServer restart and removes it at start, at shutdown and at every revert. Needs `/etc/kcpassword` (made once by `sudo sysadminctl -autologin set`). macOS's own automatic login must stay off: it would log in before the arm, which refuses with a user logged in |
 | `phxboot-vcn` | after `done` | VCN 0 up (`vcnup/vcn_up.sh --run`, log `~/gpu/vcnup/boot.log`), then `debug.phxvcn=1` and `debug.phxmmvm=1`; needed for hardware video decode. Skipped on a boot whose second monitor came up out of phase |
 | `phxboot-hotplug` | after `done`, two monitors bound | `debug.phxhotplug=2`: the HDMI monitor's unplug / plug takes head 1 offline / online |
 | `phxboot-hotplug0` (value `1` observe or `2` act; empty = `1`) | after `done`, desktop boot | `debug.phxhotplug0`: the same for the DisplayPort monitor on head 0 |
