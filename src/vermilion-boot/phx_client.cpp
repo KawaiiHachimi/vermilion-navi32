@@ -32,6 +32,8 @@ struct phx_pipe2_gamma;
 static IOReturn phxPipe2SetGammaFn(phx_pipe2_gamma *g);    // b98, phx_gamma.cpp (PhxGamma.h)
 struct phx_pipe0_setmode;
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m);   // b101, phx_pipe0.cpp (PhxSwitchABI.h)
+// b149: PhxAccel's CPU copy after a landed switch: *io = HUBP0's scan-out format now (8 ARGB8888, 10 ARGB2101010 in HDR)
+static IOReturn phxScanFmtFn(uint32_t *io);   // phx_p0odm.cpp
 static IOReturn phxVrrSetFn(uint32_t *io);   // b144, phx_p0odm.cpp: param1 = uint32_t * (in 1 Variable / 0 fixed, out 1 = range on)
 IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool waitForFunction, void *param1, void *param2,
                                           void *param3, void *param4) {
@@ -41,6 +43,8 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         return phxPipe2SetGammaFn(static_cast<phx_pipe2_gamma *>(param1));
     if (functionName && functionName->isEqualTo("phxPipe0SetMode"))
         return phxPipe0SetModeFn(static_cast<phx_pipe0_setmode *>(param1));
+    if (functionName && functionName->isEqualTo("phxScanFmt"))
+        return phxScanFmtFn(static_cast<uint32_t *>(param1));
     if (functionName && functionName->isEqualTo("phxVrrSet"))
         return phxVrrSetFn(static_cast<uint32_t *>(param1));
     if (functionName && functionName->isEqualTo("phxEdidRead")) {

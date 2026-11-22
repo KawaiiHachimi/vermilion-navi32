@@ -15,6 +15,14 @@
 struct nvmtl_scan_query { uint32_t h_active, v_active, h_total, v_total, pitch_px, hubp_format, sw_mode, otg, refresh_mhz, pix_clk_khz, dcc_en, flags;
                           uint64_t frame_count, console_mc, plane_mc, earliest_mc; uint32_t acquired, plane_w, plane_h, reserved; };
 struct nvmtl_scan_slot { uint64_t mc, latched_frame; uint32_t used, flags, presents, latches; };
+#define NVMTL_SCANST_FMT10 (1u << 1)   /* kext b149 (PHXN_SCANST_FMT10): HUBP0 scans ARGB2101010 (10-bit HDR) */
+/* b149: an 8-bit BGRA pixel on the 10-bit scan-out (each channel's 8 bits on top, the top two repeated below; PhxAccel's
+   phxhead::bgraTo2101010 does the same for the CPU copy) */
+static inline uint32_t nvmtl_bgra_to_2101010(uint32_t v)
+{
+    return 0xC0000000u | (((v >> 16) & 0xffu) << 22) | (((v >> 22) & 0x3u) << 20) | (((v >> 8) & 0xffu) << 12) |
+           (((v >> 14) & 0x3u) << 10) | ((v & 0xffu) << 2) | ((v >> 6) & 0x3u);
+}
 struct nvmtl_scan_status { uint32_t acquired, flags, front_slot, pending_slot; uint64_t frame_count, console_mc, plane_mc, earliest_mc;
                            uint64_t presents, latched, replaced, repeats, vupdates, latch_irq, latch_poll, refused, first_latch_ns, last_latch_ns;
                            uint64_t idle_ms, watchdog_restores, storm_trips, geom_refused; struct nvmtl_scan_slot slot[3]; };
@@ -237,6 +245,12 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     struct nvmtl_scan_status st;
     memset(&st, 0, sizeof st);
     if (g_scan.status(g_dev, &st) || !st.acquired) { nvmtl_scan_lost_locked("the plane was taken back", &st); goto out; }
+    /* b149 10-bit HDR: with HUBP0 on ARGB2101010 an l10r surface goes to the slot as it is (MPCC0 blends with global alpha:
+       l10r's top two bits are not used) and a BGRA one is widened; the 8-bit scan-out narrows l10r as before */
+    const int fmt10 = (st.flags & NVMTL_SCANST_FMT10) != 0;
+    { static int lastFmt10 = -1;
+      if (fmt10 != lastFmt10) { nvlog("ws gpu present: scan-out %s, surface %s", fmt10 ? "ARGB2101010 (10-bit HDR)" : "ARGB8888",
+                                      l10r ? "l10r" : "BGRA"); lastFmt10 = fmt10; } }
     uint32_t k = UINT32_MAX;
     for (uint32_t n = 0; n < 3 && k == UINT32_MAX; n++) { const uint32_t c = (g_scan.next + n) % 3; if (st.slot[g_scan.slotId[c]].flags & 4u) k = c; }
     if (k == UINT32_MAX) { g_scan.drops++; nvmtl_e0("D sid %u dropped", sid); ret = 1; goto out; }
@@ -251,7 +265,17 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     pvkBeginCommandBuffer(g_scan.cb, &bi);
     VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT };
     pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, NULL, 0, NULL);
-    if (l10r) {
+    if (fmt10 && !l10r) {
+        /* BGRA on the 10-bit scan-out: widened on the CPU into the slot (host-visible VRAM). Rare: WindowServer draws l10r
+           once colour management is up; no 10-bit variant of scan_l10r.comp is built for it */
+        void *dp = NULL;
+        if (pvkMapMemory(g_dev, g_scan.slotMem[k], 0, VK_WHOLE_SIZE, 0, &dp) != VK_SUCCESS || !dp) {
+            pvkEndCommandBuffer(g_scan.cb); nvmtl_scan_off_locked("slot map failed (10-bit widen)"); goto out; }
+        const uint32_t *sp = (const uint32_t *)base; uint32_t *wp = (uint32_t *)dp;
+        for (size_t i = 0, n = (size_t)pitch / 4 * h; i < n; i++) wp[i] = nvmtl_bgra_to_2101010(sp[i]);
+        pvkUnmapMemory(g_dev, g_scan.slotMem[k]);
+        { static unsigned saidWiden; if (saidWiden++ < 4) nvlog("ws gpu present: BGRA surface %u widened to 10 bits on the CPU", sid); }
+    } else if (l10r && !fmt10) {
         VkDescriptorBufferInfo dbi[2] = { { (VkBuffer)src->buf, 0, (VkDeviceSize)pitch * h }, { g_scan.slot[k], 0, (VkDeviceSize)pitch * h } };
         VkWriteDescriptorSet wds[2] = { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, g_scan.ds, 0, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NULL, &dbi[0], NULL },
                                         { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, g_scan.ds, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NULL, &dbi[1], NULL } };

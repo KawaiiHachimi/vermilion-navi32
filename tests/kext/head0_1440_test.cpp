@@ -154,6 +154,10 @@ int main() {
             for (unsigned i = 0; i < 128; i++) sc += c[i];
             CHECK((sc & 0xff) == 0 && edidFloorPatch(c, 1, 30) == 0);
         }
+        // b149: 8-bit XRGB on the 10-bit scan-out: white stays white, black black, each channel in its place
+        CHECK(bgraTo2101010(0xffffffffu) == 0xffffffffu && bgraTo2101010(0xff000000u) == 0xc0000000u);
+        CHECK(bgraTo2101010(0x00ff0000u) == 0xfff00000u && bgraTo2101010(0x0000ff00u) == 0xc00ffc00u && bgraTo2101010(0x000000ffu) == 0xc00003ffu);
+        CHECK(bgraTo2101010(0x00800000u) == (0xc0000000u | (0x202u << 20)));   // 0x80 -> 0x202 (8 bits up, the top two repeated)
         // the floor: the larger of the EDID's and the owner's, below the maximum, at least 24 Hz
         CHECK(vrrFloor(48, 240, 0) == 48 && vrrFloor(48, 240, 60) == 60 && vrrFloor(48, 240, 30) == 48);
         CHECK(vrrFloor(48, 240, 240) == 0 && vrrFloor(48, 240, 250) == 0 && vrrFloor(10, 240, 0) == 24 && vrrFloor(48, 48, 0) == 0);

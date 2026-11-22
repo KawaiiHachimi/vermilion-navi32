@@ -153,7 +153,17 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
       surface is 8-bit: banding), Variable + HDR together.
       01:35 on the box: HDR offered without the flag, and **HDR stayed on across the restart** (mode 17 after boot).
 - [ ] 2026-11-22 **Display polish (owner asked, in this order):**
-  1. **10-bit drawing in HDR.** Today macOS picks depth 0 (32-bit) for the HDR twin and the plans keep pipe 0's 8-bit
+  1. **10-bit drawing in HDR.** **b149 + PhxAccel + plugin installed 2026-11-22 18:00** (EFI `OC` = b149 sha d34093c0,
+     `OC.prev` = b148 sha 0a680199; `~/vermilion-rollback/`: VermilionBoot.kext.b148, VermilionAccel.kext.pre-hdr10,
+     NVMTLDriver.b139). Done as: the HDR plans keep Linux's pipe-0 format writes (generator `--pixel-format`: CNVC0 0x418F /
+     HUBP0 0x3AA5 = 0xa in, 0x8 out; pipe 1 follows by its live copies); GPU present accepts the 10-bit scan-out and flags it
+     (FMT10), the plugin then copies l10r raw (BGRA widened on the CPU), the CPU copy likewise (`debug.phxfb0_scan10`).
+     MPCC0 blends with global alpha (0xffff0461) so l10r's top bits do not matter. The depth macOS picks stays (WindowServer
+     draws l10r anyway). (unverified) **Test:** restart; SDR as before; HDR on: colours right, a dark gradient without
+     banding; `sysctl debug.phxfb0_scan10` = 1 in HDR, 0 in SDR; plugin log "scan-out ARGB2101010". **Rollback:** wrong
+     colours in HDR: HDR off (the from plan sets 0x8); boot trouble: swap `EFI/OC` / `EFI/OC.prev`; plugin trouble:
+     `sudo cp ~/vermilion-rollback/NVMTLDriver.b139 /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver`.
+     Was: Today macOS picks depth 0 (32-bit) for the HDR twin and the plans keep pipe 0's 8-bit
      surface. Plan: (a) PhxAccel offers the HDR twins with the 30-bit depth preferred / only (getInformationForDisplayMode
      maxDepthIndex, getPixelInformation), check macOS then sets depth 1 on them; (b) on an HDR mode landing, HUBP0
      DCSURF_SURFACE_CONFIG 0x3AA5 and CNVC_CFG0_CNVC_SURFACE_PIXEL_FORMAT 0x418F = 0xa (Linux's to-hdr values; 0x8 back

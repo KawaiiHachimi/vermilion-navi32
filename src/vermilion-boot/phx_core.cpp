@@ -67,6 +67,7 @@ bool PhxBringup::start(IOService *provider) {
     setProperty("phx-pipe2-mode-fn", kOSBooleanTrue);   // b93: PhxAMDFB head 1 may call "phxPipe2SetMode" (PhxSwitchABI.h)
     setProperty("phx-pipe2-gamma-fn", kOSBooleanTrue);  // b98: ...and "phxPipe2SetGamma" (PhxGamma.h; writes only with debug.phxgamma=1)
     setProperty("phx-pipe0-mode-fn", kOSBooleanTrue);
+    setProperty("phx-scanfmt-fn", kOSBooleanTrue);   // b149: PhxAMDFB's CPU copy may call "phxScanFmt" (10-bit HDR)
     setProperty("phx-vrr-fn", kOSBooleanTrue);   // b144: PhxAMDFB head 0 may call "phxVrrSet" (System Settings' Variable)   // b101: PhxAMDFB head 0 may call "phxPipe0SetMode" (PhxSwitchABI.h; needs debug.phxpipe0_enable=1)
     setProperty("phx-stage", "E3");
     setProperty("phx-debug", debug);

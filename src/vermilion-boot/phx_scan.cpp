@@ -142,7 +142,8 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     q->plane_h = q->v_active = vbs > vbe ? vbs - vbe : 0;
     q->flags = ((rreg(kOtg0Control) & 1) ? PHXN_SCANQ_LIT : 0) | PHXN_SCANQ_NATIVE;
     const uint64_t bytes = static_cast<uint64_t>(q->pitch_px) * 4 * q->plane_h;
-    if (q->hubp_format == PHXN_SCAN_FMT_ARGB8888 && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
+    // b149: ARGB2101010 too (HDR's 10-bit scan-out, the replay plans): the same 4 bytes per pixel, the plugin copies l10r raw
+    if ((q->hubp_format == PHXN_SCAN_FMT_ARGB8888 || q->hubp_format == PHXN_SCAN_FMT_ARGB2101010) && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
         q->flags |= PHXN_SCANQ_GEOM_OK;
     if (scanLock) IOLockLock(scanLock);
     q->frame_count = scanFrameLocked();
@@ -343,6 +344,7 @@ IOReturn PhxBringup::scanStatus(const void *who, phxn_scan_status *st) {
     if (scan.acquired) scanPollLocked();
     const uint64_t earliest = scanEarliest();
     st->acquired = scan.acquired && scan.owner == who;
+    if (mmio && (rreg(kHubp0SurfaceConfig) & 0x7f) == PHXN_SCAN_FMT_ARGB2101010) st->flags |= PHXN_SCANST_FMT10;   // b149
     st->front_slot = scan.front;
     st->pending_slot = scan.pending;
     st->frame_count = scanFrameLocked();

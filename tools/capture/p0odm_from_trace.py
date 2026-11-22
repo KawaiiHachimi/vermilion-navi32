@@ -9,7 +9,7 @@
 #   copy     pipe 1's surface and colour registers (surface config / tiling / pitch / DCC / address / VMID, CNVC format, CM,
 #            MCM, OGAM gamut, MPC_OUT CSC, MPCC blend / gains / background) = pipe 0's live value at run time, so the right
 #            half scans the same macOS surface through the same colour path as the left half;
-#   dropped  Linux's own surface and colour values for pipe 0 (macOS's stay), the per-frame OTG interrupt / static-screen /
+#   dropped  Linux's own surface and colour values for pipe 0 (macOS's stay; --pixel-format keeps its two format writes), the per-frame OTG interrupt / static-screen /
 #            sync writes, flips, cursor, audio, the AUX engine (DPCD goes through the engine's own AUX path), DAL messages
 #            other than SetHardMinByFreq (9) for DISPCLK (8) / DPPCLK (9), pipe 0's power gating (DOMAIN0: Linux gates and
 #            ungates HUBP0 / DPP0 around the switch, which loses their registers; macOS's surface and colour values are
@@ -152,6 +152,9 @@ def main():
     ap.add_argument("--rate", default="auto", help="LINKUP link rate (DPCD 0x100 value); auto = from Linux's "
                     "TRANSMITTER_CONTROL ENABLE symbol clock (16200 RBR, 27000 HBR, 54000 HBR2, 81000 HBR3)")
     ap.add_argument("--lanes", default="auto", help="LINKUP lane count; auto = Linux's TRANSMITTER_CONTROL ENABLE (needs --rate auto or --until auto)")
+    ap.add_argument("--pixel-format", action="store_true", help="keep Linux's pipe-0 scan-out format writes (HUBP0 "
+                    "DCSURF_SURFACE_CONFIG, CNVC_CFG0 SURFACE_PIXEL_FORMAT) as literals: the HDR plans' ARGB2101010 (0xa) and back to "
+                    "ARGB8888 (0x8); b149, 10-bit HDR")
     ap.add_argument("--modesets", type=int, default=1, help="mode-set bursts in the step (auto until): 1, or 2 for an HDR switch")
     ap.add_argument("--hdr", default="/Users/dnanu/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h")
     a = ap.parse_args()
@@ -255,6 +258,9 @@ def main():
                 if src not in nm2a:
                     sys.exit(f"line {ln}: no pipe-0 register for {n} ({src})")
                 emit("COPY", ln, r, nm2a[src], 0xFFFFFFFF, 0, f"{n} = {src} (live)")
+            if a.pixel_format and n in ("HUBP0_DCSURF_SURFACE_CONFIG", "CNVC_CFG0_CNVC_SURFACE_PIXEL_FORMAT"):
+                emit("W", ln, r, v, 0xFFFFFFFF, 0, f"{n} = {hex(v)} (Linux's scan-out format, --pixel-format)")
+                continue
             continue      # pipe 0's own surface / colour: macOS's values stay
         if n == "DP_DTO0_PHASE" and not div_set:
             # Linux started from its own 2-pixel-per-clock setup and never wrote OTG_PIXEL_RATE_DIV; macOS starts from the

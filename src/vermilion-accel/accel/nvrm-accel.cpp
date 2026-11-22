@@ -1177,6 +1177,8 @@ static SInt64 gIopCopyUsSumH1, gIopCopyNH1;   // M7 S3a: head 1's copies, kept o
 extern uint64_t gPhxVblLastAbs, gPhxFrameAbs;
 static uint64_t gIopLastAbs;
 static SInt64 gCntIopGap[4], gIopPhaseUsSum;
+#include "phxhead.h"   // b149: bgraTo2101010
+extern int gPhxScan10;   // b149, phxfb.cpp: HUBP0 scans ARGB2101010 (10-bit HDR)
 static int gIopSse = 0;   // debug.nvaccel_iop_sse
 
 // One row of a copied frame in 64-byte steps: SSE4.1 streaming loads (movntdqa) and non-temporal stores (movntdq).
@@ -1440,8 +1442,13 @@ IOReturn NVDisplayPipe::performTransaction(IOAccelDisplayPipeTransaction2 *txn)
     // Non-temporal stores (movnti, general registers only): the scan-out's system-RAM view (PhxFB) maps write-back
     // whatever cache mode it asks for, and plain stores left the frame in the CPU cache while the panel scanned the stale
     // DRAM under it, in stripes (2026-10-20). Through the BAR (uncached) they behave as plain stores.
-    const bool wide = ((((uintptr_t)src | (uintptr_t)d) & 7) == 0) && !(spr & 1) && !(dpr & 1);
-    const bool sse = gIopSse && ((((uintptr_t)src | (uintptr_t)d) & 15) == 0) && !(spr & 3) && !(dpr & 3);
+    // b149 10-bit HDR (gPhxScan10, phxfb.cpp): HUBP0 scans ARGB2101010, so l10r is copied as it is and BGRA widens to
+    // 10 bits (scalar loop below); the 8-bit scan-out narrows l10r as before. MPCC0 blends with global alpha: the top bits
+    // of either format are not used.
+    const bool scan10 = gPhxScan10 != 0, widen = scan10 && !l10r;
+    l10r = l10r && !scan10;   // "narrow" from here on
+    const bool wide = !widen && ((((uintptr_t)src | (uintptr_t)d) & 7) == 0) && !(spr & 1) && !(dpr & 1);
+    const bool sse = !widen && gIopSse && ((((uintptr_t)src | (uintptr_t)d) & 15) == 0) && !(spr & 3) && !(dpr & 3);
     if (rotK == 1) phxRotCopy((const void *)src, pitch, w, h, (void *)(uintptr_t)d, q.pitch, rotA, l10r, gIopSse != 0);
     else for (unsigned y = 0; y < h; y++) {
         const volatile unsigned int *sp = src + (unsigned long)y * spr;
@@ -1469,7 +1476,8 @@ IOReturn NVDisplayPipe::performTransaction(IOAccelDisplayPipeTransaction2 *txn)
         unsigned int *dw = (unsigned int *)(uintptr_t)dp;
         for (; x < words; x++) {
             const unsigned v = sp[x];
-            const unsigned px = l10r ? 0xff000000u | ((v >> 6) & 0xff0000u) | ((v >> 4) & 0xff00u) | ((v >> 2) & 0xffu) : v;
+            const unsigned px = l10r ? 0xff000000u | ((v >> 6) & 0xff0000u) | ((v >> 4) & 0xff00u) | ((v >> 2) & 0xffu)
+                              : widen ? phxhead::bgraTo2101010(v) : v;
             __asm__ __volatile__("movnti %1, %0" : "=m"(dw[x]) : "r"(px));
         }
     }

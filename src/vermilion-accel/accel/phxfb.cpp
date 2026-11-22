@@ -147,11 +147,18 @@ SYSCTL_INT(_debug, OID_AUTO, phxfb0_hdr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxHdr, 
 int gPhxVrrMin = 60;
 SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrmin, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrrMin, 60,
            "Adaptive Sync floor on head 0 in Hz (read at its start): Variable runs from max(this, the EDID's minimum) to the mode's rate; 0 = the EDID's minimum");
+// b149 10-bit HDR: 1 while HUBP0 scans ARGB2101010 (PhxBringup b149's HDR plans; read through "phxScanFmt" after each
+// head-0 switch): the CPU copy (nvrm-accel.cpp) then copies l10r as it is and widens BGRA, instead of narrowing to 8 bits.
+int gPhxScan10 = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_scan10, CTLFLAG_RD | CTLFLAG_LOCKED, &gPhxScan10, 0,
+           "b149: 1 = head 0 scans ARGB2101010 (HDR, 10 bits per colour): the CPU copy keeps l10r's 10 bits");
 static bool gVrrOidsUp = false;
 void phxVrrOids(bool up) {
     if (up == gVrrOidsUp) return;
-    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrr); sysctl_register_oid(&sysctl__debug_phxfb0_hdr); sysctl_register_oid(&sysctl__debug_phxfb0_vrrmin); }
-    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr); sysctl_unregister_oid(&sysctl__debug_phxfb0_hdr); sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrmin); }
+    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrr); sysctl_register_oid(&sysctl__debug_phxfb0_hdr); sysctl_register_oid(&sysctl__debug_phxfb0_vrrmin);
+              sysctl_register_oid(&sysctl__debug_phxfb0_scan10); }
+    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr); sysctl_unregister_oid(&sysctl__debug_phxfb0_hdr); sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrmin);
+           sysctl_unregister_oid(&sysctl__debug_phxfb0_scan10); }
     gVrrOidsUp = up;
 }
 static int phxfbResyncSysctl SYSCTL_HANDLER_ARGS;
@@ -1921,6 +1928,16 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
             vb->release();
             PFBLOG("head 0 VRR %s: rc 0x%x, range %s", want ? "wanted (Variable)" : "off (a fixed rate)", vr, io ? "on" : "off");
         }
+    // b149: the scan-out format the switch left (HDR plans: 10-bit), for the CPU copy
+    if (IOService *sf = copyBringup("phx-scanfmt-fn")) {
+        uint32_t fmt = 0;
+        if (sf->callPlatformFunction("phxScanFmt", false, &fmt, nullptr, nullptr, nullptr) == kIOReturnSuccess) {
+            const int was = gPhxScan10;
+            gPhxScan10 = fmt == 10u ? 1 : 0;
+            if (was != gPhxScan10) PFBLOG("head 0 scan-out format now %u (%s)", fmt, gPhxScan10 ? "ARGB2101010, 10-bit HDR" : "ARGB8888");
+        }
+        sf->release();
+    }
     if (flips && act != phxhead::kActDark) flipEnable(1);
     PFBLOG("head 0 switch to id %d (target %u): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz %ux%u row %u",
            (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz, fWidth, fHeight, fRowBytes);

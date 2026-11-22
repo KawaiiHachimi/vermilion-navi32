@@ -160,6 +160,14 @@ static IOReturn phxVrrSetFn(uint32_t *io) {
     return kIOReturnSuccess;
 }   // where = kMac until the first run lands (cur is read only in kLinux)
 
+// b149: HUBP0's scan-out format now (8 ARGB8888; 10 ARGB2101010 after an HDR plan), for PhxAMDFB's CPU copy
+static IOReturn phxScanFmtFn(uint32_t *io) {
+    if (!io) return kIOReturnBadArgument;
+    if (!p2Up()) return kIOReturnNotReady;
+    *io = phxp2::rd(p2Env(), kHubp0SurfaceConfig) & 0x7fu;
+    return kIOReturnSuccess;
+}
+
 // One engine run under gP2Busy, the AUX lock and scanLock. -1 = not run (busy / not ready; *err set).
 static int odmRunLocked(int sel, int *err) {
     *err = 0;

@@ -306,6 +306,13 @@ inline unsigned edidFloorPatch(uint8_t *blk, unsigned idx, uint32_t floorHz) {
     return n;
 }
 
+// b149 10-bit HDR: an 8-bit XRGB pixel on the ARGB2101010 scan-out (each channel's 8 bits on top of its 10, the low two
+// a copy of the top two so white stays 0x3ff; alpha 3).
+constexpr uint32_t bgraTo2101010(uint32_t v) {
+    return 0xC0000000u | (((v >> 16) & 0xffu) << 22) | (((v >> 22) & 0x3u) << 20) | (((v >> 8) & 0xffu) << 12) |
+           (((v >> 14) & 0x3u) << 10) | ((v & 0xffu) << 2) | ((v >> 6) & 0x3u);
+}
+
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
