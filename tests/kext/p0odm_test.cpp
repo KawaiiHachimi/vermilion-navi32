@@ -435,6 +435,10 @@ int main() {
         CHECK(vrrRegs(m144, 48, 0, &v) && v.vmax == 0x11c3 && v.vmin == 0x5eb && v.ctl == 0x00020003u);
         CHECK(vrrRegs(m240, 48, 0, &v) && v.vmax == 1619u * 240 / 48 - 1 && v.vmin == 0x652);
         CHECK(vrrRegs(m60, 48, 0, &v) && v.vmax == 1481u * 60 / 48 - 1 && v.vmin == 0x5c8);
+        // b146: the owner's floor (debug.phxfb0_vrrmin, default 60)
+        CHECK(vrrRegs(m240, 60, 0, &v) && v.vmax == 6475u && v.vmin == 0x652);
+        CHECK(vrrRegs(m144, 60, 0, &v) && v.vmax == 0x5ecu * 144 / 60 - 1);
+        CHECK(!vrrRegs(m60, 60, 0, &v));   // a 60 Hz mode has no range at a 60 Hz floor
         CHECK(vrrRegs(m144, 48, 0xffffffffu, &v) && v.ctl == ((0xffffffffu & ~(1u | 2u | 0x10u | 0xffff0000u)) | 0x00020003u));   // other fields kept
         CHECK(!vrrRegs(m144, 0, 0, &v) && !vrrRegs(m144, 144, 0, &v) && !vrrRegs(m144, 200, 0, &v));
         const Mode mz{1, 1, 1, 60, 1, 0, 0, 0, 1, nullptr, nullptr};

@@ -82,7 +82,7 @@ int main() {
         CHECK(modeForTotals(0, 2720, 1619, ids, nv) == 6 && switchHz(*headMode(0, 13)) == 240 && switchKey(*headMode(0, 13), 2560, 1440) == 240);
         DetailedTiming t13{};
         CHECK(detailedTiming(0, 13, &t13) && detailedTiming(0, 6, &t) && t13.pixelHz == t.pixelHz && t13.vBlank == t.vBlank &&
-              t13.hSyncPos == t.hSyncPos && !t13.vSyncPos && vrrExtension(t13, 48) == 6474);
+              t13.hSyncPos == t.hSyncPos && !t13.vSyncPos && vrrExtension(t13, 48) == 6474 && vrrExtension(t13, 60) == 4856);
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, true) == 3);   // no 240 timing: no twin
         // HDR probe: the HDR twins 14..17 (of 3..6) only with hdr, after the variable twin; timings and switch keys as their bases
         const unsigned nh = modeList(0, full, sizeof full, 2560, 1440, ids, false, true, true);
@@ -135,6 +135,9 @@ int main() {
     {   // VRR probe: the LG's range limits descriptor (48-240 Hz), the offsets bits, and no descriptor at all
         EdidRange r{};
         CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minVHz == 48 && r.maxVHz == 240 && r.maxPclkMHz >= 1000);
+        // the floor: the larger of the EDID's and the owner's, below the maximum, at least 24 Hz
+        CHECK(vrrFloor(48, 240, 0) == 48 && vrrFloor(48, 240, 60) == 60 && vrrFloor(48, 240, 30) == 48);
+        CHECK(vrrFloor(48, 240, 240) == 0 && vrrFloor(48, 240, 250) == 0 && vrrFloor(10, 240, 0) == 24 && vrrFloor(48, 48, 0) == 0);
         uint8_t e[128] = {};
         e[54 + 18 * 2 + 3] = 0xFD; e[54 + 18 * 2 + 4] = 0x02; e[54 + 18 * 2 + 5] = 48; e[54 + 18 * 2 + 6] = 45;   // 10: max 45 + 255
         e[54 + 18 * 2 + 7] = 30; e[54 + 18 * 2 + 8] = 200; e[54 + 18 * 2 + 9] = 60;

@@ -134,16 +134,21 @@ static int vrrOnLocked(const phxp2::Env &e) {
 static uint32_t gVrrDrops = 0, gVrrResumes = 0;
 static void phxVrrDropLocked() { if (!gVrrOn || !p2Up()) return; vrrOffLocked(p2Env()); gVrrDrops++; gVrrWhy = "off: GPU present stopped (wanted)"; }
 static void phxVrrResumeLocked() { if (gVrrOn || !gVrrWant || !p2Up()) return; if (!vrrOnLocked(p2Env())) gVrrResumes++; }
-// b144: PhxAccel head 0 after each landed switch: *io = 1 (System Settings' Variable, the VRR twin) or 0 (a fixed rate); out:
-// 1 when the range is on. On needs GPU present (scanAcquiredLocked); otherwise it is remembered and comes on with it.
+// b144: PhxAccel head 0 after each landed switch: *io bit 0 = 1 (System Settings' Variable, the VRR twin) or 0 (a fixed
+// rate); out: 1 when the range is on. On needs GPU present (scanAcquiredLocked); otherwise it is remembered and comes on
+// with it. b146: bits 8-15 = the floor in Hz (debug.phxfb0_vrrmin; 0 = keep the current one, 48 at boot, as a b144/b145
+// PhxAccel sends), 24 or more; the range then runs from the mode's V_TOTAL to that rate.
 static IOReturn phxVrrSetFn(uint32_t *io) {
-    if (!io || *io > 1) return kIOReturnBadArgument;
+    if (!io || (*io & ~0xff01u)) return kIOReturnBadArgument;
+    const uint32_t floorHz = (*io >> 8) & 0xffu;
+    if (floorHz && floorHz < 24) return kIOReturnBadArgument;
     if (!p2Up() || !gPhx || !gPhx->scanLockForEngines()) return kIOReturnNotReady;
     if (!OSCompareAndSwap(0, 1, &gP2Busy)) return kIOReturnBusy;
     IOLockLock(gPhx->scanLockForEngines());
     const phxp2::Env e = p2Env();
-    gVrrWant = static_cast<int>(*io);
-    if (!*io) vrrOffLocked(e);
+    gVrrWant = static_cast<int>(*io & 1u);
+    if (floorHz && floorHz != gVrrMinHz) { vrrOffLocked(e); gVrrMinHz = floorHz; }   // a new floor: set again below
+    if (!gVrrWant) vrrOffLocked(e);
     else if (gPhx->scanAcquiredLocked()) { if (vrrOnLocked(e)) gVrrRefusals++; }
     else gVrrWhy = "wanted: comes on with GPU present";
     *io = static_cast<uint32_t>(gVrrOn);
@@ -245,7 +250,7 @@ static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     IOFree(b, kN);
     return e;
 }
-// b142: root writes 1 (OTG0's range from the lit 1440p mode's V_TOTAL down to 48 Hz) or 0 (back to the boot values); reads
+// b142: root writes 1 (OTG0's range from the lit 1440p mode's V_TOTAL down to the floor: 48 Hz, b146 PhxAccel's) or 0 (back to the boot values); reads
 // 1 while on. debug.phxvrr_stat: the registers now, the range set, the triggers fired, OTG0's frame rate over 250 ms.
 static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
     int v = gVrrOn;
@@ -267,11 +272,11 @@ static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
     return r;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrSysctl, "I",
-            "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to 48 Hz on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
+            "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to the floor (48 Hz; b146: PhxAccel's) on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
 static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
-    char b[512];
+    char b[640];
     int n;
     if (!p2Up()) n = snprintf(b, sizeof b, "PhxBringup not ready");
     else {
@@ -280,9 +285,9 @@ static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
         IOSleep(250);
         const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
         n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
-                     "triggers %lld | want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
+                     "triggers %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
                      gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
-                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrWant, gVrrOns, gVrrOffs,
+                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs,
                      gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
     }
     if (n < 0) n = 0;

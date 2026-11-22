@@ -140,11 +140,18 @@ SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrr, 
 int gPhxHdr = 1;
 SYSCTL_INT(_debug, OID_AUTO, phxfb0_hdr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxHdr, 1,
            "HDR on head 0 (read at its start): 1 = offer System Settings' High Dynamic Range when the monitor and PhxBringup support it, 0 = never");
+// Adaptive Sync's floor (2026-11-22): the lowest rate Variable may reach, in Hz, read when head 0 starts. The LG flickers
+// near its EDID minimum of 48 Hz (owner, also on Windows and Linux: the monitor's VRR), so the default is 60. Head 0 uses
+// the larger of this and the EDID's minimum for the menu ("Variable (60-240 Hz)"), the twin's verticalBlankingExtension
+// and, with PhxBringup b146+, OTG0's V_TOTAL_MAX; 0 = the EDID's minimum. The boot daemon's ~/gpu/phxboot-vrrmin sets it.
+int gPhxVrrMin = 60;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrmin, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrrMin, 60,
+           "Adaptive Sync floor on head 0 in Hz (read at its start): Variable runs from max(this, the EDID's minimum) to the mode's rate; 0 = the EDID's minimum");
 static bool gVrrOidsUp = false;
 void phxVrrOids(bool up) {
     if (up == gVrrOidsUp) return;
-    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrr); sysctl_register_oid(&sysctl__debug_phxfb0_hdr); }
-    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr); sysctl_unregister_oid(&sysctl__debug_phxfb0_hdr); }
+    if (up) { sysctl_register_oid(&sysctl__debug_phxfb0_vrr); sysctl_register_oid(&sysctl__debug_phxfb0_hdr); sysctl_register_oid(&sysctl__debug_phxfb0_vrrmin); }
+    else { sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr); sysctl_unregister_oid(&sysctl__debug_phxfb0_hdr); sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrmin); }
     gVrrOidsUp = up;
 }
 static int phxfbResyncSysctl SYSCTL_HANDLER_ARGS;
@@ -316,7 +323,8 @@ class PhxAMDFB : public IOFramebuffer {
     // b138: the boot console's geometry (the GOP's surface A, its VRAM and flip-B placement); fWidth / fHeight / fRowBytes
     // follow the lit mode once PhxBringup resizes the scan-out (head 0 with phx-p0-keys), else they stay these
     uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
-    uint32_t fVrrMinHz = 0;   // Adaptive Sync: the EDID's minimum rate while Variable is offered (0 = not offered)
+    uint32_t fVrrMinHz = 0;   // Adaptive Sync: Variable's floor while it is offered (phxhead::vrrFloor; 0 = not offered)
+    bool fVrrFloorFn = false; // PhxBringup b146+: "phxVrrSet" takes the floor
     uint32_t fVrrSaid = 0;
     bool fHdrOk = false;      // HDR: the twins are listed (the monitor, gPhxHdr, PhxBringup b145+); set with the mode list
     bool fHdr = false;        // HDR: head 0 offers HDR (gPhxHdr at its start, the monitor and PhxBringup b145+)
@@ -1448,6 +1456,7 @@ bool PhxAMDFB::start(IOService *provider)
         const bool vrrFn = b->getProperty("phx-vrr-fn") == kOSBooleanTrue;   // b144: PhxBringup switches the VRR range
         const OSNumber *bn = OSDynamicCast(OSNumber, b->getProperty("phx-build"));
         hdrFn = bn && bn->unsigned32BitValue() >= 145;   // b145: PhxBringup's replay set has the HDR modes
+        fVrrFloorFn = bn && bn->unsigned32BitValue() >= 146;   // b146: "phxVrrSet" takes the floor (io bits 8-15)
         b->release();
         if (armed) {
             measureRefresh();
@@ -1467,7 +1476,11 @@ bool PhxAMDFB::start(IOService *provider)
             PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
             // Adaptive Sync: decided here, before the list (the twin is offered only with the range published)
             phxhead::EdidRange vr{};
-            fVrrMinHz = gPhxVrr && vrrFn && phxhead::edidRange(fEdid, fEdidLen, &vr) ? vr.minVHz : 0;
+            // the floor: the owner's (debug.phxfb0_vrrmin) only when PhxBringup sets OTG0 to it (b146+), else the EDID's
+            fVrrMinHz = gPhxVrr && vrrFn && phxhead::edidRange(fEdid, fEdidLen, &vr)
+                            ? phxhead::vrrFloor(vr.minVHz, vr.maxVHz, fVrrFloorFn && gPhxVrrMin > 0 ? (uint32_t)gPhxVrrMin : 0u) : 0;
+            PFBLOG("vrr: floor %u Hz (EDID %u-%u Hz, debug.phxfb0_vrrmin %d, PhxBringup %s)", fVrrMinHz, vr.minVHz, vr.maxVHz,
+                   gPhxVrrMin, fVrrFloorFn ? "takes it" : "before b146: the EDID's");
             const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0, fHdrOk = fVrrMinHz != 0 && gPhxHdr && hdrFn);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
@@ -1488,7 +1501,7 @@ bool PhxAMDFB::start(IOService *provider)
             tr.version = kIOTimingRangeV2;
             tr.minPixelClock = 25000000ull; tr.maxPixelClock = (uint64_t)er.maxPclkMHz * 1000000ull;
             tr.supportedSyncFlags = kIORangeSupportsSeparateSyncs | 0x10;   // 0x10: Apple's AMD driver's VRR bit (no SDK name)
-            tr.minFrameRate = er.minVHz; tr.maxFrameRate = er.maxVHz;
+            tr.minFrameRate = fVrrMinHz; tr.maxFrameRate = er.maxVHz;   // the floor, not the EDID's minimum (System Settings' menu)
             tr.minLineRate = er.minHKHz * 1000; tr.maxLineRate = er.maxHKHz * 1000;
             tr.maxHorizontalTotal = 8192; tr.maxVerticalTotal = 8192;
             tr.charSizeHorizontalActive = tr.charSizeHorizontalBlanking = tr.charSizeHorizontalSyncOffset = tr.charSizeHorizontalSyncPulse = 1;
@@ -1503,7 +1516,7 @@ bool PhxAMDFB::start(IOService *provider)
                 fHdr = true;
             }
             if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
-            PFBLOG("vrr: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", er.minVHz, er.maxVHz,
+            PFBLOG("vrr: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", fVrrMinHz, er.maxVHz,
                    er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
         } else PFBLOG("vrr: the EDID has no range limits descriptor: nothing published");
     }
@@ -1899,7 +1912,7 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
         if (IOService *vb = copyBringup("phx-vrr-fn")) {
             const phxhead::HeadMode *lm = phxhead::headMode(0, fModeId);
             const uint32_t want = lm && phxhead::isVrrTwin(*lm) ? 1u : 0u;
-            uint32_t io = want;
+            uint32_t io = want | (fVrrFloorFn ? fVrrMinHz << 8 : 0u);   // b146+: the floor in bits 8-15
             const IOReturn vr = vb->callPlatformFunction("phxVrrSet", false, &io, nullptr, nullptr, nullptr);
             vb->release();
             PFBLOG("head 0 VRR %s: rc 0x%x, range %s", want ? "wanted (Variable)" : "off (a fixed rate)", vr, io ? "on" : "off");

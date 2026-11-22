@@ -175,6 +175,13 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      the EDID's 48), read by the daemon into a PhxAccel sysctl before the claim; PhxAccel uses it for the twin's
      verticalBlankingExtension and the timing range's minFrameRate (menu "Variable (N-240 Hz)") and passes it to
      "phxVrrSet" (io = 1 | min << 8, VermilionBoot b146: vrrRegs with that min instead of the fixed gVrrMinHz 48).
+     **b146 + PhxAccel installed 2026-11-22 02:10** (EFI `OC` = b146 sha 132f6c02, `OC.prev` = b145 sha 281f119c; b144 / b145
+     kexts, PhxAccel `.hdr2` and the daemon `.pre-vrrmin` in `~/vermilion-rollback/`). Default floor 60 Hz (PhxAccel
+     `debug.phxfb0_vrrmin`; the menu uses it only with PhxBringup b146+, else the EDID's 48), daemon `~/gpu/phxboot-vrrmin`
+     (0 = the EDID's, 24-240). Host tests: p0odm 684978, head0_1440 66; mocks 225 + 159. (unverified on the box)
+     **Test:** restart; System Settings shows "Variable (60-240 Hz)"; pick it, the LG's FPS overlay stays at 60 or above,
+     `sysctl debug.phxvrr_stat` names floor 60 Hz and MAX 0x194b (6475) at 240. **Rollback:** boot trouble: swap `EFI/OC`
+     and `EFI/OC.prev` (from macOS or Linux); only the menu wrong: `echo 0 > ~/gpu/phxboot-vrrmin` and restart.
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux

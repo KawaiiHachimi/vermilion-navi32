@@ -474,6 +474,17 @@ novrr_boot(){ { [ -e "$G/phxboot-novrr" ] || [ $SAFE = 1 ]; } || return 0
   if sysctl -w debug.phxfb0_vrr=0 >/dev/null 2>&1; then echo "vrr: off (debug.phxfb0_vrr=0: $([ $SAFE = 1 ] && echo 'the safe desktop' || echo "$G/phxboot-novrr"))"
   else echo "vrr: no debug.phxfb0_vrr (PhxAccel before Adaptive Sync): nothing to turn off"; fi; }
 novrr_boot
+# Adaptive Sync floor (2026-11-22): the LG flickers in Variable near its EDID minimum of 48 Hz (owner; also on Windows and
+# Linux), so PhxAccel's default floor is 60 Hz (debug.phxfb0_vrrmin, read when head 0 starts at the claim below).
+# $G/phxboot-vrrmin holds another floor in Hz (24-240; 0 = the EDID's minimum). Not on the safe desktop (no VRR there).
+vrrmin_boot(){ [ -e "$G/phxboot-vrrmin" ] && [ $SAFE = 0 ] || return 0
+  local v
+  v=$(tr -d ' \t\r\n' <"$G/phxboot-vrrmin" 2>/dev/null)
+  case "$v" in 0|2[4-9]|[3-9][0-9]|1[0-9][0-9]|2[0-3][0-9]|240) ;; *)
+    echo "vrr: ~/gpu/phxboot-vrrmin holds '$(head -c 20 "$G/phxboot-vrrmin" | tr -d '\r\n')', not 0 or 24-240: PhxAccel's default floor"; return 0;; esac
+  if sysctl -w debug.phxfb0_vrrmin=$v >/dev/null 2>&1; then echo "vrr: floor $v Hz (debug.phxfb0_vrrmin=$v: $G/phxboot-vrrmin)"
+  else echo "vrr: no debug.phxfb0_vrrmin (PhxAccel before the floor): the EDID's minimum"; fi; }
+vrrmin_boot
 # HDR (2026-11-21, findings 2026-11-21-hdr.md): PhxAMDFB head 0 offers System Settings' "High Dynamic Range" by default
 # when the monitor and PhxBringup b145+ support it (debug.phxfb0_hdr, read when head 0 starts at the claim below).
 # $G/phxboot-nohdr turns it off; the safe desktop always does.

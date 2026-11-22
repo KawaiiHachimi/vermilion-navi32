@@ -239,3 +239,12 @@ switching. The GOP's DMCUB build that runs on macOS reports none (`debug.phxdmub
 register path on it, and PhxDmub.h forbids FAMS commands to that firmware. Box-verified 2026-11-20 (OTG0 52-188 Hz with the
 content). Default on: the offer needs the LG's 240 Hz DisplayID timing, which the XT's monitors don't have.
 **Revisit:** if Linux's firmware ever runs on macOS, or for the CPU-copy sizes (no per-flip trigger there yet).
+
+## 2026-11-22: Adaptive Sync floor 60 Hz by default, configurable
+
+The LG flickers in Variable near its EDID minimum of 48 Hz (owner; the same on Windows and Linux, so the monitor's VRR:
+brightness swings between long and short frames). The common fix on any OS is a higher floor (owner's reading, findings
+2026-11-20-adaptive-sync-research.md). PhxAccel's `debug.phxfb0_vrrmin` (default 60) sets System Settings' range, the
+twin's verticalBlankingExtension and, through "phxVrrSet" io bits 8-15 (PhxBringup b146+), OTG0's V_TOTAL_MAX: the menu,
+macOS's pacing and the hardware agree. With an older PhxBringup the EDID's minimum stays everywhere (the menu must match
+what OTG0 does). The boot daemon's `~/gpu/phxboot-vrrmin` changes it (0 = the EDID's).

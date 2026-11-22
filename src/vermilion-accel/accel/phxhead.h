@@ -263,6 +263,14 @@ inline bool edidRange(const uint8_t *e, uint32_t len, EdidRange *r) {
     return false;
 }
 
+// Adaptive Sync's floor: the larger of the EDID's minimum and the owner's (0 = none), kept below the EDID's maximum and at
+// 24 Hz or more; 0 = no usable range (Variable not offered).
+inline uint32_t vrrFloor(uint32_t edidMinHz, uint32_t edidMaxHz, uint32_t wantHz) {
+    uint32_t f = wantHz > edidMinHz ? wantHz : edidMinHz;
+    if (f < 24) f = 24;
+    return f < edidMaxHz ? f : 0u;
+}
+
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
