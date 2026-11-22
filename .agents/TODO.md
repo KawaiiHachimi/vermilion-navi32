@@ -92,6 +92,43 @@ Ethernet checks, one EFI change per boot.
       CPU sensors, Bluetooth, installing from macOS)
 - [ ] Audio by ear (owner), Ethernet with a cable. Installer partition `disk0s4`: kept for now (owner, 2026-11-22)
 
+## Audio and connectivity (thread 04, branch `ownback/audio-connectivity`, started 2026-11-22)
+
+Inventory and first baselines: [finding](findings/2026-11-22-audio-connectivity-inventory.md). Tools: `tools/audio/`.
+
+- [x] 2026-11-22 **EFI change 4: Wi-Fi latency stalls, fixed** (boot 22:23: router ping avg 1.7 / max 4.2 ms with AWDL up,
+      100 / 50 Mbit/s, idle 15 ms; Bluetooth, USB, the GPU desktop unchanged; AirDrop with a phone still to test). Was: (proved 2026-11-22: AWDL off-channel windows, router ping 100 ms avg /
+      456 ms max, 1.8 / 5 ms with `awdl0` down). Boot-arg `amtk_awdl_offchan=0` (`base` stage), owner's OK 2026-11-22.
+      Built from this branch: `ocvalidate` clean, `diff -rq` against the live EFI: only `config.plist`, and in it only
+      `boot-args`. Installed 2026-11-22 ~22:30; `EFI/OC.prev` = the Bluetooth EFI (also in
+      `~/vermilion-rollback/EFI-OC.bt-20261122`); the CPU-sensors EFI that was `OC.prev` is in
+      `~/vermilion-rollback/EFI-OC.prev-before-awdl-20261122`.
+      **Check:** `nvram boot-args` has `amtk_awdl_offchan=0`; `sudo ping -i 0.1 -c 300 <router>` (expect max < 10 ms
+      with AWDL up); `sudo wdutil info` AWDL channel sequence; `networkQuality -s`; Bluetooth, USB, sensors, the GPU
+      desktop as before; AirDrop with a phone.
+      **Rollback:**
+      - Boots, but Wi-Fi or AirDrop worse: `sudo diskutil mount -mountPoint /private/tmp/efi disk0s1 && sudo mv
+        /private/tmp/efi/EFI/OC /private/tmp/efi/EFI/OC.awdl && sudo mv /private/tmp/efi/EFI/OC.prev
+        /private/tmp/efi/EFI/OC`, restart.
+      - Hangs at boot (not expected: one driver boot-arg): power off, **F8 > Limine**, `sudo mv /boot/EFI/OC
+        /boot/EFI/OC.awdl && sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on.
+      Fallback if AirDrop breaks: `amtk_awdl=0` (no AWDL) or `awdl0` down from userspace
+- [x] 2026-11-22 Onboard audio cause: jack sensing at `usbaudiod` start; with a cable in the line-out at boot the
+      speaker stream appears and is the default output. Open: does a hot-plug after boot work? Was: by `usbaudiod` ("could not find a valid
+      format"); default output is the optical S/PDIF stream. Next: what is plugged where (owner), restart
+      `usbaudiod` with a jack plugged, read its log; then decide (jack-sense vs format quirk)
+- [ ] Clipping on bass with an active speaker on aux at macOS 100 % (owner, 22:35): gain staging, macOS ~50-60 % and
+      speaker up; owner to report the loudest clean macOS level
+- [ ] Audio by ear on each jack (owner); 24-bit instead of CoreAudio's 16-bit default (Audio MIDI Setup, owner's call)
+- [ ] Ethernet link with a cable (owner); then throughput / latency vs Wi-Fi (`iperf3` peer needed)
+- [ ] AirDrop: Mac not visible on the iPhone (2026-11-22 22:44, iCloud signed in). Options: one boot without
+      `amtk_awdl_offchan=0` to see whether AirDrop works at all with this driver (the lag returns), or accept no AirDrop
+- [x] 2026-11-22 Handoff works, AirPlay iPhone -> Mac works; Universal Clipboard and AirDrop fail (AWDL; owner keeps
+      `amtk_awdl_offchan=0`)
+- [ ] Continuity Camera (wireless, and over a USB cable), Sidecar / Universal Control (need an iPad)
+- [ ] USB DAC / audio interface check with `uacdesc` + `audioprobe` (if the owner has one)
+- [ ] DP / HDMI audio: GPU side, thread 00 (not implemented in the stack)
+
 ## Storage and filesystems (thread 03, branch `ownback/storage`, started 2026-11-22)
 
 [Finding](findings/2026-11-22-storage-baseline.md). Nothing on the boot path changed.

@@ -34,7 +34,7 @@ and the live XTX machine (macOS 26.7.1 25G241).
 | **01 — Shared Repo Intelligence** | this file, the dependency map, the performance record | `ownback/hackintosh-thread-setup` -> `main` | active |
 | **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19 ([finding](../.agents/findings/2026-11-19-postinstall-inventory.md)), plan waiting for the owner; branch fast-forwarded to `main` 2026-11-22 |
 | **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | `ownback/storage` | inventory and baseline done 2026-11-22 ([finding](../.agents/findings/2026-11-22-storage-baseline.md)); proposals waiting for the owner |
-| **04 — Audio & Connectivity** | AppleALC / USB audio, DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | none yet | dormant |
+| **04 — Audio & Connectivity** | USB audio (no HDA codec: AppleALC doesn't apply), DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | `ownback/audio-connectivity` | inventory and first baselines done 2026-11-22 ([finding](../.agents/findings/2026-11-22-audio-connectivity-inventory.md)); Wi-Fi fix booted and verified (EFI change 4) |
 | **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | none yet | dormant |
 | **06 — macOS Integration & Peripherals** | system apps, window management, input devices, sharing, dev workflows | none yet | dormant |
 | **07 — Sleep, Power & Final Validation** | sleep / wake, power and thermals, stress, benchmarks, regression, updates | none yet | dormant |
@@ -62,11 +62,12 @@ says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 | Other LG modes | fixed rates only, no VRR / HDR (owner's choice) | decisions 2026-11-22 | 00 |
 | OpenGL / OpenCL / Vulkan | software GL, CPU-only CL, no Vulkan loader | baseline | 00.1 |
 | Video decode (VCN) | off | baseline | 00.1 |
-| Wi-Fi MT7922 | works (MtkWirelessWifi 1.1.1 + `pci=0x8000000`); throughput drops ~30 s every ~5 min | [wifi finding](../.agents/findings/2026-11-19-wifi-mt7922.md), `phase1-wifi` TODO note | 04 |
+| Wi-Fi MT7922 | works (MtkWirelessWifi 1.1.1 + `pci=0x8000000`), 802.11ax 2x2, 867 Mbit/s link; **AWDL latency stalls fixed** with `amtk_awdl_offchan=0` (2026-11-22 boot 22:23: router ping max 4 ms, was 456 ms; AirDrop with a phone untested) | [wifi finding](../.agents/findings/2026-11-19-wifi-mt7922.md), [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) | 04 |
 | Bluetooth MT7922 (USB `0489:e0e2`) | works since 2026-11-22: MtkWirelessBT 1.1.1 + BlueToolFixup 2.7.2 + 2 NVRAM variables; AirPods pair and play (owner). AirDrop / BLE advertising untested | [Bluetooth](../.agents/findings/2026-11-22-bluetooth.md) | 02 -> 04 |
-| Audio (ASUS USB `0b05:1a5c`) | enumerates since the USB map (2026-11-22): Realtek USB2.0 Audio, default input / output; sound by ear unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 -> 04 |
+| Audio (ASUS USB `0b05:1a5c`, Realtek ALC4080, UAC2, `usbaudiod`) | works on the line-out (owner hears it, 2026-11-22). The ALC4080 offers only jacks **plugged in at boot** (jack sensing), plus S/PDIF and one input. macOS volume = codec hardware gain, 0 dB at 100 % (bass clips on an aux speaker at 100 %: gain staging). S/PDIF output stable to a 32-frame buffer | [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) | 04 |
 | DP / HDMI audio | not implemented anywhere in the stack | TODO Phase 4 | 00 / 04 |
-| Ethernet I225-V | Apple's DriverKit E1000 bound, `en3` no link (cable?) | inventory | 04 |
+| Ethernet I225-V | Apple's DriverKit E1000 bound, `en3`, offers up to 2500BASE-T; no link (cable? owner) | [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) | 04 |
+| Continuity | iCloud signed in; **AirDrop: Mac not visible on the iPhone** (2026-11-22; suspects: `amtk_awdl_offchan=0`, MtkWireless AirDrop incomplete upstream); Handoff and AirPlay to Mac work; Universal Clipboard fails; owner keeps the Wi-Fi fix over AirDrop (2026-11-22) | same | 04 |
 | USB | mapped (2026-11-22): USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`, all 8 rear ports + internal audio / Bluetooth; USB 3 halves unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 |
 | CPU sensors / package power | work since 2026-11-22: SMCProcessorAMD 1.0.1 (read-only), `tools/sensors/cpusensors.py`; per-core clocks not published | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) | 02 |
 | CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`; real P-state behaviour unmeasured | inventory | 02 / 07 |
@@ -94,6 +95,9 @@ This is the configuration the owner uses every day. Change it only through the o
     `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
   - Since 2026-11-22 20:00 `EFI/OC.prev` = the same b150 EFI without the USB map (b149's EFI is in `~/vermilion-rollback/EFI-OC.b149-20261122`). Before that: `EFI/OC.prev` held b149, the rollback. VermilionBoot sha256 starts `3806555e` (b150), and `d34093c0` in
     `OC.prev`.
+- **Since 2026-11-22 22:23 (thread 04, EFI change 4):** the same EFI plus boot-arg `amtk_awdl_offchan=0` (only
+  `boot-args` differ), verified. `EFI/OC.prev` = the Bluetooth EFI without it; rollback in TODO "Audio and
+  connectivity".
 - **Outside the EFI:** VermilionAccel (mode id 18) in `/Library/Extensions` (AuxKC). Metal plugin b149 in
   `/Library/GPUBundles/`. Boot daemon `~/gpu/phxboot-navi31.sh` with flags `sdma`, `cg`, `uclk` (456), `p0modes`,
   `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`. Hashes and rollback commands are in TODO
@@ -167,8 +171,9 @@ The details are in TODO. This list is for finding the right owner quickly.
 | Issue | Since | Owner | Where |
 |---|---|---|---|
 | A failed DP link training at a login mode switch leaves a black image and blocks later switches until reboot (seen once, 2026-11-22 20:19) | 2026-11-22 | 00 | [Bluetooth findings, Boots](../.agents/findings/2026-11-22-bluetooth.md) |
-| Ethernet: no link | 2026-11-19 | 04 | inventory |
-| Wi-Fi throughput drops periodically | 2026-11-19 | 04 | `phase1-wifi` TODO note |
+| Ethernet: no link (driver bound; cable?) | 2026-11-19 | 04 | [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) |
+| Wi-Fi latency stalls every ~1.05 s (AWDL off-channel; cause proved) | 2026-11-19 | 04 | same |
+| Onboard audio: analog outputs not published by `usbaudiod` | 2026-11-22 | 04 | same |
 | Kernel panic at a restart, no panic report saved (`DisableVariableWrite` blocks the NVRAM log) | 2026-11-19 | 07 | TODO, [flicker / heat finding](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) |
 | b138 froze the machine at 1280x1024 (cause open) | 2026-11-20 | 00 | [finding](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md) |
 | Tearing at 1440p60 with GPU present; input lag at 60 Hz | 2026-11-19 | 00.1 | TODO |
@@ -225,6 +230,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
 | `tools/storage/nvmebench.sh` | NVMe / APFS throughput, latency, flush cost, SSD temperature, SMART before / after (fio, smartctl; writes 60-80 GB per run). Pitfalls in its README |
 | `tools/storage/nvmeior.c` | IOReport `NVMe` group: power-state residency, Apple's bandwidth-throttle tiers |
+| `tools/audio/audioprobe.m`, `uacdesc.c` | CoreAudio devices, formats, latency; I/O-cycle jitter, dropouts, overloads; USB audio descriptors (which device is which jack) |
 | `powermetrics` (macOS) | per-task CPU and wakeups. Its CPU power, thermal and C-state figures are **meaningless on this AMD CPU** (Intel counters) |
 | kext sysctls `debug.phxwait_lat`, `debug.phxvrr_stat`, ... | fence-wait latency, VRR, mode-set state ([XTX.md](XTX.md)) |
 
@@ -244,7 +250,11 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-22 | Storage, APFS | `nvmebench.sh`, 1 h after boot, b150, 1440p desktop idle; SLC cache not rested | seq read 9.13 GB/s; seq write 9.54 GB/s fresh / 1.73 GB/s while folding; 4 KiB QD1 read 19.9 k IOPS (p50 48 us); 4 KiB 8 threads 133 k IOPS read; `F_FULLFSYNC` p50 1.50 ms (668/s) | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) |
 | 2026-11-22 | Storage, raw device | same run, `/dev/rdisk0s2` read-only | seq read 7.0 GB/s (the raw path's limit, not the drive's); 4 KiB QD1 20.9 k IOPS; 64 threads 558 k IOPS at 5 cores of system CPU | same |
 | 2026-11-22 | Storage, sustained write | 180 s, 8 x 1 MiB, 886 GB | 9.6 GB/s for ~190 GB, then 1.46-9.6 GB/s (SLC folding); 54-65 C, no throttling | same |
-| — | Audio, network throughput, sleep | — | **no baseline yet** | 04, 07 |
+| 2026-11-22 | Audio output | S/PDIF stream of the ALC4080, 48 kHz, silence, `audioprobe run 85 20 <frames>`, 1 h after boot, b150 | buffer 512 / 128 / 32 frames: reported latency 11.25 / 3.25 / 1.25 ms; callback period p99.9 within +-0.1 %; 0 overloads, 0 gaps in 60 s; device clock +24 ppm | [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) |
+| 2026-11-22 | Wi-Fi latency | router ping 10 Hz, 300 s, 5 GHz ch 52 / 80 MHz, RSSI -56 to -61 | AWDL up: p50 47, p90 308, p99 418, max 456 ms; AWDL down: avg 1.8, max 5 ms | same |
+| 2026-11-22 | Wi-Fi latency, fixed | same, boot 22:23 with `amtk_awdl_offchan=0`, AWDL up, 60 s | avg 1.7, max 4.2 ms; 99.6 / 50.4 Mbit/s, idle 14.9 ms | same |
+| 2026-11-22 | Internet over Wi-Fi | `networkQuality -s` | AWDL up: 64 / 32 Mbit/s, idle latency 143 ms; AWDL down: 101 / 48 Mbit/s, 14 ms (line-limited) | same |
+| — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable) | 04, 07 |
 
 ### Known bottlenecks and limits
 
@@ -270,6 +280,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-19 | Fence-wait step 200 us (daemon flag `phxboot-waitstep`) | WindowServer wakeups 137-352/s vs 1673-2458/s at 50 us; no visible regression in a blind A/B | decisions.md |
 | 2026-11-19 | GPU present via E3 (CoreDisplay's display surfaces) | fixed the flicker; WindowServer wakeups 700-1050/s from 1300-1400 | decisions.md |
 | 2026-11-19 | GPU-present slots above BAR0 for frames over 8 MiB | removes the per-frame CPU copy at 1440p | decisions.md |
+| 2026-11-22 | MtkWireless `amtk_awdl_offchan=0` | router ping max 456 -> 4 ms, internet 64 -> 100 Mbit/s, AWDL kept | [audio / connectivity](../.agents/findings/2026-11-22-audio-connectivity-inventory.md) |
 | 2026-11-22 | VRR floor 60 Hz, ramp 5 % | the OLED flickers near 48 Hz; the ramp reduces desktop flicker | decisions.md |
 
 ## Shared-knowledge tooling (evaluated 2026-11-22)
@@ -296,4 +307,5 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 - 2026-11-22: created by thread 01. Covers the full survey of the repo, the live EFI and the system.
 - 2026-11-22: PR #2 merged (GPU baseline, `metalbench`, `apiprobe`); thread 02's inventory committed to `main`
   and its branch fast-forwarded to `main` (owner's OK).
+- 2026-11-22: thread 04 audio / connectivity inventory, first audio and Wi-Fi baselines (`tools/audio/`, branch `ownback/audio-connectivity`).
 - 2026-11-22: thread 03 storage inventory and first storage baseline (`tools/storage/`, branch `ownback/storage`).
