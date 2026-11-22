@@ -186,7 +186,15 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      flicker is less but still there (owner), and the menu still said "Variable (48-240 Hz)" although IOFBTimingRange said 60:
      CoreDisplay takes the label from the EDID (the LG has 48 in its 0xFD descriptor and in AMD's FreeSync VSDB). PhxAccel
      now serves macOS an EDID copy with the floor as both minima (phxhead::edidFloorPatch; the monitor's EDID kept inside).
-     Floor set to 90 for the next test (`~/gpu/phxboot-vrrmin`). (unverified)
+     Floor set to 90 for the next test (`~/gpu/phxboot-vrrmin`). **On the box:** menu "Variable (90-240 Hz)", still flickers
+     (owner). Web (Blur Busters, RTINGS on the 27GR95QE): the LG OLEDs flicker with frame-time swings; no firmware fix; the
+     other OSes hide it by running the desktop at a fixed rate. Owner's preference: **60-240 with a ramp** (floor back to 60).
+     **b147 installed 2026-11-22** (EFI `OC` = b147 sha 6213fecd, `OC.prev` = b146 sha 132f6c02; b144-b146 in
+     `~/vermilion-rollback/`): the ramp (PhxVrrRamp.h, `debug.phxvrr_ramp` % per flip, default 10, 0 = off) and a live
+     floor (`debug.phxvrr_floor`). Host test vrr_ramp 13/13. (unverified)
+     **Test:** restart, Variable (60-240 Hz); flicker? Tune live as root: `sysctl -w debug.phxvrr_ramp=5` (gentler) / `20` /
+     `0` (off); `sysctl debug.phxvrr_stat` shows the window and the writes. **Rollback:** black screen or flicker worse:
+     `sudo sysctl -w debug.phxvrr_ramp=0`; boot trouble: swap `EFI/OC` and `EFI/OC.prev`.
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux

@@ -116,6 +116,7 @@ static void vrrOffLocked(const phxp2::Env &e) {
     e.io.wr(e.io.c, phxodm::kOtg0VMin, gVrrBoot[0]);
     e.io.wr(e.io.c, phxodm::kOtg0VMax, gVrrBoot[1]);
     gVrrOn = 0; gVrrOffs++; gVrrWhy = "off";
+    gVrrRampVMin = gVrrRampVMax = gVrrRampHz = 0; gVrrRampPrimed = false;   // b147: no ramp while off
 }
 static int vrrOnLocked(const phxp2::Env &e) {
     const phxodm::Mode *m = phxodm::curMode(gOdm, kOdmSet);
@@ -129,6 +130,8 @@ static int vrrOnLocked(const phxp2::Env &e) {
     e.io.wr(e.io.c, phxodm::kOtg0VMin, v.vmin);
     e.io.wr(e.io.c, phxodm::kOtg0VCtl, v.ctl);
     gVrrSet = v; gVrrOn = 1; gVrrOns++; gVrrWhy = "on";
+    gVrrRampVMin = v.vmin; gVrrRampVMax = v.vmax; gVrrRampHz = m->hz;   // b147: the ramp starts from the full range
+    gVrrRampLo = v.vmin; gVrrRampHi = v.vmax; gVrrRampPrimed = false;
     return 0;
 }
 static uint32_t gVrrDrops = 0, gVrrResumes = 0;
@@ -273,10 +276,46 @@ static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrSysctl, "I",
             "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to the floor (48 Hz; b146: PhxAccel's) on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
+// b147: the ramp, % per flip (0 = off: the mode's full range; 1-50); takes effect at the next flip. Root.
+static int phxVrrRampSysctl SYSCTL_HANDLER_ARGS {
+    int v = gVrrRampPct;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v < 0 || v > 50) return EINVAL;
+    gVrrRampPct = v;   // an int store; scanPresent reads it once per flip
+    IOLog("PhxBringup: debug.phxvrr_ramp=%d\n", v);
+    return 0;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxvrr_ramp, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrRampSysctl, "I",
+            "b147 Adaptive Sync ramp (root): the next frames may be at most this % shorter or longer than the last ones (1-50; 0 = off)");
+// b147: the floor in Hz, live (root; 24 or more, below the lit mode's rate). On: the range is set again at once. PhxAccel's
+// next "phxVrrSet" (a mode switch) puts back its own floor (debug.phxfb0_vrrmin), and System Settings' label stays its.
+static int phxVrrFloorSysctl SYSCTL_HANDLER_ARGS {
+    int v = static_cast<int>(gVrrMinHz);
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v < 24 || v > 255) return EINVAL;
+    if (!p2Up() || !gPhx || !gPhx->scanLockForEngines()) return ENXIO;
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return EBUSY;
+    IOLockLock(gPhx->scanLockForEngines());
+    const phxp2::Env e = p2Env();
+    int r = 0;
+    const bool was = gVrrOn != 0;
+    gVrrMinHz = static_cast<uint32_t>(v);
+    if (was) { vrrOffLocked(e); r = vrrOnLocked(e); if (r) gVrrRefusals++; }
+    IOLockUnlock(gPhx->scanLockForEngines());
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    IOLog("PhxBringup: debug.phxvrr_floor=%d: %s\n", v, gVrrWhy);
+    return r;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxvrr_floor, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrFloorSysctl, "I",
+            "b147 Adaptive Sync floor in Hz (root, live; 24 or more): OTG0's V_TOTAL_MAX goes to it; a mode switch puts back PhxAccel's");
 static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
-    char b[640];
+    char b[896];
     int n;
     if (!p2Up()) n = snprintf(b, sizeof b, "PhxBringup not ready");
     else {
@@ -285,9 +324,9 @@ static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
         IOSleep(250);
         const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
         n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
-                     "triggers %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
+                     "triggers %lld | ramp %d %% window 0x%x-0x%x last %u lines writes %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
                      gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
-                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs,
+                     phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrRampPct, gVrrRampLo, gVrrRampHi, gVrrRampLines, (long long)gVrrRampWrites, gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs,
                      gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
     }
     if (n < 0) n = 0;

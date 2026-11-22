@@ -10,6 +10,7 @@ static constexpr uint32_t kHubp0TilingConfig            = 0x3aa7;   // HUBP0_DCS
 static constexpr uint32_t kHubp0DchubpCntl              = 0x3ab3;   // HUBP0_DCHUBP_CNTL (underflow status 30:28, clear 31)
 static constexpr uint32_t kHubpreq0SurfacePitch         = 0x3ac7;   // HUBPREQ0_DCSURF_SURFACE_PITCH
 static constexpr uint32_t kHubp0PriViewportDim          = 0x3aaa;   // HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION (b138: width [13:0])
+static constexpr uint32_t kOtg0VTotalMin = 0x04FF0, kOtg0VTotalMax = 0x04FF1;   // b147 OTG0_OTG_V_TOTAL_MIN / MAX (the ramp)
 static constexpr uint32_t kOtg0TrigAManualTrig = 0x04FFA;   // b142 OTG0_OTG_TRIGA_MANUAL_TRIG (Linux optc2_program_manual_trigger)
 static constexpr uint32_t kHubpreq0PrimaryAddr          = 0x3aca;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS
 static constexpr uint32_t kHubpreq0PrimaryAddrHigh      = 0x3acb;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS_HIGH

@@ -296,7 +296,26 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
             }
         }
         scanFlipLocked(scan.slotMc[slot], false);
-        if (gVrrOn) { wreg(kOtg0TrigAManualTrig, 1u); OSIncrementAtomic64(&gVrrTrigs); }   // b142: Linux's per-flip trigger
+        if (gVrrOn) {
+            if (gVrrRampPct > 0 && gVrrRampVMax > gVrrRampVMin) {   // b147: the ramp's window for the next frames
+                const uint64_t f = scanFrameLocked();
+                uint64_t ns = 0;
+                absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
+                if (gVrrRampPrimed && f > gVrrRampFrame && ns > gVrrRampNs) {
+                    gVrrRampLines = phxvrr::linesFromPeriod((ns - gVrrRampNs) / (f - gVrrRampFrame), gVrrRampVMin, gVrrRampHz);
+                    uint32_t lo, hi;
+                    phxvrr::window(gVrrRampLines, gVrrRampVMin, gVrrRampVMax, static_cast<uint32_t>(gVrrRampPct), &lo, &hi);
+                    if (lo != gVrrRampLo || hi != gVrrRampHi) {
+                        if (phxvrr::maxFirst(lo, hi, gVrrRampLo)) { wreg(kOtg0VTotalMax, hi); wreg(kOtg0VTotalMin, lo); }
+                        else { wreg(kOtg0VTotalMin, lo); wreg(kOtg0VTotalMax, hi); }
+                        gVrrRampLo = lo; gVrrRampHi = hi;
+                        OSIncrementAtomic64(&gVrrRampWrites);
+                    }
+                }
+                if (f > gVrrRampFrame || !gVrrRampPrimed) { gVrrRampFrame = f; gVrrRampNs = ns; gVrrRampPrimed = true; }
+            }
+            wreg(kOtg0TrigAManualTrig, 1u); OSIncrementAtomic64(&gVrrTrigs);   // b142: Linux's per-flip trigger
+        }
         scan.pending = slot;
         scan.presents++;
         scan.slotPresents[slot]++;

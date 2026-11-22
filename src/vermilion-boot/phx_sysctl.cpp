@@ -314,6 +314,16 @@ static volatile SInt64 gVrrTrigs = 0;
 static volatile int gVrrWant = 0;
 static void phxVrrDropLocked();     // GPU present stopped (scanRestoreLocked): range off, the want kept
 static void phxVrrResumeLocked();   // GPU present (re)acquired (scanAcquire): range on again if wanted
+// b147 Adaptive Sync ramp (PhxVrrRamp.h): at each flip the next frames may be at most debug.phxvrr_ramp % shorter or
+// longer than the frames since the previous flip. Set by vrrOnLocked / vrrOffLocked (phx_p0odm.cpp), used by scanPresent
+// (phx_scan.cpp), all with scanLock held.
+#include "PhxVrrRamp.h"
+static int gVrrRampPct = 10;
+static uint32_t gVrrRampVMin = 0, gVrrRampVMax = 0, gVrrRampHz = 0;   // the lit mode's range while VRR is on (0 = off)
+static uint32_t gVrrRampLo = 0, gVrrRampHi = 0, gVrrRampLines = 0;     // the window now, the last measured frame length
+static uint64_t gVrrRampFrame = 0, gVrrRampNs = 0;                     // OTG0's frame count and the time at the last flip
+static bool gVrrRampPrimed = false;
+static SInt64 gVrrRampWrites = 0;
 SYSCTL_INT(_debug, OID_AUTO, phxp0odm_active, CTLFLAG_RD | CTLFLAG_LOCKED, const_cast<int *>(&gP0OdmActive), 0, "b131 1 = flips go to HUBP0 and HUBP1 (pipe 0 on ODM 2:1)");
 static SInt64 gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost;
 static uint32_t gScanGhost = 0xffffffffu;   // slot of the last accepted-but-forgotten flip (on screen until a later latch)
