@@ -20,9 +20,9 @@ constexpr unsigned kMaxHeads = 2;
 // 1 MiB kept); 96 MiB = the TMR (to 115 MiB); 128 MiB fw_buf; 136 MiB VCN ring; 140 MiB IH ring; 144 MiB SMU tables;
 // 160-164 MiB mesboot; 164-240 MiB page tables; 256-352 MiB = the large GPU-present slots for frames over 8 MiB
 // (VermilionBoot b126, PhxScanLayout.h; past BAR0, GPU only). Head 0's B (flipBRange) may take all of 16-48 MiB: at
-// 2560x1440 it sits at 16-30.1 MiB, over the small slots, which GPU present never uses at the same time. 64-96 MiB is used by nothing in the kext, mesboot (only its manual
-// fbflip/fbcomp test verbs paint 64 MiB) or the shim. Head 1 takes 64-72 MiB for its surface and keeps 72-96 MiB for
-// its three GPU-present slots of S4b (not used in S3a).
+// 2560x1440 it sits at 16-30.1 MiB, over the small slots, which GPU present never uses at the same time. 64-96 MiB is
+// used by nothing in the kext, mesboot (only its manual fbflip/fbcomp test verbs paint 64 MiB) or the shim. Head 1 takes
+// 64-72 MiB for its surface and keeps 72-96 MiB for its three GPU-present slots of S4b (not used in S3a).
 constexpr uint64_t kMiB = 1ull << 20;
 constexpr uint64_t kFlipBLo = 16 * kMiB, kSlotsLo = 24 * kMiB, kSlotsHi = 48 * kMiB;
 constexpr uint64_t kPspLo = 48 * kMiB, kPspHi = 49 * kMiB, kTmrOff = 96 * kMiB;
@@ -138,19 +138,19 @@ constexpr unsigned agdcPosition(uint32_t ep, unsigned n) { return ep < n ? ep : 
 // Behind debug.phxfb1_modes=1 (read at head-1 start; macOS caches the list, it must be complete from the first query):
 // the pipe-1 plans PhxBringup has compiled (b92 debug.phxpipe2_switch 60 / 144, head 1 1920x1080), each offered only
 // when the monitor's EDID has a DTD with its exact timing. ids are fixed per plan.
-// b138: std = the mode may also be listed by the EDID's established / standard timings or a CTA video code (edidLists),
-// not only by a detailed timing.
 struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t std; };
-// HeadMode::std: 0 = a DTD / DisplayID mode of the boot size, 1 = b138's other sizes (EDID standard / established / VIC),
-// kStdVrrTwin = a variable-refresh twin (Adaptive Sync), never an other-size mode
-constexpr uint8_t kStdVrrTwin = 2;
-// kStdHdrVrrTwin (2026-11-22) = Variable with HDR on: both an HDR twin (HDR10 timing info, PhxBringup's HDR replay mode) and a
-// variable-refresh twin (verticalBlankingExtension, "phxVrrSet" 1); offered only with both features
-constexpr uint8_t kStdHdrVrrTwin = 4;
+// HeadMode::std, the kind of row. A "twin" repeats the timing of a fixed-rate row under its own id, because macOS tells
+// the variants of one timing apart by mode id only.
+//   0               a detailed timing (DTD / DisplayID) of the boot size
+//   kStdOtherSize   another size, listed by the EDID's established / standard timings or a CTA video code
+//                   (edidListsStd), not only by a detailed timing
+//   kStdVrrTwin     Adaptive Sync: the one mode whose timing carries verticalBlankingExtension (System Settings'
+//                   "Variable"); offered only while head 0 publishes the VRR timing range
+//   kStdHdrTwin     HDR: its timing info reports HDR10. CoreDisplay's SupportsHDRMode looks for another mode id of the
+//                   current timing with kIODynamicRangeHDR10; offered only with HDR on (debug.phxfb0_hdr)
+//   kStdHdrVrrTwin  Variable with HDR on: an HDR twin and a variable-refresh twin at once; offered only with both
+constexpr uint8_t kStdOtherSize = 1, kStdVrrTwin = 2, kStdHdrTwin = 3, kStdHdrVrrTwin = 4;
 constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin || m.std == kStdHdrVrrTwin; }
-// kStdHdrTwin = an HDR twin (HDR, 2026-11-21): CoreDisplay's SupportsHDRMode looks for another mode id of the current timing whose
-// timing reports kIODynamicRangeHDR10 (FindIOModeIDForIODynamicRange(..., 2)); offered only with HDR on (debug.phxfb0_hdr)
-constexpr uint8_t kStdHdrTwin = 3;
 constexpr bool isHdrTwin(const HeadMode &m) { return m.std == kStdHdrTwin || m.std == kStdHdrVrrTwin; }
 static const HeadMode kHead1Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125, 0},    // CEA 1080p60 (the 60 plan)
@@ -182,17 +182,16 @@ static const HeadMode kHead0Modes[] = {
     {10, 800, 600, 60317, 4000, 1056, 628, 1},      // established / standard 800x600@60 (DMT)
     {11, 640, 480, 60000, 2520, 800, 525, 1},       // 640x480@60.00 (25.2 MHz; Linux lists it next to the DMT one)
     {12, 640, 480, 59940, 2518, 800, 525, 1},       // established / standard 640x480@60 (DMT 25.175 MHz)
-    // Adaptive Sync (2026-11-20): the variable-refresh twin of id 6, offered only while head 0 publishes the VRR timing range
-    // (modeList vrr). The one mode whose timing carries verticalBlankingExtension: macOS folds every mode with one into
-    // its "Variable (48-240 Hz)" entry, so the fixed rates keep none. The pipe runs id 6's timing (same switch key).
+    // Adaptive Sync: the variable-refresh twin of id 6. macOS folds every mode with a verticalBlankingExtension into its
+    // "Variable (N-240 Hz)" entry, so the fixed rates carry none. The pipe runs id 6's timing (same switch key).
     {13, 2560, 1440, 239963, 105675, 2720, 1619, kStdVrrTwin},
-    // HDR (2026-11-21): the HDR twins of 3..6 (same timings; their timing info reports HDR10, 10 bpc, BT.2020)
+    // HDR: the HDR twins of 3..6 (same timings; their timing info reports HDR10, 10 bpc, BT.2020)
     {14, 2560, 1440, 59951, 24150, 2720, 1481, kStdHdrTwin},
     {15, 2560, 1440, 119998, 49775, 2720, 1525, kStdHdrTwin},
     {16, 2560, 1440, 143991, 59375, 2720, 1516, kStdHdrTwin},
     {17, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrTwin},
-    // Variable with HDR (2026-11-22): id 17's timing with the extension; the pipe runs PhxBringup's HDR 240 (key 1440240)
-    // and the VRR range on top (PhxBringup b144+ vrrOnLocked: 1440p, V_TOTAL 0x652 as id 6 / 13 / 17)
+    // Variable with HDR: id 17's timing with the extension; the pipe runs PhxBringup's HDR 240 (key 1440240) and the VRR
+    // range on top (PhxBringup's vrrOnLocked: 1440p, V_TOTAL 0x652 as id 6 / 13 / 17)
     {18, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrVrrTwin},
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
@@ -248,10 +247,9 @@ inline bool edidListsStd(const uint8_t *e, uint32_t len, const HeadMode &m) {
     }
     return false;
 }
-// The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
-// Adaptive Sync (2026-11-20): the EDID base block's display range limits descriptor (tag 0xFD), for the timing range head 0
-// publishes while debug.phxfb0_vrr is on. Byte 4 (EDID 1.4 rate offsets): bits 1:0 = 10 adds 255 to the max vertical
-// rate, 11 to the max and the min; bits 3:2 the same for the horizontal rates. false = no descriptor (nothing published).
+// Adaptive Sync: the EDID base block's display range limits descriptor (tag 0xFD), for the timing range head 0 publishes
+// while debug.phxfb0_vrr is on. Byte 4 (EDID 1.4 rate offsets): bits 1:0 = 10 adds 255 to the max vertical rate, 11 to
+// the max and the min; bits 3:2 the same for the horizontal rates. false = no descriptor (nothing published).
 // The LG's byte 4 is 0x0c: 390-390 kHz horizontal, as its EDID says (inferred: a quirk of its descriptor).
 struct EdidRange { uint32_t minVHz, maxVHz, minHKHz, maxHKHz, maxPclkMHz; };
 inline bool edidRange(const uint8_t *e, uint32_t len, EdidRange *r) {
@@ -277,12 +275,14 @@ inline uint32_t vrrFloor(uint32_t edidMinHz, uint32_t edidMaxHz, uint32_t wantHz
     return f < edidMaxHz ? f : 0u;
 }
 
-// Adaptive Sync floor in macOS's copy of the EDID. CoreDisplay names System Settings' "Variable (N-M Hz)" after the EDID's
-// own minimum, not IOFBTimingRange's (XTX machine, 2026-11-22: range published 60-240, the menu said 48-240), and the LG
-// has 48 twice: the base block's range limits descriptor (0xFD, byte 5) and AMD's FreeSync VSDB in the CTA block (OUI
-// 00-00-1A; version, caps, then min and max rate, as Linux's amdgpu reads it). Raises both to floorHz where they are
-// lower and fixes the block's checksum. blk = one 128-byte block, idx = its number (0 = base). Returns the fields changed
-// (0 = block untouched). The descriptor's +255 offset form is left alone.
+// Adaptive Sync's floor in macOS's copy of the EDID. CoreDisplay names System Settings' "Variable (N-M Hz)" after the
+// EDID's own minimum, not IOFBTimingRange's (seen on the XTX machine: range published 60-240, the menu said 48-240), and
+// the LG has 48 twice: the base block's range limits descriptor (0xFD, byte 5) and AMD's FreeSync VSDB in the CTA block
+// (OUI 00-00-1A; version, caps, then min and max rate, as Linux's amdgpu reads it). Raises both to floorHz where they
+// are lower and fixes the block's checksum. blk = one 128-byte block, idx = its number (0 = base). Returns the fields
+// changed (0 = block untouched). The descriptor's +255 offset form is left alone.
+// macOS identifies a display by its EDID, so a new floor is a new display to it: its colour profile and per-display
+// settings start over (.agents/findings/2026-11-22-display-polish-log.md).
 inline unsigned edidFloorPatch(uint8_t *blk, unsigned idx, uint32_t floorHz) {
     if (!blk || !floorHz || floorHz > 255) return 0;
     unsigned n = 0;
@@ -312,13 +312,18 @@ inline unsigned edidFloorPatch(uint8_t *blk, unsigned idx, uint32_t floorHz) {
     return n;
 }
 
-// b149 10-bit HDR: an 8-bit XRGB pixel on the ARGB2101010 scan-out (each channel's 8 bits on top of its 10, the low two
-// a copy of the top two so white stays 0x3ff; alpha 3).
+// 10-bit HDR: an 8-bit XRGB pixel on the ARGB2101010 scan-out (each channel's 8 bits on top of its 10, the low two a copy
+// of the top two so white stays 0x3ff; alpha 3). For the CPU copy (nvrm-accel.cpp).
+// The Metal plugin has the same function as nvmtl_bgra_to_2101010 (src/metal-plugin/nvmtl_scanout.c). Two copies on
+// purpose: the plugin is a C translation unit built without any kext header (it mirrors the kernel ABI the same way),
+// and this header is C++. Not a licence boundary (both sides are PolyForm Noncommercial). Change both together;
+// tests/kext/head0_1440_test.cpp pins this one's values.
 constexpr uint32_t bgraTo2101010(uint32_t v) {
     return 0xC0000000u | (((v >> 16) & 0xffu) << 22) | (((v >> 22) & 0x3u) << 20) | (((v >> 8) & 0xffu) << 12) |
            (((v >> 14) & 0x3u) << 10) | ((v & 0xffu) << 2) | ((v >> 6) & 0x3u);
 }
 
+// The EDID (base block + CTA-861 extensions + b134 DisplayID 1.x extension blocks' Type I timings) has m.
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
@@ -344,7 +349,8 @@ inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool 
 }
 // The ids head `head` offers for a w x h surface, in table order (out holds kNMaxModes). b138: anySize (head 0 with
 // PhxBringup's phx-p0-keys, a 2560x1440 surface) also offers the rows of other sizes the EDID lists (the desktop resizes).
-// Adaptive Sync: vrr (head 0 publishes the VRR timing range) also offers the variable-refresh twins.
+// vrr (head 0 publishes the VRR timing range) also offers the variable-refresh twins, hdr the HDR twins; the HDR + VRR
+// twin needs both.
 inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint32_t w, uint32_t h, uint32_t *out, bool anySize = false,
                          bool vrr = false, bool hdr = false) {
     const ModeTable t = headModes(head);
@@ -354,13 +360,14 @@ inline unsigned modeList(unsigned head, const uint8_t *edid, uint32_t len, uint3
         const bool size = t.m[i].w == w && t.m[i].h == h;
         if (isVrrTwin(t.m[i]) && !(vrr && head == 0)) continue;
         if (isHdrTwin(t.m[i]) && !(hdr && head == 0)) continue;
-        if ((size || (any && t.m[i].std == 1)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
+        if ((size || (any && t.m[i].std == kStdOtherSize)) && edidHasMode(edid, len, t.m[i], any)) out[n++] = t.m[i].id;
     }
     return n;
 }
 // b138: what phxPipe0SetMode's target_hz carries for m: its rounded Hz when m has the boot surface's size (as before; the
 // 1440p rates are keyed by Hz in PhxBringup too), else PhxBringup b137's key height * 1000 + whole Hz (1080060, 480059).
-// b145: an HDR twin asks for PhxBringup b145's HDR replay mode, height * 1000 + rounded Hz (1440060, 1440120, 1440144, 1440240).
+// b145: an HDR twin asks for PhxBringup b145's HDR replay mode, height * 1000 + rounded Hz (1440060, 1440120, 1440144,
+// 1440240).
 constexpr uint32_t switchKey(const HeadMode &m, uint32_t bootW, uint32_t bootH) {
     return isHdrTwin(m) ? m.h * 1000 + (m.milliHz + 500) / 1000
          : m.w == bootW && m.h == bootH ? (m.milliHz + 500) / 1000 : m.h * 1000 + m.milliHz / 1000;
