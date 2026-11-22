@@ -219,10 +219,10 @@ rearm(){ nvram phxfb-squat=1 || return 1; sync; if nvram phxfb-squat >/dev/null 
 wait_fb(){ for i in $(seq 1 90); do ioreg -rc IOFramebuffer -d0 | grep -q 'class ' && break; sleep 1; done; }
 
 echo "squat boot (PhxFBSquatter holds IOFramebuffer, no IONDRV console): $SQUAT (decided by $SQWHY)"
-# A squat boot that cannot leave the squat (2026-11-20, the XTX machine). PhxFBSquatter squats while phxfb-squat is in
-# the firmware's NVRAM. With OpenCore's DisableVariableWrite, macOS's `nvram -d` (and the squatter's own removal) never
-# reach the firmware, so every "reboot onto IONDRV" came back squatting: three reboots in a row after a hung b138
-# boot, until Linux deleted the variable (findings 2026-11-20-b138-freeze-and-squat-loop.md).
+# A squat boot that cannot leave the squat (seen on the XTX machine). PhxFBSquatter squats while phxfb-squat is in the
+# firmware's NVRAM. With OpenCore's DisableVariableWrite, macOS's `nvram -d` (and the squatter's own removal) never
+# reach the firmware, so every "reboot onto IONDRV" comes back squatting: a reboot loop until something else deletes the
+# variable (.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md).
 # $NVSTUCK holds "pending" when a boot rebooted to clear phxfb-squat. A squat boot that finds it knows the clear did not
 # stick (STUCK=1): no reboot can help, so the recovery runs a SAFE desktop on the squat instead, the plain path (CPU copy
 # at the boot mode: no pipe-0 mode list, GPU present, flip, M7, b15, VCN). A safe attempt that does not finish leaves
@@ -467,16 +467,24 @@ p0modes_boot(){ [ -e "$G/phxboot-p0modes" ] || return 0
   if [ $r1 = 0 ] && [ $r2 = 0 ]; then echo "p0modes: pipe-0 engine on, head-0 mode list armed (debug.phxpipe0_enable=1, debug.phxpipe0_modes=1)"
   else echo "p0modes: enable rc $r1, modes rc $r2 ($(echo "$o1 $o2" | tr '\n' ' ' | cut -c1-100)): head 0 may keep one mode"; fi; }
 [ "${PHXBOOT_NO_AOC:-0}" = 1 ] || [ $SAFE = 1 ] || p0modes_boot
-# Adaptive Sync (2026-11-20, findings 2026-11-20-adaptive-sync-research.md): PhxAMDFB head 0 offers System Settings'
-# "Variable" by default when the monitor and PhxBringup b144+ support it (debug.phxfb0_vrr, read when head 0 starts at the
-# claim below). $G/phxboot-novrr turns it off; the safe desktop always does (VRR needs GPU present, which it has not).
+# Display features of head 0 (docs/XTX.md, "Display settings"). PhxAMDFB reads three sysctls once, when head 0 starts at
+# the claim below, so they are written here, before it:
+#   debug.phxfb0_vrr     Adaptive Sync, System Settings' "Variable"; on by default    off: $G/phxboot-novrr
+#   debug.phxfb0_vrrmin  Variable's lowest rate in Hz; default 60                     set: $G/phxboot-vrrmin
+#   debug.phxfb0_hdr     System Settings' "High Dynamic Range"; on by default         off: $G/phxboot-nohdr
+# Each needs the monitor and a PhxBringup that supports it (b144 / b146 / b145); with an older PhxAccel the sysctl is
+# missing and nothing is written.
+#
+# Adaptive Sync (.agents/findings/2026-11-20-adaptive-sync-research.md): $G/phxboot-novrr turns it off; the safe desktop
+# always does (VRR needs GPU present, which it has not).
 novrr_boot(){ { [ -e "$G/phxboot-novrr" ] || [ $SAFE = 1 ]; } || return 0
   if sysctl -w debug.phxfb0_vrr=0 >/dev/null 2>&1; then echo "vrr: off (debug.phxfb0_vrr=0: $([ $SAFE = 1 ] && echo 'the safe desktop' || echo "$G/phxboot-novrr"))"
   else echo "vrr: no debug.phxfb0_vrr (PhxAccel before Adaptive Sync): nothing to turn off"; fi; }
 novrr_boot
-# Adaptive Sync floor (2026-11-22): the LG flickers in Variable near its EDID minimum of 48 Hz (owner; also on Windows and
-# Linux), so PhxAccel's default floor is 60 Hz (debug.phxfb0_vrrmin, read when head 0 starts at the claim below).
-# $G/phxboot-vrrmin holds another floor in Hz (24-240; 0 = the EDID's minimum). Not on the safe desktop (no VRR there).
+# Adaptive Sync's floor: the XTX machine's LG flickers in Variable near its EDID minimum of 48 Hz (the monitor's own VRR
+# behaviour), so PhxAccel's default floor is 60 Hz. $G/phxboot-vrrmin holds another floor in Hz (24-240; 0 = the EDID's
+# minimum). Not on the safe desktop (no VRR there). macOS sees the floor in the EDID PhxAccel serves, so a new value
+# makes it a new display to macOS: its colour profile and per-display settings start over.
 vrrmin_boot(){ [ -e "$G/phxboot-vrrmin" ] && [ $SAFE = 0 ] || return 0
   local v
   v=$(tr -d ' \t\r\n' <"$G/phxboot-vrrmin" 2>/dev/null)
@@ -485,9 +493,8 @@ vrrmin_boot(){ [ -e "$G/phxboot-vrrmin" ] && [ $SAFE = 0 ] || return 0
   if sysctl -w debug.phxfb0_vrrmin=$v >/dev/null 2>&1; then echo "vrr: floor $v Hz (debug.phxfb0_vrrmin=$v: $G/phxboot-vrrmin)"
   else echo "vrr: no debug.phxfb0_vrrmin (PhxAccel before the floor): the EDID's minimum"; fi; }
 vrrmin_boot
-# HDR (2026-11-21, findings 2026-11-21-hdr.md): PhxAMDFB head 0 offers System Settings' "High Dynamic Range" by default
-# when the monitor and PhxBringup b145+ support it (debug.phxfb0_hdr, read when head 0 starts at the claim below).
-# $G/phxboot-nohdr turns it off; the safe desktop always does.
+# HDR (.agents/findings/2026-11-21-hdr.md): $G/phxboot-nohdr turns it off; the safe desktop always does. HDR is offered
+# only together with Adaptive Sync's timing range, so $G/phxboot-novrr turns HDR off too.
 nohdr_boot(){ { [ -e "$G/phxboot-nohdr" ] || [ $SAFE = 1 ]; } || return 0
   if sysctl -w debug.phxfb0_hdr=0 >/dev/null 2>&1; then echo "hdr: off (debug.phxfb0_hdr=0: $([ $SAFE = 1 ] && echo 'the safe desktop' || echo "$G/phxboot-nohdr"))"
   else echo "hdr: no debug.phxfb0_hdr (PhxAccel before HDR): nothing to turn off"; fi; }
