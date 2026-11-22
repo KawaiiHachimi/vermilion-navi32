@@ -1332,6 +1332,37 @@ static id nvmtl_surface_sync(NVMTLTexture *t) {
         return monitor;
     }
 }
+// The CPU copy also needs the plane mapped in this process. An IOSurface made around another framework's memory keeps
+// its base address after that memory is freed: Music, on the XTX machine on 2026-11-22/23 (26 crash reports, "Drake -
+// Jaded" every time), wrote its readback to an address that was in no region, right after an ImageIO guard page,
+// while the size checks in nvmtlSurfaceCopyable all passed. A GPU-mapped surface on a real Mac never touches that
+// mapping. Checked after IOSurfaceLock, per copy (one mach_vm_region per VM region the plane spans).
+#include <mach/mach_vm.h>
+static BOOL nvmtl_plane_mapped(NVMTLTexture *r, const void *base, size_t row, vm_prot_t need) {
+    const nvk_image *i = &r->_i;
+    const size_t bpp = i->bpp ? i->bpp : 4;
+    const uint32_t cols = i->bw > 1 ? (i->w + i->bw - 1) / i->bw : i->w, rows = i->bh > 1 ? (i->h + i->bh - 1) / i->bh : i->h;   // as nvmtl_vk_image_read
+    if (!rows) return YES;
+    mach_vm_address_t a = (mach_vm_address_t)(uintptr_t)base;
+    const mach_vm_address_t end = a + (mach_vm_size_t)(rows - 1) * row + (mach_vm_size_t)cols * bpp;
+    while (a < end) {
+        mach_vm_address_t ra = a; mach_vm_size_t rs = 0; mach_port_t obj = MACH_PORT_NULL;
+        vm_region_basic_info_data_64_t info; mach_msg_type_number_t n = VM_REGION_BASIC_INFO_COUNT_64;
+        const kern_return_t kr = mach_vm_region(mach_task_self(), &ra, &rs, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &n, &obj);
+        if (obj != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), obj);
+        if (kr != KERN_SUCCESS || ra > a || (info.protection & need) != need || !rs) {
+            static _Atomic unsigned said;
+            if (atomic_fetch_add(&said, 1) < 8)
+                nvlog("G13 surface %u plane %lu NOT synced: %s %ux%u bpp %zu, %u rows of %zu B from %p; 0x%llx is %s",
+                      (unsigned)IOSurfaceGetID(r->_surf), (unsigned long)r->_plane, need & VM_PROT_WRITE ? "readback" : "upload",
+                      i->w, i->h, bpp, rows, row, base, (unsigned long long)a,
+                      kr != KERN_SUCCESS || ra > a ? "not mapped in this process" : "mapped without the needed access");
+            return NO;
+        }
+        a = ra + rs;
+    }
+    return YES;
+}
 - (void)nvmtlSurfaceIn {
     NVMTLTexture *r = _parent ? _parent : self;
     if (!r->_surf) return;
@@ -1356,6 +1387,7 @@ static id nvmtl_surface_sync(NVMTLTexture *t) {
     if (IOSurfaceLock(r->_surf, kIOSurfaceLockReadOnly, &seed) != kIOReturnSuccess) { nvlog("G13 surface-in: IOSurfaceLock FAILED"); return; }
     void *base = IOSurfaceGetBaseAddressOfPlane(r->_surf, (uint32_t)r->_plane);
     size_t row = IOSurfaceGetBytesPerRowOfPlane(r->_surf, (uint32_t)r->_plane);
+    if (base && row && !nvmtl_plane_mapped(r, base, row, VM_PROT_READ)) { IOSurfaceUnlock(r->_surf, kIOSurfaceLockReadOnly, NULL); return; }
     int rc = (base && row) ? nvmtl_vk_image_write(r->_q, &r->_i, base, row) : -1;
     if (!rc && r->_i.bpp == 4) { char tag[24]; snprintf(tag, sizeof tag, "in%u-", (unsigned)IOSurfaceGetID(r->_surf)); nvmtl_frame_dump(tag, base, row, r->_i.w, r->_i.h); }
     IOSurfaceUnlock(r->_surf, kIOSurfaceLockReadOnly, NULL);
@@ -1419,6 +1451,7 @@ static void nvmtl_surface_remark_later(NVMTLTexture *r, uint32_t seed) {
     if (IOSurfaceLock(r->_surf, lockopt, NULL) != kIOReturnSuccess) { nvlog("G13 surface-out: IOSurfaceLock FAILED"); return NO; }
     void *base = IOSurfaceGetBaseAddressOfPlane(r->_surf, (uint32_t)r->_plane);
     size_t row = IOSurfaceGetBytesPerRowOfPlane(r->_surf, (uint32_t)r->_plane);
+    if (base && row && !nvmtl_plane_mapped(r, base, row, VM_PROT_WRITE)) { IOSurfaceUnlock(r->_surf, lockopt, NULL); return NO; }
     int rc = (base && row) ? nvmtl_vk_image_read(r->_q, &r->_i, base, row) : -1;
     if (!rc && r->_i.bpp == 4) { char tag[24]; snprintf(tag, sizeof tag, "out%u-", (unsigned)IOSurfaceGetID(r->_surf)); nvmtl_frame_dump(tag, base, row, r->_i.w, r->_i.h); }
     uint32_t seed = 0; IOReturn unlocked = IOSurfaceUnlock(r->_surf, lockopt, &seed); if (lockopt) seed = IOSurfaceGetSeed(r->_surf);
