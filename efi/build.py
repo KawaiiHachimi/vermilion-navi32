@@ -141,6 +141,7 @@ def resolve_stage(machine, stage):
         if "boot_args" in st:
             boot_args = list(st["boot_args"])
         boot_args += [a for a in st.get("boot_args_add", []) if a not in boot_args]
+        boot_args = [a for a in boot_args if a not in st.get("boot_args_remove", [])]
         csr = st.get("csr_active_config", csr)
     return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram}
 
