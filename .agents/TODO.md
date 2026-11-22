@@ -16,6 +16,50 @@ clean-up pass on 2026-11-22: comments and docs only, the binaries unchanged.
 
 Next, in the owner's order (2026-11-22): performance and heat, the remaining APIs, sleep / wake, audio, HDMI.
 
+## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
+
+Owner's goal: "I need this GPU perfectly working". Baseline, measured on the XTX machine:
+[findings](findings/2026-11-22-gpu-performance-baseline.md). In short: the GPU clocks up and down by itself (63 W
+board idle, 389 W / 88 C hotspot / fan 49 % under a full Metal load, idle again within 3 s); Metal 3 works; OpenGL is
+the software renderer; OpenCL has no GPU; no Vulkan loader; apps get no Mesa shader disk cache; Metal reports 6 GiB
+and the XT's name. Not in this branch: sleep / wake, DP audio, HDMI.
+
+Order of work (one change at a time; every kext change = a new build, a CHANGELOG line, the host and mock tests, one
+EFI change per boot with a copy in `~/vermilion-rollback/` and the rollback steps written here first):
+
+- [x] 2026-11-22 Baseline: idle and load (clocks, power, temperatures, fan), CPU wakeups, what each API does;
+      `tools/metaltest/metalbench.m`, `tools/metaltest/apiprobe.m`
+- [ ] **1. Linux reference** (a `/boot/vermilion/HANDOFF-*.md` note for the Omarchy session; read-only there; back to
+      macOS = full power-off): at 1440p 240 Hz HDR and 60 Hz, idle and under a load: `power1_average`, the
+      temperatures, the fan, `pp_dpm_sclk` / `mclk` / `fclk` / `socclk`, `amdgpu_pm_info`, `pp_features`, the SMU
+      metrics table, whether UCLK is pinned, GFXOFF residency. Plus the same Mandelbrot shader through Vulkan for a
+      frames/s number. Answers: is 63 W idle normal, and how far is Metal from native
+- [ ] **2. Shader disk cache for apps** (plugin / RADV environment, no kext): Mesa's cache folder is root's, so user
+      processes run without one. Measure a cold and a warm launch before and after
+- [ ] **3. What Metal reports** (detect, do not overwrite): the XTX's name and RADV profile by PCI revision
+      (docs/XTX.md items 1, 2, 5), the working-set size from the VRAM the kext reads instead of the fixed 6 GiB
+      (first find out what the budgets guard: buffer objects are system memory)
+- [ ] **4. Where buffer objects live.** Add a memory-bound mode to `metalbench` (large textures, blits) and compare
+      with step 1. If system-memory buffers cost much: research VRAM-backed buffer objects (a design item, findings
+      first)
+- [ ] **5. Fence waits by interrupt** instead of the 200 us poll (`debug.phxih`, `debug.phxwait_irq`: the path exists,
+      off and unverified on the XTX). 101 us per waited submit today, 6 us of it GPU. Read the code, then a live test
+      with the sysctls and their rollback (set back to 0)
+- [ ] **6. On-screen frame pacing:** an app window at 240 Hz and with Variable on (present gaps, the copy per
+      present, tearing; the open items of 2026-11-19 below: schedule-time copy, tearing, input lag)
+- [ ] **7. Idle power and heat**, after step 1 says what Linux does: the UCLK pin (only what Linux sends: it unpins
+      when the display can take a switch), FCLK, GFXOFF. Nothing here before the Linux numbers
+- [ ] **8. OpenGL** (software renderer today; Prism Launcher / Minecraft is installed on the machine): options to
+      research: Mesa Zink on RADV for apps that can load their own libGL, ANGLE for GLES. Ask the owner which
+      OpenGL apps matter
+- [ ] **9. Vulkan:** MoltenVK apps through the plugin (test); a loader + ICD manifest for RADV directly (does the
+      Darwin backend have a window-system surface?)
+- [ ] **10. The rest of the API table:** WebGL / WebGPU in Safari and Chromium, video decode (VCN, `phxboot-vcn`),
+      OpenCL (none; decide whether anything needs it), real apps and games; rendering issues the owner reports
+- [ ] CPU temperature and power are not readable on this install (no AMD sensor kext). An EFI change, so it belongs
+      to the EFI's owner thread; without it "the CPU runs hot" stays unmeasured
+- [ ] Wrap-up: a clean-up pass with no behaviour change, docs (docs/XTX.md, docs/BUILD.md for the new tools)
+
 ## Earlier (2026-11-19, 22:10): flicker fixed (E3); restart 2 of the daemon flag pending; E3 permanent (verified); wait step 200 daemon flag installed, first active next restart; one panic at a restart, cause unknown
 
 ## Earlier (10:20): graphics resumed on the Mac (branch `ownback/gpu-1440p-polish`)
