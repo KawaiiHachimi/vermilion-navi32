@@ -195,6 +195,14 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      **Test:** restart, Variable (60-240 Hz); flicker? Tune live as root: `sysctl -w debug.phxvrr_ramp=5` (gentler) / `20` /
      `0` (off); `sysctl debug.phxvrr_stat` shows the window and the writes. **Rollback:** black screen or flicker worse:
      `sudo sysctl -w debug.phxvrr_ramp=0`; boot trouble: swap `EFI/OC` and `EFI/OC.prev`.
+     **On the box (b147, owner):** Variable 60-240 works with the ramp; flicker less. Ramp 5: typing 60-100 Hz, still 60,
+     mouse 240, "way less flickering", animations very smooth; 10 and 20 alike (more flicker); 0 stuck at 137 Hz (bug: the
+     last window stayed). Some flicker remains (the panel; maybe no way around it). The boot before, one replay run toward
+     HDR 240 failed its post check after the 240 -> 144 leg (details cleared by the refusals after it).
+     **b148 installed** (EFI `OC` = b148 sha 0a680199, `OC.prev` = b147 sha 6213fecd; b147 in `~/vermilion-rollback/`):
+     ramp default 5, ramp 0 restores the full range, `debug.phxp0odm_stat` keeps a failed run's post check
+     (`last_fail_post`). **Test:** restart; Variable feels as with ramp 5; `sudo sysctl -w debug.phxvrr_ramp=0` gives the full
+     range (no stuck rate). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`.
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux

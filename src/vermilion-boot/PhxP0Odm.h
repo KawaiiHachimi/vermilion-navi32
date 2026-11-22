@@ -87,7 +87,11 @@ constexpr uint32_t kDphyCntl = 0x056D7, kHubp1Clk = 0x03B90, kDom1Status = 0x035
 constexpr uint32_t kDet0 = 0x0397B, kDet1 = 0x0397C, kCompbuf = 0x0397A, kCompbufErr = 0x80000000u;
 inline bool detApplied(uint32_t v) { return (v & 0x1fu) == ((v >> 8) & 0x1fu); }
 
-struct Fail { const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target; };
+struct Fail {
+    const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target;
+    // b148: the failed run's post check, kept (later refused runs clear the run's own copy)
+    uint32_t hz, v, h, odm, stream, stream2, hubp0, hubp1, det0, det1, compbuf;
+};
 
 struct Run {
     // boot-long
@@ -382,7 +386,8 @@ inline bool post(const Env &e, Run &r, const Mode &m) {
 }
 
 inline void keepFail(Run &r, const char *plan) {
-    r.last = Fail{r.why, plan, r.step, r.line, r.op, r.reg, r.val, r.got, r.dalResp, r.target};
+    r.last = Fail{r.why, plan, r.step, r.line, r.op, r.reg, r.val, r.got, r.dalResp, r.target,
+                  r.postHz, r.postV, r.postH, r.postOdm, r.postStream, r.postStream2, r.postHubp0, r.postHubp1, r.postDet0, r.postDet1, r.postCompbuf};
 }
 
 // One leg: the plan, then the post check on mode m. 0 = landed, 1 = failed (r.why set), -1 = halted / DMUB dead.
@@ -496,6 +501,10 @@ inline int stat(const Run &r, const Set &s, char *b, int n) {
     PHXODM_OUT("last_fail: target=%u plan=%s step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x dal_resp=0x%x why=%s\n",
                r.last.target, r.last.plan ? r.last.plan : "-", r.last.step, r.last.line, r.last.op, r.last.reg, r.last.val, r.last.got,
                r.last.dalResp, r.last.why ? r.last.why : "-");
+    if (r.last.why)
+        PHXODM_OUT("last_fail_post: hz=%u v_total=0x%x h_total=0x%x odm=0x%08x stream=0x%x stream_0.5s=0x%x hubp0=0x%08x hubp1=0x%08x "
+                   "det0=0x%x det1=0x%x compbuf=0x%08x\n", r.last.hz, r.last.v, r.last.h, r.last.odm, r.last.stream, r.last.stream2,
+                   r.last.hubp0, r.last.hubp1, r.last.det0, r.last.det1, r.last.compbuf);
     PHXODM_OUT("gates: otg0 %u Hz pclk=%u kHz scratch1=0x%08x link_now 0x%02x fec_cap=0x%02x dsc_cap=0x%02x hubp1_clk=0x%x dom1=0x%08x\n",
                r.g.hz, r.g.pclkKhz, r.g.scr1, r.g.link0[0], r.fecCap, r.dscCap, r.hubp1Clk, r.dom1);
     PHXODM_OUT("stop: step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x back=%u\n", r.step, r.line, r.op, r.reg, r.val, r.got, r.backRes);

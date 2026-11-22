@@ -30,6 +30,11 @@ int main() {
         if (lo == vmin) break;
     }
     CHECK(lo == vmin && steps >= 10 && steps <= 20);
+    {   // b148's default, 5 %: about twice the steps of 10 %
+        uint32_t l5 = 6476, n5 = 0;
+        do { window(l5, vmin, vmax, 5, &lo, &hi); l5 = lo + 1; n5++; } while (lo != vmin && n5 < 100);
+        CHECK(lo == vmin && n5 >= 25 && n5 <= 30);
+    }
     CHECK(maxFirst(2700, 3300, 2000) && !maxFirst(1000, 1200, 2000));
     std::printf("vrr_ramp_test: %d/%d checks passed\n", gN - gF, gN);
     return gF ? 1 : 0;

@@ -297,6 +297,12 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
         }
         scanFlipLocked(scan.slotMc[slot], false);
         if (gVrrOn) {
+            if (gVrrRampPct <= 0 && gVrrRampVMax > gVrrRampVMin && (gVrrRampLo != gVrrRampVMin || gVrrRampHi != gVrrRampVMax)) {
+                // b148: ramp turned off: the full range back (b147 kept the last window: stuck at one rate)
+                wreg(kOtg0VTotalMin, gVrrRampVMin); wreg(kOtg0VTotalMax, gVrrRampVMax);
+                gVrrRampLo = gVrrRampVMin; gVrrRampHi = gVrrRampVMax; gVrrRampPrimed = false;
+                OSIncrementAtomic64(&gVrrRampWrites);
+            }
             if (gVrrRampPct > 0 && gVrrRampVMax > gVrrRampVMin) {   // b147: the ramp's window for the next frames
                 const uint64_t f = scanFrameLocked();
                 uint64_t ns = 0;

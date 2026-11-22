@@ -288,7 +288,7 @@ static int phxVrrRampSysctl SYSCTL_HANDLER_ARGS {
     return 0;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr_ramp, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrRampSysctl, "I",
-            "b147 Adaptive Sync ramp (root): the next frames may be at most this % shorter or longer than the last ones (1-50; 0 = off)");
+            "b147 Adaptive Sync ramp (root): the next frames may be at most this % shorter or longer than the last ones (1-50, default 5; 0 = off, the full range)");
 // b147: the floor in Hz, live (root; 24 or more, below the lit mode's rate). On: the range is set again at once. PhxAccel's
 // next "phxVrrSet" (a mode switch) puts back its own floor (debug.phxfb0_vrrmin), and System Settings' label stays its.
 static int phxVrrFloorSysctl SYSCTL_HANDLER_ARGS {

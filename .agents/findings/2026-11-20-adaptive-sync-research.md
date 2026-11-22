@@ -127,3 +127,13 @@ V_TOTAL_MIN 0x652, MAX 0x1f9e, CONTROL 0x00020003. Nearly still: ~25 triggers/s,
 path works as is, OTG_TRIGA_CNTL left at 0 (the manual trigger ends the frame without a TRIGA source). No Adaptive Sync
 SDP is sent; the LG runs variable anyway (its VRR setting on). Open: the CPU copy fires no trigger (frames stretch to
 48 Hz without GPU present), and System Settings' Variable entry does not switch it yet.
+
+## 2026-11-22: the floor and the ramp on the box (b146-b148)
+
+LG ULTRAGEAR+ (2024 1440p 240 Hz OLED), XTX machine. The flicker in Variable is the panel's: its brightness follows the
+frame length (Blur Busters and RTINGS threads on the 27GR95QE: worst with uneven frame times; no firmware fix; Windows and
+Linux run the desktop at a fixed rate). b146: a 60 Hz floor (OTG0 V_TOTAL_MAX 6475 at 240) helped, 90 not much more, and
+System Settings' label kept the EDID's 48 until PhxAccel's EDID copy carried the floor (CoreDisplay reads the 0xFD
+descriptor / AMD VSDB minimum, not IOFBTimingRange). b147: the ramp (PhxVrrRamp.h) narrows V_TOTAL_MIN / MAX at each flip
+to the measured frame length +- N %. Owner: 5 % flickers least and feels smoothest (typing 60-100 Hz, still 60, mouse
+240), 10 and 20 alike; some flicker remains. debug.phxvrr_stat at 5 % while typing: window 0x120c-0x13f4, 80 Hz.

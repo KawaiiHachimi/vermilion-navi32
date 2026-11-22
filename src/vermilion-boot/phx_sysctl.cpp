@@ -318,7 +318,7 @@ static void phxVrrResumeLocked();   // GPU present (re)acquired (scanAcquire): r
 // longer than the frames since the previous flip. Set by vrrOnLocked / vrrOffLocked (phx_p0odm.cpp), used by scanPresent
 // (phx_scan.cpp), all with scanLock held.
 #include "PhxVrrRamp.h"
-static int gVrrRampPct = 10;
+static int gVrrRampPct = 5;   // b148: 5 (owner on the box: least flicker, smoothest; 10 and 20 felt the same, flicker more)
 static uint32_t gVrrRampVMin = 0, gVrrRampVMax = 0, gVrrRampHz = 0;   // the lit mode's range while VRR is on (0 = off)
 static uint32_t gVrrRampLo = 0, gVrrRampHi = 0, gVrrRampLines = 0;     // the window now, the last measured frame length
 static uint64_t gVrrRampFrame = 0, gVrrRampNs = 0;                     // OTG0's frame count and the time at the last flip
