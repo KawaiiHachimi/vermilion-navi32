@@ -51,6 +51,11 @@
       "url": "https://github.com/Arxusion/AirportMtkWlan/releases/download/v2.1.6/AirportMtkWlan-Tahoe-v2.1.6-RELEASE.zip",
       "sha256": "971052c7c5fc3e52205eee8500835411c262afa000cce1f08b59781ca75dee2d"
     },
+    "SMCProcessorAMD": {
+      "version": "1.0.1",
+      "url": "https://github.com/macos86/SMCProcessorAMD/releases/download/1.0.1/SMCProcessorAMD-1.0.1-RELEASE.zip",
+      "sha256": "2622e54c69b38a5e491edd2c9532d98a01a3d3ba23316adaed28af8f4efa8638"
+    },
     "MtkWireless": {
       "version": "1.1.1",
       "url": "https://github.com/Dino-VN/MtkWireless/releases/download/v1.1.1/MtkWireless-1.1.1-RELEASE.zip",
@@ -64,6 +69,8 @@
     "RestrictEvents":           {"from": "RestrictEvents", "path": "RestrictEvents.kext",        "exec": "Contents/MacOS/RestrictEvents", "min_kernel": "",       "comment": "MacPro7,1 memory and PCI warnings off"},
     "AppleMCEReporterDisabler": {"from": "local",          "path": "kexts/AppleMCEReporterDisabler.kext", "exec": "",                     "min_kernel": "",       "comment": "AppleMCEReporter panics on AMD with MacPro7,1"},
     "USBToolBox":               {"from": "USBToolBox",     "path": "USBToolBox.kext",            "exec": "Contents/MacOS/USBToolBox",     "min_kernel": "",       "comment": "USB map engine (needs a UTBMap.kext)"},
+    "SMCProcessorAMD":          {"from": "SMCProcessorAMD", "path": "SMCProcessorAMD.kext",      "exec": "Contents/MacOS/SMCProcessorAMD", "min_kernel": "",      "comment": "AMD CPU temperature, package power, clocks as VirtualSMC keys (read-only)"},
+    "UTBMap":                   {"from": "local",          "path": "kexts/UTBMap.kext",          "exec": "",                              "min_kernel": "",       "comment": "USB map of the B650E-I (codeless, needs USBToolBox first)"},
     "AMFIPass":                 {"from": "AMFIPass",       "path": "AMFIPass.kext",              "exec": "Contents/MacOS/AMFIPass",       "min_kernel": "",       "comment": "amfi=0x80 support, needed by Vermilion"},
     "AirportMtkWlan":           {"from": "AirportMtkWlan", "path": "AirportMtkWlan.kext",        "exec": "Contents/MacOS/AirportMtkWlan", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Tahoe build only: other macOS versions need their own build)"},
     "MtkWirelessWifi":          {"from": "MtkWireless",    "path": "MtkWireless-1.1.1-RELEASE/Kexts/MtkWirelessWifi.kext", "exec": "Contents/MacOS/MtkWirelessWifi", "min_kernel": "25.0.0", "max_kernel": "25.99.99", "comment": "MediaTek MT7922 Wi-Fi (Dino-VN/MtkWireless, Tahoe only)"},

@@ -63,12 +63,12 @@ says delete it and grow the container).
 | OpenGL / OpenCL / Vulkan | software GL, CPU-only CL, no Vulkan loader | baseline | 00.1 |
 | Video decode (VCN) | off | baseline | 00.1 |
 | Wi-Fi MT7922 | works (MtkWirelessWifi 1.1.1 + `pci=0x8000000`); throughput drops ~30 s every ~5 min | [wifi finding](../.agents/findings/2026-11-19-wifi-mt7922.md), `phase1-wifi` TODO note | 04 |
-| Bluetooth MT7922 (USB `0489:e0e2`) | **not enumerated** (needs the USB map first). System Information shows a "BCM_4350C2, PCIe, firmware v0" controller *(origin unverified)* | inventory 2026-11-19, survey 2026-11-22 | 02 -> 04 |
-| Audio (ASUS USB `0b05:1a5c`) | **no audio device at all** (not enumerated; USB map) | `system_profiler SPAudioDataType` empty | 02 -> 04 |
+| Bluetooth MT7922 (USB `0489:e0e2`) | enumerates since the USB map (2026-11-22); **no driver / firmware loader yet**. System Information shows a "BCM_4350C2, PCIe, firmware v0" placeholder | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 -> 04 |
+| Audio (ASUS USB `0b05:1a5c`) | enumerates since the USB map (2026-11-22): Realtek USB2.0 Audio, default input / output; sound by ear unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 -> 04 |
 | DP / HDMI audio | not implemented anywhere in the stack | TODO Phase 4 | 00 / 04 |
 | Ethernet I225-V | Apple's DriverKit E1000 bound, `en3` no link (cable?) | inventory | 04 |
-| USB | no map; chipset `XH00` has 17 ports, macOS creates 13 | inventory | 02 |
-| CPU sensors / package power | **none** (no AMD SMC plugin) | inventory, baseline | 02 |
+| USB | mapped (2026-11-22): USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`, all 8 rear ports + internal audio / Bluetooth; USB 3 halves unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 |
+| CPU sensors / package power | work since 2026-11-22: SMCProcessorAMD 1.0.1 (read-only), `tools/sensors/cpusensors.py`; per-core clocks not published | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) | 02 |
 | CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`; real P-state behaviour unmeasured | inventory | 02 / 07 |
 | NVMe | native driver + NVMeFix 1.1.3, TRIM yes, SMART verified, x4; link speed field empty; diskutil reports disk0 as "external" | survey 2026-11-22 | 03 |
 | Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path | TODO, pmset | 07 (with 00) |
@@ -85,12 +85,12 @@ This is the configuration the owner uses every day. Change it only through the o
   and `config.plist` is identical apart from `PlatformInfo` (the serials). **The repo is the source of truth for
   the EFI.**
   - OpenCore 1.0.8. Kexts: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
-    AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, AMFIPass 1.4.1, VermilionBoot b150. All pinned in
+    AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0 + UTBMap, SMCProcessorAMD 1.0.1 (both since 2026-11-22), AMFIPass 1.4.1, VermilionBoot b150. All pinned in
     [`efi/components.json`](../efi/components.json).
   - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, plus 5 DSDT NOP patches.
   - boot-args: `-v keepsyms=1 debug=0x100 pci=0x8000000 amfi=0x80 ipc_control_port_options=0 phxdebug=1`;
     `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
-  - `EFI/OC.prev` holds b149, the rollback. VermilionBoot sha256 starts `3806555e` (b150), and `d34093c0` in
+  - Since 2026-11-22 20:00 `EFI/OC.prev` = the same b150 EFI without the USB map (b149's EFI is in `~/vermilion-rollback/EFI-OC.b149-20261122`). Before that: `EFI/OC.prev` held b149, the rollback. VermilionBoot sha256 starts `3806555e` (b150), and `d34093c0` in
     `OC.prev`.
 - **Outside the EFI:** VermilionAccel (mode id 18) in `/Library/Extensions` (AuxKC). Metal plugin b149 in
   `/Library/GPUBundles/`. Boot daemon `~/gpu/phxboot-navi31.sh` with flags `sdma`, `cg`, `uclk` (456), `p0modes`,
@@ -134,7 +134,7 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 | `ResizeAppleGpuBars = 0` | Vermilion was validated with BAR0 256 MiB; ReBAR stays on for Linux | VRAM window size in the kext | 00 |
 | AGDP board-id patch (pikera) | Navi cards hang without it on Tahoe; WhateverGreen breaks on 26 | graphics takeover | 00 |
 | USB: 17 ports on `XH00` > 15 limit, no map | | Bluetooth and USB audio not enumerated: USB map (02) before BT / audio (04) | 02, 04 |
-| No AMD CPU sensor kext | | no CPU temperature / package power: CPU heat and power work (00.1, 07) is blind | 02, 00.1, 07 |
+| SMCProcessorAMD (read-only CPU sensor) | CPU temperature / package power as SMC keys; AMDRyzenCPUPowerManagement rejected (replaces CPU PM, rewrites a P-state MSR; its Tahoe fork polls GPU registers) | CPU heat and power work (00.1, 07) can measure; don't add AMDRyzenCPUPowerManagement | 02, 00.1, 07 |
 | Sleep off (`pmset`) | Vermilion has no GPU resume | sleep work only on a `-phxbringupoff` boot, with the owner | 07, 00 |
 | Debug: `-v`, `debug=0x100`, `keepsyms=1`, OpenCore log `Target = 67` | bring-up diagnostics | slower boot, a log file per boot on the ESP; keep until the platform is stable, then revisit | 02, 07 |
 | Linux shares the GPU and the ESP | dual boot | Linux -> macOS needs a **full power-off** (cold GPU); Limine files on the ESP must not be touched | all |
@@ -164,8 +164,7 @@ The details are in TODO. This list is for finding the right owner quickly.
 
 | Issue | Since | Owner | Where |
 |---|---|---|---|
-| Bluetooth and USB audio not enumerated (USB map) | 2026-11-19 | 02 | [inventory](../.agents/findings/2026-11-19-postinstall-inventory.md) |
-| No CPU temperature / power | 2026-11-19 | 02 | inventory, baseline |
+| Bluetooth enumerates but has no driver (USB map done 2026-11-22) | 2026-11-19 | 02 -> 04 | [USB map](../.agents/findings/2026-11-22-usb-map.md) |
 | Ethernet: no link | 2026-11-19 | 04 | inventory |
 | Wi-Fi throughput drops periodically | 2026-11-19 | 04 | `phase1-wifi` TODO note |
 | Kernel panic at a restart, no panic report saved (`DisableVariableWrite` blocks the NVRAM log) | 2026-11-19 | 07 | TODO, [flicker / heat finding](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) |
@@ -221,6 +220,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | `tools/metaltest/apiprobe.m` | what each graphics API reports to an app |
 | `~/gpu/smumetrics.py` | the SMU metrics table: GPU clocks, power, temperatures, fan |
 | `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
+| `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
 | `powermetrics` (macOS) | per-task CPU and wakeups. Its CPU power, thermal and C-state figures are **meaningless on this AMD CPU** (Intel counters) |
 | kext sysctls `debug.phxwait_lat`, `debug.phxvrr_stat`, ... | fence-wait latency, VRR, mode-set state ([XTX.md](XTX.md)) |
 
@@ -236,12 +236,13 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-22 | GPU load | `metalbench render 75 2000`, 2560x1440 off-screen | 192 frames/s, 4.82 ms GPU per frame; 389 W board, hotspot peak 88 C, fan 49 %; idle again within 3 s | same |
 | 2026-11-22 | Submit round trip | `metalbench submit` | 101 us average per waited submit (median 89, p99 566), 6 us of it on the GPU | same |
 | 2026-11-22 | CPU wakeups | idle desktop, `powermetrics --samplers tasks` | WindowServer 123-127 ms/s CPU, ~280 wakeups/s; all tasks ~1760 wakeups/s | same |
-| — | Storage, audio, network throughput, CPU power, sleep | — | **no baseline yet** | 03, 04, 02, 07 |
+| 2026-11-22 | CPU package | idle desktop 1-4 min after boot, 1440p, b150; then 24 busy shell loops for 10 s | idle 53-57 C / 39-41 W; all-thread 85-87 C / 120-121 W | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) |
+| — | Storage, audio, network throughput, sleep | — | **no baseline yet** | 03, 04, 07 |
 
 ### Known bottlenecks and limits
 
-- **CPU temperature and power are not measurable** (no AMD sensor kext). This blocks any CPU power or thermal
-  conclusion.
+- CPU package temperature and power are measurable since 2026-11-22 (`tools/sensors/cpusensors.py`); per-core
+  clocks aren't.
 - Buffer objects live in system memory, not VRAM (the kext's comment, `phx_globals.cpp`). The cost for
   memory-bound loads is unmeasured.
 - Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits exist but are off and unverified on the XTX.
