@@ -170,6 +170,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      (drop the h == 1440 gate; vrrRegs per mode), and per-size VRR twins in phxhead.h (48 Hz to the mode's rate; only
      modes above 48 Hz). HDR: Linux's HDR mode sets at those modes are not captured: capture v5 in Omarchy
      (`--hdr-pairs` for 1080p60 / 1080p120 / ...), then plans + twins as b145.
+  0. **VRR minimum (owner, 2026-11-22):** the LG flickers in VRR near the low end (also on Windows and Linux: the monitor's
+     VRR, brightness swings between long and short frames). Fix: a configurable floor, `~/gpu/phxboot-vrrmin` (Hz, default
+     the EDID's 48), read by the daemon into a PhxAccel sysctl before the claim; PhxAccel uses it for the twin's
+     verticalBlankingExtension and the timing range's minFrameRate (menu "Variable (N-240 Hz)") and passes it to
+     "phxVrrSet" (io = 1 | min << 8, VermilionBoot b146: vrrRegs with that min instead of the fixed gVrrMinHz 48).
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux
