@@ -28,3 +28,5 @@ __pycache__/
 target/
 *.pyc
 /deps/
+# generated per machine from the installed Vermilion code (gen_list.sh)
+src/vermilion-trust/phxtrust_list.inc

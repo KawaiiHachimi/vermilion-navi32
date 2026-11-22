@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Builds VermilionTrust.kext natively on macOS with the Command Line Tools.
+# Usage: ./build.sh <MacKernelSDK> <Lilu.kext from a DEBUG release (its Contents/Resources holds the SDK)>
+# phxtrust_list.inc must exist (./gen_list.sh).
+set -eu
+MKSDK=${1:?usage: build.sh <MacKernelSDK> <Lilu DEBUG kext>}
+LILU=${2:?usage: build.sh <MacKernelSDK> <Lilu DEBUG kext>}/Contents/Resources
+HERE=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$HERE/../.." && pwd)
+PFX="-ffile-prefix-map=$ROOT=/vermilion -fdebug-prefix-map=$ROOT=/vermilion -ffile-prefix-map=$HOME=/build -fdebug-prefix-map=$HOME=/build"
+OUT="$HERE/build/VermilionTrust.kext"
+VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$HERE/Info.plist")
+[ -f "$HERE/phxtrust_list.inc" ] || { echo "missing phxtrust_list.inc: run ./gen_list.sh" >&2; exit 1; }
+[ -f "$LILU/Headers/kern_api.hpp" ] || { echo "no Lilu SDK in $LILU" >&2; exit 1; }
+rm -rf "$HERE/build"
+mkdir -p "$OUT/Contents/MacOS"
+
+CFLAGS="-arch x86_64 -mmacosx-version-min=11.0 -mkernel -fno-builtin -fno-common -nostdinc
+  -I$MKSDK/Headers -I$LILU -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT -Os -Wall $PFX
+  -DPRODUCT_NAME=VermilionTrust -DMODULE_VERSION=$VER"
+CXXFLAGS="$CFLAGS -std=c++17 -fapple-kext -fno-rtti -fno-exceptions -Wno-unused-function"
+
+clang -x c $CFLAGS -c "$HERE/kmod_info.c" -o "$HERE/build/kmod_info.o"
+clang++ $CXXFLAGS -c "$LILU/Library/plugin_start.cpp" -o "$HERE/build/plugin_start.o"
+clang++ $CXXFLAGS -c "$HERE/VermilionTrust.cpp" -o "$HERE/build/VermilionTrust.o"
+clang++ -arch x86_64 -mmacosx-version-min=11.0 -nostdlib -Xlinker -kext \
+  -L"$MKSDK/Library/x86_64" -lkmod -lcc_kext \
+  "$HERE/build/kmod_info.o" "$HERE/build/plugin_start.o" "$HERE/build/VermilionTrust.o" \
+  -o "$OUT/Contents/MacOS/VermilionTrust"
+cp "$HERE/Info.plist" "$OUT/Contents/Info.plist"
+echo "built $OUT ($VER)"

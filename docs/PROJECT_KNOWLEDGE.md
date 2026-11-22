@@ -35,7 +35,7 @@ and the live XTX machine (macOS 26.7.1 25G241).
 | **02 — Platform Foundation** | ACPI, CPU power management and sensors, USB map (then BT / audio / Ethernet bring-up) | `ownback/postinstall-acpi-cpu-usb` | inventory done 2026-11-19 ([finding](../.agents/findings/2026-11-19-postinstall-inventory.md)), plan waiting for the owner; branch fast-forwarded to `main` 2026-11-22 |
 | **03 — Storage & Filesystems** | NVMe, PCIe link, NVMeFix, APFS, TRIM / SMART, temperatures, Time Machine | `ownback/storage` | inventory and baseline done 2026-11-22 ([finding](../.agents/findings/2026-11-22-storage-baseline.md)); proposals waiting for the owner |
 | **04 — Audio & Connectivity** | USB audio (no HDA codec: AppleALC doesn't apply), DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | `ownback/audio-connectivity` | inventory and first baselines done 2026-11-22 ([finding](../.agents/findings/2026-11-22-audio-connectivity-inventory.md)); Wi-Fi fix booted and verified (EFI change 4) |
-| **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | none yet | dormant |
+| **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | `ownback/apple-services` | inventory done 2026-11-22 ([Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md)); owner tests and proposals pending |
 | **06 — macOS Integration & Peripherals** | system apps, window management, input devices, sharing, dev workflows | none yet | dormant |
 | **07 — Sleep, Power & Final Validation** | sleep / wake, power and thermals, stress, benchmarks, regression, updates | none yet | dormant |
 | Legacy Wi-Fi | the Wi-Fi bring-up of 2026-11-19 | `ownback/phase1-wifi` (1 commit not in `main`) | history only |
@@ -75,10 +75,16 @@ says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 | APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 03 |
 | Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path | TODO, pmset | 07 (with 00) |
 | NVRAM | read-only from macOS (`DisableVariableWrite`) | efi/machines | 02 / 05 |
-| SIP / AMFI | SIP custom `0x0A03`, `amfi=0x80` + AMFIPass (needed by Vermilion) | config | 05 |
-| iServices, DRM | untested; FairPlay DRM is known lost with `amfi=0x80` | [ARCHITECTURE.md](ARCHITECTURE.md) | 05 |
+| SIP / AMFI / Gatekeeper | SIP custom `0x0A03` (authenticated root off, system volume still sealed); **AMFI on since 2026-11-22 23:45** (`amfi=0x80` replaced by VermilionTrust, a cdhash allowlist for Vermilion's code; AMFIPass still loaded); Gatekeeper on; XProtect 5377 and security data updates on since 2026-11-22 23:11 (`ConfigDataInstall = 1`; macOS / Rapid Security Responses still pinned), launch scans off | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 05 |
+| iServices | APNs connected, iMessage and FaceTime registered (IDS HTTP 200, 2026-11-22), iCloud signed in; SMBIOS well-formed, ROM = I225-V MAC. **en0 is the iPhone's USB interface** (not built-in; works anyway; optional fix) | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 05 |
+| DRM | FairPlay 2.x-4.x (TV app, Safari video) blocked by the missing hardware decode (TV app 2026-11-23: previews play, the film fails with `-12906` no decoder for the protected stream); **Apple Music (FairPlay 1.x) works since 2026-11-23** (full songs; it needed a built-in en0: Ethernet is en0 now; AMFI wasn't the cause). Music crashed on some tracks in the Metal plugin; fix installed 2026-11-23 (EFI change 8), untested. Widevine untested | same | 05 (00.1 for VCN) |
+| FileVault / login | FileVault off, Secure Token on; automatic login via the daemon (`/etc/kcpassword`), which FileVault would end | same | 05 / 00 |
 
 ## Known-good configuration (2026-11-22)
+
+> **Network interface names changed 2026-11-23 00:01 (thread 05):** Ethernet `en3` -> **`en0`**, Wi-Fi `en4` ->
+> **`en1`** (verified: Wi-Fi up, default route), iPhone / iPad USB interfaces get the next free numbers. Scripts and
+> notes that name an interface must use the new names. Rollback: TODO "Apple services, DRM and security".
 
 This is the configuration the owner uses every day. Change it only through the owning thread.
 
@@ -98,6 +104,14 @@ This is the configuration the owner uses every day. Change it only through the o
 - **Since 2026-11-22 22:23 (thread 04, EFI change 4):** the same EFI plus boot-arg `amtk_awdl_offchan=0` (only
   `boot-args` differ), verified. `EFI/OC.prev` = the Bluetooth EFI without it; rollback in TODO "Audio and
   connectivity".
+- **Since 2026-11-22 23:45 (thread 05, EFI change 7): stage `vermilion-trust`** = the same EFI plus
+  `VermilionTrust.kext` 1.0.2 (after VermilionBoot) and **without `amfi=0x80`**. AMFI enforces library validation
+  again; the kext lets only the cdhashes of the installed Vermilion code through. Verified: accelerated desktop as
+  before, third-party apps no longer platform binaries. **Every plugin / translator / RADV install now needs
+  `scripts/build/trust.sh` + an EFI rebuild** (new cdhashes), or WindowServer refuses the new build. `EFI/OC.prev` =
+  change 6 (log-only, with `amfi=0x80`); the old everyday EFI: `~/vermilion-rollback/EFI-OC.awdl-20261122`. The everyday EFI is in
+  `~/vermilion-rollback/EFI-OC.awdl-20261122` (= `efi/build.py build --stage vermilion`). Checks and rollback: TODO
+  "Apple services, DRM and security".
 - **Outside the EFI:** VermilionAccel (mode id 18) in `/Library/Extensions` (AuxKC). Metal plugin b149 in
   `/Library/GPUBundles/`. Boot daemon `~/gpu/phxboot-navi31.sh` with flags `sdma`, `cg`, `uclk` (456), `p0modes`,
   `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`. Hashes and rollback commands are in TODO
@@ -133,7 +147,7 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 | `pci=0x8000000` | macOS otherwise sets 10-bit tags on the GPP7 root port | Wi-Fi and I225-V answer at all; must stay while either is used | 02, 04 |
 | `DisableVariableWrite` | the installer hangs on Ryzen 7000 boards while writing NVRAM | macOS cannot write NVRAM: no startup-disk change, **no NVRAM panic log**, `phxfb-squat` must be set from Linux | 02, 05, 07 |
 | `phxfb-squat` EFI variable (set from Linux) | every OpenCore boot is a squat boot (no phantom display) | **Reset NVRAM deletes it**: never Reset NVRAM | 00 |
-| SIP `0x0A03` + `amfi=0x80` + AMFIPass | the ad-hoc signed plugin and the AuxKC kext load | no FairPlay DRM; third-party privacy prompts denied | 00, 05 |
+| SIP `0x0A03` + VermilionTrust (was `amfi=0x80` + AMFIPass until 2026-11-22) | the ad-hoc signed plugin loads into platform processes; AMFI stays on for everything else | the cdhash list is compiled into the kext: **a new plugin / translator / RADV build needs a VermilionTrust + EFI rebuild** | 00, 05 |
 | `SecureBootModel = Disabled` | injected kexts are unsigned | no Apple Secure Boot | 05 |
 | macOS pinned to 26.7.1 | the plugin uses private Metal interfaces of that build | no macOS updates without a plan (`BlacklistAppleUpdate`) | 05, 07 |
 | SMBIOS MacPro7,1 | upstream's choice | needs RestrictEvents (memory-slot warnings) and AppleMCEReporterDisabler (MCE panic on AMD); also decides iServices | 05 |
@@ -144,6 +158,13 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 | Sleep off (`pmset`) | Vermilion has no GPU resume | sleep work only on a `-phxbringupoff` boot, with the owner | 07, 00 |
 | Debug: `-v`, `debug=0x100`, `keepsyms=1`, OpenCore log `Target = 67` | bring-up diagnostics | slower boot, a log file per boot on the ESP; keep until the platform is stable, then revisit | 02, 07 |
 | Linux shares the GPU and the ESP | dual boot | Linux -> macOS needs a **full power-off** (cold GPU); Limine files on the ESP must not be touched | all |
+
+## Project goal (owner, 2026-11-22)
+
+**The machine must behave like a fully supported, native Mac.** A lost real-Mac feature (AirDrop, FairPlay DRM,
+privacy prompts, FileVault, ...) is a bug to fix, not a documented cost. Forking and patching kexts is welcome:
+Vermilion is forked already, and the MtkWireless Wi-Fi / Bluetooth kexts may be forked for AirDrop (thread 04).
+Prefer real fixes over blunt global relaxations such as `amfi=0x80` (thread 05's plan: decisions 2026-11-22).
 
 ## Cross-thread rules
 
@@ -183,6 +204,8 @@ The details are in TODO. This list is for finding the right owner quickly.
 | GPU idle 62-70 W board, no Linux comparison yet | 2026-11-19 | 00.1 | baseline |
 | Installer partition `disk0s4` not deleted yet | 2026-11-19 | 03 | TODO Phase 1 |
 | NVMe shown as "external" (cosmetic) | 2026-11-22 | 03 | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) |
+| WebKit's GPU process doesn't map the plugin (sandbox: executables only from system paths; INSTALL.md 5.6) | 2026-11-22 | 00 / 00.1 | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) |
+| Music.app crashes in the Metal plugin: `nvmtl_vk_image_read` writes to an IOSurface whose memory (ImageIO's) is no longer mapped in the process; reproducible with "Drake - Jaded"; fixed 2026-11-23 by thread 05 (`nvmtl_plane_mapped`, plugin `33b9a186`, VermilionTrust 1.0.3), untested | 2026-11-22 | 00 | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) |
 | Mock tests run on macOS only; no CI | 2026-11-18 | (unassigned) | TODO Phase 0 |
 
 ## What was tried and failed
@@ -227,6 +250,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | `tools/metaltest/apiprobe.m` | what each graphics API reports to an app |
 | `~/gpu/smumetrics.py` | the SMU metrics table: GPU clocks, power, temperatures, fan |
 | `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
+| `sysctl debug.phxtrust_stat` (VermilionTrust) | AMFI library-validation calls, refusals and overrides of Vermilion's code |
 | `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
 | `tools/storage/nvmebench.sh` | NVMe / APFS throughput, latency, flush cost, SSD temperature, SMART before / after (fio, smartctl; writes 60-80 GB per run). Pitfalls in its README |
 | `tools/storage/nvmeior.c` | IOReport `NVMe` group: power-state residency, Apple's bandwidth-throttle tiers |
@@ -254,6 +278,7 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-22 | Wi-Fi latency | router ping 10 Hz, 300 s, 5 GHz ch 52 / 80 MHz, RSSI -56 to -61 | AWDL up: p50 47, p90 308, p99 418, max 456 ms; AWDL down: avg 1.8, max 5 ms | same |
 | 2026-11-22 | Wi-Fi latency, fixed | same, boot 22:23 with `amtk_awdl_offchan=0`, AWDL up, 60 s | avg 1.7, max 4.2 ms; 99.6 / 50.4 Mbit/s, idle 14.9 ms | same |
 | 2026-11-22 | Internet over Wi-Fi | `networkQuality -s` | AWDL up: 64 / 32 Mbit/s, idle latency 143 ms; AWDL down: 101 / 48 Mbit/s, 14 ms (line-limited) | same |
+| 2026-11-22 | Security / iServices daemons | 39 min after boot, b150, idle desktop; `ps -axo time,comm` | ~37 s CPU in total (trustd 9.7, cloudd 7.1, tccd 6.0, identityservicesd 2.7 s): ~1.6 % of one thread; no daemon crash loop | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable) | 04, 07 |
 
 ### Known bottlenecks and limits
@@ -309,3 +334,4 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
   and its branch fast-forwarded to `main` (owner's OK).
 - 2026-11-22: thread 04 audio / connectivity inventory, first audio and Wi-Fi baselines (`tools/audio/`, branch `ownback/audio-connectivity`).
 - 2026-11-22: thread 03 storage inventory and first storage baseline (`tools/storage/`, branch `ownback/storage`).
+- 2026-11-22: thread 05 Apple services / security inventory (branch `ownback/apple-services`).

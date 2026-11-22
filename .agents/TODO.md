@@ -144,6 +144,134 @@ Inventory and first baselines: [finding](findings/2026-11-22-audio-connectivity-
 - [ ] Time Machine once the owner attaches a backup disk
 - [ ] Installer partition `disk0s4`: delete and grow the container when the owner says so (Phase 1)
 
+## Apple services, DRM and security (thread 05, branch `ownback/apple-services`, started 2026-11-22)
+
+[Finding](findings/2026-11-22-apple-services-security-inventory.md).
+
+**Open list (2026-11-23), in order.** Each EFI change gets its own boot, with rollback written here first.
+
+1. [ ] Owner tests on the enforcing boot: iMessage send / receive, FaceTime audio + video, iCloud Keychain approval,
+       Photos / iCloud Drive sync, a third-party app's camera / microphone prompt (TCC), Gatekeeper on a downloaded
+       app (`spctl` assessments are on)
+2. [ ] Widevine: Firefox or Chrome, a public DRM test stream (owner installs, 05 reads the logs)
+3. [ ] `ipc_control_port_options=0`: find what needs it, then a boot without it (a real Mac uses the default)
+4. [ ] AMFIPass (still loaded, 1.4.1): check whether anything needs it now that VermilionTrust does the work; boot
+       without it
+5. [ ] Make `vermilion-trust` the everyday stage in `efi/machines/b650e-i-xtx.json` (no boot needed: same EFI)
+6. [ ] Plugin / translator / RADV installs: put `PHXTRUST_KEEP=1 scripts/build/trust.sh` + EFI into the deploy
+       runbook, so no thread installs a plugin that AMFI refuses (tell 00 / 00.1)
+7. [ ] VermilionTrust on a macOS update: what happens when the AMFI layout changes (the kext's sanity check refuses:
+       no acceleration, no crash *(unverified)*); a check to run before installing an update; `max_kernel` 25.99.99
+8. [ ] macOS update policy: Safari 27.2 pending (`softwareupdate --list`), Rapid Security Responses
+       (`CriticalUpdateInstall = 0`), how to roll back
+9. [ ] SIP `0x0A03` -> `0x0203` (drop unauthenticated root; only the optional video decoder needs it)
+10. [ ] VermilionAccel from OpenCore instead of the AuxKC (with 00), then SIP towards `0x0` (kext signing on)
+11. [ ] Apple Secure Boot (`SecureBootModel`) once nothing needs the AuxKC
+12. [ ] FileVault: the FileVault login logs the user in before the daemon's arm (which refuses then): daemon change
+        by 00 first
+13. [ ] Apple TV / Safari FairPlay video: needs hardware decode (00.1) and then HDCP (`hdcp0:Unknown`; 720p+ needs
+        HDCP Type 0, HDR Type 1; HDCP on AMD goes through the PSP: only as Linux amdgpu sends it). 05 re-tests
+        when 00.1 has VCN decode
+14. [ ] Reported to 00: Safari's WebKit GPU process doesn't map the plugin (sandbox; INSTALL.md 5.6); Music's skipped
+        readbacks (the guard stops the crash, but those pixels never reach the surface: a GPU mapping of the surface
+        pages would, as on a real Mac)
+15. [ ] With 04: AirDrop, Handoff, Universal Clipboard, Continuity Camera, Apple Watch unlock (they need the forked
+        Wi-Fi / BT kexts first)
+16. [ ] Commit and PR `ownback/apple-services` when the owner asks
+
+
+- [x] 2026-11-22 Inventory: SMBIOS well-formed (ROM = I225-V MAC), ROM / MLB in NVRAM, APNs connected, iMessage and
+      FaceTime registered (IDS HTTP 200), iCloud signed in, Secure Token on, FileVault off, SIP / AMFI as designed
+- [ ] Owner tests: iMessage send / receive, FaceTime audio + video, Apple Music playback (FairPlay 1.x), iCloud
+      Keychain approval, Photos / Drive sync, a third-party mic / camera prompt
+- [ ] Widevine: install Firefox or Chrome, play a public DRM test stream (owner)
+- [x] **en0 = built-in Ethernet** (2026-11-23 00:00): Apple Music stops after ~5 s because FairPlay's key server says
+      "This computer is not authorized to play" on boots without the iPhone plugged in (en0 was its USB interface; see
+      finding). Staged: `NetworkInterfaces.plist` Ethernet `en0`, Wi-Fi `en1`, iPhone / iPad entries dropped;
+      `preferences.plist` services renamed, the iPhone service removed. Next boot **with iPhone and iPad unplugged**.
+      After it: `networksetup -listallhardwareports` (en0 Ethernet, en1 Wi-Fi), Wi-Fi up, then play a song in Music
+      (if still refused: Music > Account > Authorizations > Authorize This Computer), then plug the iPhone in (gets en2+).
+      iMessage / FaceTime may register once more as this Mac (unverified).
+      **Booted 2026-11-23 00:01:** `en0` Ethernet (built-in, no cable), `en1` Wi-Fi (active, router ping 1.6 ms, default
+      route); APNs connected, IDS registration answered HTTP 200 again. **Music plays full songs** (song keys granted,
+      none refused). Music still crashes on some tracks: GPU-side (crash-report cap of 25 per app freed for the next one)
+      **Rollback:** `sudo cp ~/vermilion-rollback/netcfg-20261122/{NetworkInterfaces,preferences}.plist
+      /Library/Preferences/SystemConfiguration/` and reboot
+- [x] 2026-11-22 23:11 XProtect 5287 -> 5377 (`sudo xprotect update`); `ConfigDataInstall = 1` (XProtect / Gatekeeper /
+      MRT data update automatically, as on a real Mac). `CriticalUpdateInstall` stays 0 (Rapid Security Responses
+      change system frameworks; macOS is pinned). Undo: `sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate ConfigDataInstall -bool false`
+- [~] **Real-Mac security plan** (decisions 2026-11-22): own scoped AMFI allowlist kext instead of `amfi=0x80` (log-only
+      boot first), then VermilionAccel from OpenCore instead of the AuxKC (with 00), SIP towards `0x0`, then Secure Boot
+      and FileVault. Owner's go for step 1: 2026-11-22
+  - [x] 2026-11-22 `src/vermilion-trust/` (VermilionTrust.kext, MIT): wraps AMFI's library-validation hooks, allows
+        only the 5 cdhashes of the installed plugin / translator / LLVM / zstd / RADV. Built on the Mac, link gate PASS
+        (316 symbols); vector offsets read from the running kernel. EFI stage `vermilion-trustlog` = `vermilion` +
+        the kext + `-phxtrustlog` (`amfi=0x80` kept: log only); built EFI differs from the live one only there
+  - [x] 2026-11-22 23:31 **EFI change 5 booted** (`vermilion-trustlog`, VermilionTrust 1.0.0): loads, finds AMFI, hooks
+        installed (`state=installed mode=log`), accelerated desktop unchanged (WindowServer maps NVMTLDriver, translator,
+        RADV; 1440p240 Metal). Found: 1.0.0 counted AMFI's normal removal of `PROT_EXEC` from the *maximum* protection
+        of data mappings as refusals (19.8 k) and undid it for the listed files (99 times); its "candidate" filter used
+        the platform flag, which `amfi=0x80` sets for everything (0 candidates); early kernel-log lines were lost
+        (dmesg buffer overwritten by Wi-Fi scans)
+  - [x] 2026-11-22 23:40 **EFI change 6 booted** (VermilionTrust 1.0.1, log only): `overrides=0` (changes nothing),
+        every load seen is a listed file (NVMTLDriver, translator, RADV in WindowServer, `metaltest`, Safari, Chess,
+        Calculator; libLLVM / libzstd not loaded yet); the only other ad-hoc code mapped executable is Apple's own dyld
+        shared caches (trust-cached, allowed by a real AMFI too). Baseline for the next boot: a third-party app
+        (T3 Code, team-signed) has `CS_PLATFORM_BINARY` set (`csops`): the cause of the denied privacy prompts
+  - [x] 2026-11-22 23:45 **EFI change 7 booted and verified: stage `vermilion-trust`** = `vermilion` + VermilionTrust 1.0.2
+        enforcing, **`amfi=0x80` removed** (`efi/build.py` gained `boot_args_remove`); `ipc_control_port_options=0`
+        kept. `EFI/OC.prev` = change 6. Expect: the accelerated desktop as before, `debug.phxtrust_stat`
+        `mode=enforce` with `overrides` > 0 (AMFI refuses our code, the kext lets it through), `debug.phxtrust_files`
+        lists any other refused file; third-party apps no longer `CS_PLATFORM_BINARY`; camera / mic prompts appear.
+        If the desktop isn't accelerated: read `debug.phxtrust_files` first (refused files), then roll back.
+        **Rollback** (from macOS): `sudo diskutil mount disk0s1`, then
+        `sudo mv /Volumes/EFI/EFI/OC /Volumes/EFI/EFI/OC.bad && sudo mv /Volumes/EFI/EFI/OC.prev /Volumes/EFI/EFI/OC`.
+        If macOS doesn't boot: Linux (F8 -> Limine), mount the ESP, the same two renames.
+        **Result:** accelerated desktop as before; AMFI refuses the plugin in WindowServer, Safari, Finder, ... and the
+        kext lets it through (`overrides=50`, `denied_unlisted=0` after 3 apps); T3 Code no longer
+        `CS_PLATFORM_BINARY`; no new crash ([finding](findings/2026-11-22-apple-services-security-inventory.md))
+  - [ ] Owner: a third-party app's camera / microphone prompt appears; Apple Music plays (FairPlay 1.x: refused on
+        boots without en0, not because of AMFI; see the en0 item)
+  - [ ] Reported to 00 / 00.1: WebKit's GPU process doesn't map the plugin (sandbox: executables only from system
+        paths; INSTALL.md 5.6 `relocate_gpubundle.sh`); pre-existing, independent of AMFI
+  - [ ] After change 7 works: `ipc_control_port_options=0` off (its own boot), then the everyday stage becomes
+        `vermilion-trust`
+- [ ] macOS update policy (Phase 4 item): what an update breaks, how to roll back; pending Safari 27.2 not installed
+- [ ] FairPlay 2.x-4.x (TV app, Safari video) blocked by the missing VCN decode first (thread 00.1), AMFI second
+- [ ] SIP `0x0A03` -> `0x0203` (drop unauthenticated root; only the optional video decoder needs it): one EFI change
+- [ ] FileVault: the FileVault login logs the user in before the daemon's arm (which refuses with a user logged in):
+      needs a daemon change by thread 00 before it can be turned on
+- [ ] `ipc_control_port_options=0`: find out what needs it (a real Mac runs with the default)
+- [x] Music.app crashes in `nvmtl_vk_image_read` (Metal plugin texture readback; 25x on 2026-11-22, reproducible
+      with "Drake - Jaded" on 2026-11-23). Owner told thread 05 to fix it (2026-11-23). Cause (crash report): the
+      destination is **not mapped in Music at all** (the region before it is an ImageIO guard page): the IOSurface
+      wraps ImageIO memory that was freed, so the size checks in `nvmtlSurfaceCopyable` pass. Fix in
+      `NVMTLObjects.m`: `nvmtl_plane_mapped()` checks with `mach_vm_region` after `IOSurfaceLock` that the plane is
+      mapped (write for readback, read for upload); otherwise the copy is refused like a non-copyable surface and
+      logged ("G13 surface N plane P NOT synced: ... not mapped in this process"). HEAD rebuilds to the installed
+      cdhash `8f6eb933`, the fix is `33b9a186`.
+  - [x] **EFI change 8** (2026-11-23): stage `vermilion-trust` with VermilionTrust 1.0.3 (list: the 5 installed files
+        + the new NVMTLDriver; the old one kept as `NVMTLDriver-previous`); same boot-args. Plugin installed at the
+        same time. Expect: desktop as before, `debug.phxtrust_files` shows `NVMTLDriver` overrides (new cdhash), Jaded
+        plays without a crash; `/tmp/nvmtl.log` of Music may show the "not mapped" line.
+        **Rollback:** plugin: `sudo cp ~/vermilion-rollback/plugin-20261123/NVMTLDriver
+        /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/` (1.0.3 trusts both builds, no EFI change needed).
+        EFI: `sudo diskutil mount disk0s1`, then `sudo mv /Volumes/EFI/EFI/OC /Volumes/EFI/EFI/OC.bad && sudo mv
+        /Volumes/EFI/EFI/OC.prev /Volumes/EFI/EFI/OC` (OC.prev = change 7, which trusts only the old plugin: restore
+        the old plugin first). If macOS doesn't boot: Linux (F8 -> Limine), mount the ESP, the same renames.
+        **Result (booted 2026-11-23 00:21):** desktop as before; `mode=enforce list=6 overrides=30 denied_unlisted=0`,
+        the new NVMTLDriver let through in WindowServer; owner: Jaded and other tracks play, "consistently", no new
+        crash report. Music's log shows the guard firing: `G13 surface 131 plane 0 NOT synced: readback 600x600 bpp 4,
+        600 rows of 2400 B from 0x12fe34000; 0x12fe34000 is not mapped in this process` (the whole plane is gone, not
+        only its end)
+- [x] VermilionTrust: `PHXTRUST_KEEP=1` makes `gen_list.sh` keep the cdhashes of the current list (2026-11-23), so a
+      plugin update and the kext / EFI update need not land in the same boot
+- [x] 2026-11-23 Apple TV playback (owner: "not the app, the playback"): previews and trailers play; the film itself
+      stops. TV log: the FairPlay key requests partly succeed (some time out, `-19152`), then
+      `vmc2BuildDecompressionSession ... (error -12906)` = `kVTCouldNotFindVideoDecoderErr` for the protected item
+      only, then `-12167` / AVFoundation `-11839` (decoder temporarily unavailable). HDCP state `Unknown`. Protected
+      video needs a hardware (secure-path) decoder; Vermilion has none (VCN off, thread 00.1). Not fixable from 05
+
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
 Owner's goal: "I need this GPU perfectly working". Baseline, measured on the XTX machine:

@@ -93,6 +93,18 @@
       "boot_args_add": ["amfi=0x80", "ipc_control_port_options=0", "phxdebug=1"],
       "csr_active_config": "030A0000"
     },
+    "vermilion-trustlog": {
+      "_comment": "Thread 05, step 1 of replacing amfi=0x80 (decisions 2026-11-22): vermilion + VermilionTrust in log-only mode. amfi=0x80 stays, so AMFI still allows everything and nothing can be refused; the kext only reports, in the kernel log and in sysctl debug.phxtrust_stat, that its hooks are installed and which ad-hoc code each process maps. One boot, then back to vermilion or on to the enforcing stage.",
+      "inherits": "vermilion",
+      "kexts_add": ["VermilionTrust"],
+      "boot_args_add": ["-phxtrustlog"]
+    },
+    "vermilion-trust": {
+      "_comment": "Thread 05, step 2 of replacing amfi=0x80 (decisions 2026-11-22): vermilion + VermilionTrust enforcing, amfi=0x80 removed. AMFI checks library validation and signatures for every process again; VermilionTrust lets only the cdhashes of the installed Vermilion code through (debug.phxtrust_files lists overrides and every refused file). ipc_control_port_options=0 stays for this boot (one change at a time). Log-only boots of the kext: vermilion-trustlog (1.0.0 and 1.0.1, 2026-11-22, desktop unchanged).",
+      "inherits": "vermilion",
+      "kexts_add": ["VermilionTrust"],
+      "boot_args_remove": ["amfi=0x80"]
+    },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "vermilion",
