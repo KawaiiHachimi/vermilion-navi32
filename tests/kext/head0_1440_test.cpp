@@ -135,6 +135,25 @@ int main() {
     {   // VRR probe: the LG's range limits descriptor (48-240 Hz), the offsets bits, and no descriptor at all
         EdidRange r{};
         CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minVHz == 48 && r.maxVHz == 240 && r.maxPclkMHz >= 1000);
+        {   // the floor in macOS's EDID copy: the 0xFD minimum and AMD's FreeSync VSDB minimum, checksums kept
+            uint8_t b0[128];
+            memcpy(b0, kLgEdid, 128);
+            unsigned sum0 = 0;
+            for (unsigned i = 0; i < 128; i++) sum0 += b0[i];
+            CHECK((sum0 & 0xff) == 0 && edidFloorPatch(b0, 0, 60) == 1);
+            EdidRange r2{};
+            unsigned sum1 = 0;
+            for (unsigned i = 0; i < 128; i++) sum1 += b0[i];
+            CHECK((sum1 & 0xff) == 0 && edidRange(b0, 128, &r2) && r2.minVHz == 60 && r2.maxVHz == 240);
+            CHECK(edidFloorPatch(b0, 0, 60) == 0 && edidFloorPatch(b0, 0, 241) == 0);   // already there; above the maximum
+            uint8_t c[128] = {0x02, 0x03, 4 + 11};
+            const uint8_t vsdb[11] = {0x6a, 0x1a, 0x00, 0x00, 0x03, 0x03, 0x30, 0xf0, 0x00, 0xa0, 0x73};
+            memcpy(c + 4, vsdb, sizeof vsdb);
+            CHECK(edidFloorPatch(c, 1, 60) == 1 && c[4 + 1 + 5] == 60 && c[4 + 1 + 6] == 0xf0);
+            unsigned sc = 0;
+            for (unsigned i = 0; i < 128; i++) sc += c[i];
+            CHECK((sc & 0xff) == 0 && edidFloorPatch(c, 1, 30) == 0);
+        }
         // the floor: the larger of the EDID's and the owner's, below the maximum, at least 24 Hz
         CHECK(vrrFloor(48, 240, 0) == 48 && vrrFloor(48, 240, 60) == 60 && vrrFloor(48, 240, 30) == 48);
         CHECK(vrrFloor(48, 240, 240) == 0 && vrrFloor(48, 240, 250) == 0 && vrrFloor(10, 240, 0) == 24 && vrrFloor(48, 48, 0) == 0);

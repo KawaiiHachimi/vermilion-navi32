@@ -1002,9 +1002,13 @@ public:
         if (!fEdidLen) { memcpy(fEdid, kPhxEDID, sizeof kPhxEDID); fEdidLen = sizeof kPhxEDID; }   // start() not run yet
         if (blockNumber < 1 || blockNumber * 128 > fEdidLen) return kIOReturnUnsupported;
         IOByteCount want = (*length && *length < 128) ? *length : 128;
-        memcpy(data, fEdid + (blockNumber - 1) * 128, want);
+        uint8_t blk[128];
+        memcpy(blk, fEdid + (blockNumber - 1) * 128, sizeof blk);
+        // Adaptive Sync: macOS's copy carries the floor as the minimum rate (the menu's label; fEdid itself stays the monitor's)
+        const unsigned fl = fVrrMinHz ? phxhead::edidFloorPatch(blk, blockNumber - 1, fVrrMinHz) : 0;
+        memcpy(data, blk, want);
         *length = want;
-        PFBLOG("getDDCBlock %u -> %llu bytes", (unsigned)blockNumber, (unsigned long long)want);
+        PFBLOG("getDDCBlock %u -> %llu bytes%s", (unsigned)blockNumber, (unsigned long long)want, fl ? " (VRR floor in the minimum rate)" : "");
         return kIOReturnSuccess;
     }
     IOReturn registerForInterruptType(IOSelect type, IOFBInterruptProc proc, OSObject *target, void *ref, void **iref) override {

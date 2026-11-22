@@ -182,6 +182,11 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      **Test:** restart; System Settings shows "Variable (60-240 Hz)"; pick it, the LG's FPS overlay stays at 60 or above,
      `sysctl debug.phxvrr_stat` names floor 60 Hz and MAX 0x194b (6475) at 240. **Rollback:** boot trouble: swap `EFI/OC`
      and `EFI/OC.prev` (from macOS or Linux); only the menu wrong: `echo 0 > ~/gpu/phxboot-vrrmin` and restart.
+     **2026-11-22 on the box:** the floor works (OTG0 MAX 0x194b, the LG's overlay at 60, `debug.phxvrr_stat` floor 60), the
+     flicker is less but still there (owner), and the menu still said "Variable (48-240 Hz)" although IOFBTimingRange said 60:
+     CoreDisplay takes the label from the EDID (the LG has 48 in its 0xFD descriptor and in AMD's FreeSync VSDB). PhxAccel
+     now serves macOS an EDID copy with the floor as both minima (phxhead::edidFloorPatch; the monitor's EDID kept inside).
+     Floor set to 90 for the next test (`~/gpu/phxboot-vrrmin`). (unverified)
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux

@@ -271,6 +271,41 @@ inline uint32_t vrrFloor(uint32_t edidMinHz, uint32_t edidMaxHz, uint32_t wantHz
     return f < edidMaxHz ? f : 0u;
 }
 
+// Adaptive Sync floor in macOS's copy of the EDID. CoreDisplay names System Settings' "Variable (N-M Hz)" after the EDID's
+// own minimum, not IOFBTimingRange's (XTX machine, 2026-11-22: range published 60-240, the menu said 48-240), and the LG
+// has 48 twice: the base block's range limits descriptor (0xFD, byte 5) and AMD's FreeSync VSDB in the CTA block (OUI
+// 00-00-1A; version, caps, then min and max rate, as Linux's amdgpu reads it). Raises both to floorHz where they are
+// lower and fixes the block's checksum. blk = one 128-byte block, idx = its number (0 = base). Returns the fields changed
+// (0 = block untouched). The descriptor's +255 offset form is left alone.
+inline unsigned edidFloorPatch(uint8_t *blk, unsigned idx, uint32_t floorHz) {
+    if (!blk || !floorHz || floorHz > 255) return 0;
+    unsigned n = 0;
+    if (idx == 0) {
+        for (unsigned k = 0; k < 4; k++) {
+            uint8_t *d = blk + 54 + 18 * k;
+            if (d[0] || d[1] || d[2] || d[3] != 0xFD || (d[4] & 3) == 3) continue;
+            if (d[5] < floorHz && floorHz <= d[6]) { d[5] = static_cast<uint8_t>(floorHz); n++; }
+        }
+    } else if (blk[0] == 0x02) {   // CTA-861: data blocks from byte 4 up to the DTD offset
+        const unsigned end = blk[2] >= 4 && blk[2] <= 127 ? blk[2] : 4;
+        for (unsigned i = 4; i < end;) {
+            const unsigned tag = blk[i] >> 5, len = blk[i] & 31u;
+            if (i + 1 + len > end) break;
+            uint8_t *q = blk + i + 1;
+            if (tag == 3 && len >= 7 && q[0] == 0x1A && q[1] == 0x00 && q[2] == 0x00 && q[5] < floorHz && floorHz <= q[6]) {
+                q[5] = static_cast<uint8_t>(floorHz); n++;
+            }
+            i += 1 + len;
+        }
+    }
+    if (n) {
+        unsigned sum = 0;
+        for (unsigned i = 0; i < 127; i++) sum += blk[i];
+        blk[127] = static_cast<uint8_t>((256u - (sum & 0xffu)) & 0xffu);
+    }
+    return n;
+}
+
 inline bool edidHasMode(const uint8_t *e, uint32_t len, const HeadMode &m, bool allowStd = false) {
     static const uint8_t kHdr[8] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
     if (!e || len < 128) return false;
