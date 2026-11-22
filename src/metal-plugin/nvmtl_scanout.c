@@ -15,9 +15,11 @@
 struct nvmtl_scan_query { uint32_t h_active, v_active, h_total, v_total, pitch_px, hubp_format, sw_mode, otg, refresh_mhz, pix_clk_khz, dcc_en, flags;
                           uint64_t frame_count, console_mc, plane_mc, earliest_mc; uint32_t acquired, plane_w, plane_h, reserved; };
 struct nvmtl_scan_slot { uint64_t mc, latched_frame; uint32_t used, flags, presents, latches; };
-#define NVMTL_SCANST_FMT10 (1u << 1)   /* kext b149 (PHXN_SCANST_FMT10): HUBP0 scans ARGB2101010 (10-bit HDR) */
-/* b149: an 8-bit BGRA pixel on the 10-bit scan-out (each channel's 8 bits on top, the top two repeated below; PhxAccel's
-   phxhead::bgraTo2101010 does the same for the CPU copy) */
+#define NVMTL_SCANST_FMT10 (1u << 1)   /* kext b149+ (PHXN_SCANST_FMT10): HUBP0 scans ARGB2101010 (10-bit HDR) */
+/* An 8-bit BGRA pixel on the 10-bit scan-out: each channel's 8 bits on top of its 10, the top two repeated below, alpha 3.
+   PhxAccel has the same function as phxhead::bgraTo2101010 (src/vermilion-accel/accel/phxhead.h) for its CPU copy. Two
+   copies on purpose: this plugin is a C unit built without any kext header (it mirrors the kernel ABI above the same
+   way), and phxhead.h is C++. Not a licence boundary (both sides are PolyForm Noncommercial). Change both together. */
 static inline uint32_t nvmtl_bgra_to_2101010(uint32_t v)
 {
     return 0xC0000000u | (((v >> 16) & 0xffu) << 22) | (((v >> 22) & 0x3u) << 20) | (((v >> 8) & 0xffu) << 12) |
@@ -47,12 +49,12 @@ static struct {
 } g_scan;
 static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
 
-/* b138: the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
+/* the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
 static int g_scan_geom_wait;
-/* b139: the size GPU present first ran at (the boot mode). 2026-11-20 on the XTX machine, b138 froze the whole machine
-   ~0.5 s after a switch to 1280x1024, the one place where GPU present could restart at another size (Linux's pitch equals
-   the width there) and the first use of the small slot layout on that card (findings 2026-11-20-b138-freeze-and-squat-loop.md).
-   Until that is understood, GPU present runs only at this size; every other size is drawn by the CPU copy. */
+/* The size GPU present first ran at (the boot mode). GPU present runs only at this size; every other size is drawn by the
+   CPU copy. Why: the XTX machine froze ~0.5 s after a switch to 1280x1024, the one place where GPU present could restart
+   at another size (Linux's pitch equals the width there) and the first use of the small slot layout on that card. The
+   cause is not known (.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md); lift this only with that understood. */
 static uint32_t g_scan_first_w, g_scan_first_h;
 
 static void nvmtl_scan_off_locked(const char *why)
@@ -123,8 +125,8 @@ static int nvmtl_scan_start_locked(uint32_t w, uint32_t h, uint32_t pitch)
     struct nvmtl_scan_query q;
     int r = g_scan.query(g_dev, &q);
     if (r || q.plane_w != w || q.plane_h != h || q.pitch_px * 4 != pitch) {
-        /* b138: the plane may follow later (a resolution change: the kext's pitch is Linux's, wider than WindowServer's
-           rows below 1440p, so those modes run on the CPU copy). Not off for the session: query again in 2 s (cheap). */
+        /* The plane may follow later (a resolution change: the kext's pitch is Linux's, wider than WindowServer's rows
+           below 1440p, so those modes run on the CPU copy). Not off for the session: query again in 2 s (cheap). */
         static unsigned said; if (said++ < 8) nvlog("ws gpu present: plane %ux%u pitch %u vs surface %ux%u pitch %u (query %d) - CPU copy, trying again in 2 s",
                                                     q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
         g_scan_geom_wait = 1;   /* these retries are not plane losses: they do not count toward the 50 restarts */
@@ -212,8 +214,8 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     }
     if (g_scan.state != 1) goto out;
     if (w != g_scan.w || h != g_scan.h || pitch != g_scan.pitch) {
-        /* b138: a resolution change (PhxAccel resizes head 0): give the plane back, free the slots, start again at the new
-           size in 0.5 s (was: off until WindowServer restarts, so 1440p stayed on the CPU copy after visiting 1080p) */
+        /* A resolution change (PhxAccel resizes head 0): give the plane back, free the slots and start again in 0.5 s, so
+           GPU present comes back when the desktop returns to its first size */
         nvmtl_scan_off_locked("the display surface changed size");
         nvmtl_scan_teardown_locked();
         g_scan_geom_wait = 1;
@@ -245,8 +247,8 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     struct nvmtl_scan_status st;
     memset(&st, 0, sizeof st);
     if (g_scan.status(g_dev, &st) || !st.acquired) { nvmtl_scan_lost_locked("the plane was taken back", &st); goto out; }
-    /* b149 10-bit HDR: with HUBP0 on ARGB2101010 an l10r surface goes to the slot as it is (MPCC0 blends with global alpha:
-       l10r's top two bits are not used) and a BGRA one is widened; the 8-bit scan-out narrows l10r as before */
+    /* 10-bit HDR: with HUBP0 on ARGB2101010 an l10r surface goes to the slot as it is (MPCC0 blends with global alpha:
+       l10r's top two bits are not used) and a BGRA one is widened; the 8-bit scan-out narrows l10r (scan_l10r.comp) */
     const int fmt10 = (st.flags & NVMTL_SCANST_FMT10) != 0;
     { static int lastFmt10 = -1;
       if (fmt10 != lastFmt10) { nvlog("ws gpu present: scan-out %s, surface %s", fmt10 ? "ARGB2101010 (10-bit HDR)" : "ARGB8888",
