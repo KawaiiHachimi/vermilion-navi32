@@ -24,6 +24,11 @@ board idle, 389 W / 88 C hotspot / fan 49 % under a full Metal load, idle again 
 the software renderer; OpenCL has no GPU; no Vulkan loader; apps get no Mesa shader disk cache; Metal reports 6 GiB
 and the XT's name. Not in this branch: sleep / wake, DP audio, HDMI.
 
+**Paused 2026-11-22 after the baseline** (owner: ACPI, Wi-Fi, USB, Bluetooth and the rest come first, in another
+thread). Nothing is staged or half-installed. This branch is then the general performance branch: GPU and CPU
+performance, loads, power use, heat. When resuming: measure the baseline again first (the EFI and ACPI work in
+between changes the CPU side), then go on at step 1 / 2.
+
 Order of work (one change at a time; every kext change = a new build, a CHANGELOG line, the host and mock tests, one
 EFI change per boot with a copy in `~/vermilion-rollback/` and the rollback steps written here first):
 
