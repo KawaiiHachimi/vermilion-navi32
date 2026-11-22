@@ -22,7 +22,7 @@
 #
 #   python3 tools/capture/p0odm_from_trace.py --trace <cap>/240/trace-modeset.txt --until 246.5262 --name 1440p240 \
 #       --source "Linux 7.2.15, capture 2026-11-20 065140, 144 -> 240" > src/vermilion-boot/phx_p0odm_1440p240.inc
-import argparse, re, sys
+import argparse, os, re, sys
 
 SEG = [0x12, 0xC0, 0x34C0, 0x9000]
 OPS = {"W": 1, "COPY": 2, "WAIT": 3, "DAL": 4, "DPCDW": 5, "LINKOFF": 6, "LINKUP": 7, "DELAY": 8, "SWAIT": 9}
@@ -156,7 +156,8 @@ def main():
                     "DCSURF_SURFACE_CONFIG, CNVC_CFG0 SURFACE_PIXEL_FORMAT) as literals: the HDR plans' ARGB2101010 (0xa) and back to "
                     "ARGB8888 (0x8); b149, 10-bit HDR")
     ap.add_argument("--modesets", type=int, default=1, help="mode-set bursts in the step (auto until): 1, or 2 for an HDR switch")
-    ap.add_argument("--hdr", default="/Users/dnanu/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h")
+    ap.add_argument("--hdr", default=os.path.expanduser("~/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h"),
+                    help="Linux's dcn_3_2_0_offset.h (drivers/gpu/drm/amd/include/asic_reg/dcn), for the register names")
     a = ap.parse_args()
     nm = names(a.hdr)
     nm2a = {v: k for k, v in nm.items()}
