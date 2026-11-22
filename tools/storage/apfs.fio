@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT
+# File test on a mounted volume: one 2 GiB file per job in FIODIR, prefilled with real data first.
+# Writes are capped by volume (io_size), never by time: 42 GiB of data, measured about 60-80 GB at the SSD (APFS
+# metadata). Order matters: the random-write jobs fragment the files (copy on write), so every sequential read
+# comes before them.
+# macOS has no O_DIRECT; direct=1 is F_NOCACHE, and APFS acknowledges small writes before they are durable.
+[global]
+directory=${FIODIR}
+filename_format=f.$jobnum
+nrfiles=1
+size=2g
+direct=1
+thread=1
+ioengine=psync
+group_reporting=1
+percentile_list=50:99:99.9
+
+[prefill]
+rw=write
+bs=1m
+numjobs=8
+stonewall
+
+[seq-write-1m-t8]
+rw=write
+bs=1m
+numjobs=8
+io_size=2g
+stonewall
+
+[seq-read-1m-t8]
+rw=read
+bs=1m
+numjobs=8
+time_based=1
+runtime=20
+ramp_time=3
+stonewall
+
+# 8 jobs, not more: only the 8 prefilled files hold data (an unwritten file reads as zeros, faster than the link).
+[seq-read-512k-t8]
+rw=read
+bs=512k
+numjobs=8
+time_based=1
+runtime=20
+ramp_time=3
+stonewall
+
+[rand-read-4k-qd1]
+rw=randread
+bs=4k
+numjobs=1
+time_based=1
+runtime=20
+ramp_time=3
+stonewall
+
+[rand-write-4k-qd1]
+rw=randwrite
+bs=4k
+numjobs=1
+io_size=2g
+stonewall
+
+[rand-read-4k-t8]
+rw=randread
+bs=4k
+numjobs=8
+time_based=1
+runtime=20
+ramp_time=3
+stonewall
+
+[rand-write-4k-t8]
+rw=randwrite
+bs=4k
+numjobs=8
+io_size=1g
+stonewall

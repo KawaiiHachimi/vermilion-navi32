@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: MIT
+# Raw-device READ test. Run it only with fio --readonly (fio then refuses any write).
+# FIODEV = a raw partition that holds real data (unwritten APFS space reads as zeros and measures nothing).
+# On macOS /dev/rdiskN serialises the pieces of large requests: this measures the raw path, not the drive's ceiling.
+[global]
+filename=${FIODEV}
+direct=1
+thread=1
+ioengine=psync
+time_based=1
+runtime=20
+ramp_time=3
+group_reporting=1
+size=800g
+percentile_list=50:99:99.9
+
+[raw-seq-read-1m-t1]
+rw=read
+bs=1m
+numjobs=1
+stonewall
+[raw-seq-read-512k-t16]
+rw=read
+bs=512k
+numjobs=16
+offset_increment=50g
+stonewall
+[raw-seq-read-1m-t16]
+rw=read
+bs=1m
+numjobs=16
+offset_increment=50g
+stonewall
+[raw-rand-read-4k-qd1]
+rw=randread
+bs=4k
+numjobs=1
+stonewall
+[raw-rand-read-4k-t32]
+rw=randread
+bs=4k
+numjobs=32
+stonewall
+[raw-rand-read-4k-t64]
+rw=randread
+bs=4k
+numjobs=64
+stonewall
