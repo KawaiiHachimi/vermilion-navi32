@@ -317,3 +317,31 @@ boot), or if per-core clocks are needed.
 ID added by hand (SimpleMtkBtFw). Verified on the XTX machine: AirPods pair and play
 ([findings](findings/2026-11-22-bluetooth.md)).
 **Revisit:** after any macOS update (it patches bluetoothd by signature), or if bluetoothd starts crash-looping.
+
+## 2026-11-22: Security posture target = a real Mac; replace `amfi=0x80` with a scoped allowlist
+
+**Decision:** the owner's bar (2026-11-22) is that the machine behaves like a fully supported Mac, so every security
+relaxation is a bug to remove, not a documented cost. Thread 05's order: (1) security data updates on
+(`ConfigDataInstall = 1`, done 2026-11-22), with macOS and Rapid Security Responses still pinned (`CriticalUpdateInstall = 0`);
+(2) replace the global `amfi=0x80` with a small kext of our own that allows library validation **only for the cdhashes
+of Vermilion's own code** (plugin, translator, RADV, decoder) and leaves AMFI on for everything else; (3) with thread 00,
+inject `VermilionAccel` from OpenCore instead of the AuxKC, so SIP's kext bits can go; (4) SIP back towards `0x0`
+and authenticated root on; (5) then Apple Secure Boot (`SecureBootModel`) and FileVault, each on its own boot.
+**Why:** `amfi=0x80` is AMFI's `ALLOW_EVERYTHING`: every process skips library validation and accepts invalid
+signatures, tccd treats third-party apps as platform binaries (no camera / mic prompts), and FairPlay refuses.
+AMFIPass doesn't help Vermilion: it trusts only code signed with Dortania's key (OCLP), and our plugin is ad-hoc
+signed, which is why upstream added `amfi=0x80` on top. A cdhash allowlist keeps the property a real Mac has, that
+root can't load unsigned code into platform processes, and Vermilion stays loadable.
+**How (proposed, unverified):** a Lilu plugin routes XNU's `mac_file_check_library_validation` (public XNU source,
+symbol in the kernel's linkedit, which `DisableLinkeditJettison` keeps). If the mapped file's cdhash is in a list
+fixed at boot (the kext's Info.plist or an OpenCore NVRAM variable, never writable from a running system), it
+returns 0, else it calls the original. First a log-only boot with `amfi=0x80` still set, to show that the hook
+fires and the list is complete. Then one boot without `amfi=0x80` (rollback: `EFI/OC.prev`). A `-phxtrustoff` boot-arg
+turns it off.
+**Revisit:** if Apple's AMFI on 26.7.1 enforces library validation somewhere the MAC hook doesn't see, or if Vermilion
+gets a real signing identity.
+**Result (2026-11-22 23:45, XTX machine):** implemented as `src/vermilion-trust` (it wraps AMFI's own
+`file_check_library_validation` / `file_check_mmap` / `file_check_mmap_downgrade` entries in its MAC operation vector,
+not XNU's MAC framework functions, so other policies such as Sandbox keep their say). Booted without `amfi=0x80`:
+accelerated desktop works, AMFI enforces, third-party apps lose `CS_PLATFORM_BINARY`. Cost: the cdhash list must be
+rebuilt with every plugin / translator / RADV build.

@@ -73,6 +73,12 @@ not only for WindowServer. Side effects seen on the reference machine:
   Privacy & Security > Microphone or Camera. The Screen & System Audio Recording pane still has a **+** button, so apps
   can be added there by hand; Microphone and Camera have no such button.
 
+**Alternative without `amfi=0x80`:** [`src/vermilion-trust`](../src/vermilion-trust/README.md) (`VermilionTrust.kext`,
+injected after Lilu) keeps AMFI on and lets only the cdhashes of the installed Vermilion code through library
+validation. On the XTX machine (2026-11-22) the accelerated desktop works with it and without `amfi=0x80`, and
+third-party apps are no longer treated as platform binaries. The list is compiled into the kext, so every new
+plugin, translator or RADV build needs `scripts/build/trust.sh` and a new EFI. Not tested on the XT *(unverified)*.
+
 ### Kexts that make AMFI relaxation work
 
 - **Lilu** (acidanthera) and **AMFIPass** (a Lilu plugin, distributed with OpenCore Legacy Patcher) in `EFI/OC/Kexts`
