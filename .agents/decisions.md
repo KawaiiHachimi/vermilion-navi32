@@ -263,3 +263,8 @@ The replay engine's failed latch stays (one failed run = nothing more until rebo
 is what counts as failed: an underflow sticky from before the run is cleared and not held against it, and a sticky raised
 during the switch gets one clear and one more full post check.
 
+## 2026-11-22: no VRR / HDR below 1440p; the other resolutions stay as fixed rates
+
+The owner runs only 2560x1440, where every rate, Variable (60-240 Hz, ramp), 10-bit HDR and Variable + HDR work on the box.
+VRR and HDR at the other sizes would need a CPU-copy trigger, per-size twins and a Linux capture per HDR mode: dropped.
+The other resolutions are left on (fixed rates): they work, cost nothing at 1440p and serve other machines.

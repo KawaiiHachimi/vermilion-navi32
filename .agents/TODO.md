@@ -186,7 +186,9 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      verticalBlankingExtension, new std kind), offered with both features; PhxAccel calls phxVrrSet(1) for it; the kernel
      side needs nothing new (vrrOnLocked works on key 1440240: h 1440, same V_TOTAL). Check CoreDisplay then shows
      Variable in HDR.
-  3. **VRR and HDR at the other resolutions.** VRR: the CPU copy needs the per-flip trigger (a platform function to
+  3. **Dropped (owner, 2026-11-22):** 2560x1440 works fully (every rate to 240, Variable 60-240 with the ramp, 10-bit HDR,
+     Variable + HDR); the owner uses only that. The other resolutions stay as they are (fixed rates, no VRR / HDR); not
+     disabled. Was: **VRR and HDR at the other resolutions.** VRR: the CPU copy needs the per-flip trigger (a platform function to
      PhxBringup after each copied frame, OTG_TRIGA_MANUAL_TRIG, while gVrrOn), vrrOnLocked must accept the other modes
      (drop the h == 1440 gate; vrrRegs per mode), and per-size VRR twins in phxhead.h (48 Hz to the mode's rate; only
      modes above 48 Hz). HDR: Linux's HDR mode sets at those modes are not captured: capture v5 in Omarchy
