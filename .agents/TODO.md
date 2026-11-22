@@ -171,7 +171,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      scanAllocSlot accepts ARGB2101010 (PHXN_SCAN_FMT_*), the Metal plugin copies l10r surfaces raw instead of through
      `scan_l10r.comp` while HDR; (d) the CPU copy (nvrm-accel.cpp, the l10r branch) copies raw while HDR. Test: a gradient
      in HDR without banding.
-  2. **Variable with HDR on.** Today picking HDR sends phxVrrSet(0). Plan: a VRR+HDR twin of 240 (HDR10 fields and the
+  2. **Variable with HDR on.** **PhxAccel with id 18 installed 2026-11-22 18:40** (kStdHdrVrrTwin: id 17's timing with the
+     HDR10 fields and the VRR extension, key 1440240, "phxVrrSet" 1; offered with both features; rollback
+     `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr`). Needs Allow in Privacy & Security before the restart (AuxKC).
+     b150 on the box (owner 18:30): HDR works (LG in HDR, `debug.phxfb0_scan10` 1); Variable was off in HDR (no twin).
+     (unverified) **Test:** HDR on, then the refresh menu offers Variable; pick it: the LG's overlay moves, `debug.phxvrr_stat`
+     on=1. Was: Today picking HDR sends phxVrrSet(0). Plan: a VRR+HDR twin of 240 (HDR10 fields and the
      verticalBlankingExtension, new std kind), offered with both features; PhxAccel calls phxVrrSet(1) for it; the kernel
      side needs nothing new (vrrOnLocked works on key 1440240: h 1440, same V_TOTAL). Check CoreDisplay then shows
      Variable in HDR.

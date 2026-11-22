@@ -86,7 +86,11 @@ int main() {
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, true) == 3);   // no 240 timing: no twin
         // HDR probe: the HDR twins 14..17 (of 3..6) only with hdr, after the variable twin; timings and switch keys as their bases
         const unsigned nh = modeList(0, full, sizeof full, 2560, 1440, ids, false, true, true);
-        CHECK(nh == 9 && ids[4] == 13 && ids[5] == 14 && ids[8] == 17 && isHdrTwin(*headMode(0, 14)) && !isHdrTwin(*headMode(0, 3)));
+        CHECK(nh == 10 && ids[4] == 13 && ids[5] == 14 && ids[8] == 17 && isHdrTwin(*headMode(0, 14)) && !isHdrTwin(*headMode(0, 3)));
+        // Variable with HDR (2026-11-22): id 18, both twins at once, only with both features; HDR 240's key, the VRR extension
+        CHECK(ids[9] == 18 && isHdrTwin(*headMode(0, 18)) && isVrrTwin(*headMode(0, 18)) && !isVrrTwin(*headMode(0, 17)) && !isHdrTwin(*headMode(0, 13)));
+        CHECK(switchKey(*headMode(0, 18), 2560, 1440) == 1440240 && switchKey(*headMode(0, 13), 2560, 1440) == 240);
+        { DetailedTiming t18{}; CHECK(detailedTiming(0, 18, &t18) && vrrExtension(t18, 60) == 4856); }
         CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, false, true, false) == 5);
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, false, true) == 6);   // 256 bytes: 3..5 and their twins 14..16
         CHECK(modeList(0, kAocEdid, sizeof kAocEdid, 1920, 1080, ids, false, true, true) == 2);   // the XT's AOC: unchanged

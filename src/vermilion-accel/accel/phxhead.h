@@ -144,11 +144,14 @@ struct HeadMode { uint32_t id, w, h, milliHz, pclk10kHz, hTotal, vTotal; uint8_t
 // HeadMode::std: 0 = a DTD / DisplayID mode of the boot size, 1 = b138's other sizes (EDID standard / established / VIC),
 // kStdVrrTwin = a variable-refresh twin (Adaptive Sync), never an other-size mode
 constexpr uint8_t kStdVrrTwin = 2;
-constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin; }
+// kStdHdrVrrTwin (2026-11-22) = Variable with HDR on: both an HDR twin (HDR10 timing info, PhxBringup's HDR replay mode) and a
+// variable-refresh twin (verticalBlankingExtension, "phxVrrSet" 1); offered only with both features
+constexpr uint8_t kStdHdrVrrTwin = 4;
+constexpr bool isVrrTwin(const HeadMode &m) { return m.std == kStdVrrTwin || m.std == kStdHdrVrrTwin; }
 // kStdHdrTwin = an HDR twin (HDR, 2026-11-21): CoreDisplay's SupportsHDRMode looks for another mode id of the current timing whose
 // timing reports kIODynamicRangeHDR10 (FindIOModeIDForIODynamicRange(..., 2)); offered only with HDR on (debug.phxfb0_hdr)
 constexpr uint8_t kStdHdrTwin = 3;
-constexpr bool isHdrTwin(const HeadMode &m) { return m.std == kStdHdrTwin; }
+constexpr bool isHdrTwin(const HeadMode &m) { return m.std == kStdHdrTwin || m.std == kStdHdrVrrTwin; }
 static const HeadMode kHead1Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125, 0},    // CEA 1080p60 (the 60 plan)
     {2, 1920, 1080, 144000, 32508, 2056, 1098, 0},   // the Acer KG241QS DTD 1 (the 144 plan)
@@ -188,6 +191,9 @@ static const HeadMode kHead0Modes[] = {
     {15, 2560, 1440, 119998, 49775, 2720, 1525, kStdHdrTwin},
     {16, 2560, 1440, 143991, 59375, 2720, 1516, kStdHdrTwin},
     {17, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrTwin},
+    // Variable with HDR (2026-11-22): id 17's timing with the extension; the pipe runs PhxBringup's HDR 240 (key 1440240)
+    // and the VRR range on top (PhxBringup b144+ vrrOnLocked: 1440p, V_TOTAL 0x652 as id 6 / 13 / 17)
+    {18, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrVrrTwin},
 };
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
@@ -429,6 +435,7 @@ static const HeadSync kHead0Sync[] = {
     {15, 48, 32, 3, 5, true, false},
     {16, 48, 32, 3, 5, true, false},
     {17, 48, 32, 3, 5, true, false},
+    {18, 48, 32, 3, 5, true, false},  // Variable with HDR: id 6's
 };
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.
