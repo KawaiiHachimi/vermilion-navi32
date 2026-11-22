@@ -131,9 +131,10 @@ def resolve_stage(machine, stage):
             die(f"stage inheritance loop at {s}")
         chain.append(s)
         s = stages[s].get("inherits")
-    kexts, boot_args, csr = [], [], None
+    kexts, boot_args, csr, nvram = [], [], None, {}
     for s in reversed(chain):
         st = stages[s]
+        nvram.update({k: v for k, v in st.get("nvram_add", {}).items() if not k.startswith("_")})
         if "kexts" in st:
             kexts = list(st["kexts"])
         kexts += [k for k in st.get("kexts_add", []) if k not in kexts]
@@ -141,7 +142,7 @@ def resolve_stage(machine, stage):
             boot_args = list(st["boot_args"])
         boot_args += [a for a in st.get("boot_args_add", []) if a not in boot_args]
         csr = st.get("csr_active_config", csr)
-    return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000"}
+    return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram}
 
 
 # ---------------------------------------------------------------------------------------------------------- SMBIOS
@@ -260,8 +261,10 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
     apple["boot-args"] = " ".join(stage["boot_args"])
     apple["csr-active-config"] = bytes.fromhex(stage["csr_active_config"])
     apple["prev-lang:kbd"] = b"en-US:0"
+    for key, value in stage["nvram_add"].items():     # Apple GUID variables, hex data; set again at every boot
+        apple[key] = bytes.fromhex(value)
     delete = nv["Delete"].setdefault(APPLE_NVRAM, [])
-    for key in ("boot-args", "csr-active-config", "prev-lang:kbd"):
+    for key in ("boot-args", "csr-active-config", "prev-lang:kbd", *stage["nvram_add"]):
         if key not in delete:
             delete.append(key)
     nv["Delete"][APPLE_NVRAM] = [d for d in delete if d != "ForceDisplayRotationInEFI"]

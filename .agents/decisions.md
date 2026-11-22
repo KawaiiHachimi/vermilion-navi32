@@ -282,3 +282,38 @@ name exists (`phxVrrOids` registers four sysctls now). `PHX_KEXT_BUILD` stays 15
 Both are PolyForm Noncommercial, so the licence would allow one shared header. They stay apart because the plugin is
 built without any kext header and mirrors the kernel ABI by hand already; one four-line function does not justify the
 first include across that line. Both comments name the other copy. **Revisit:** when the plugin gets a shared ABI header.
+
+## 2026-11-22: USB map with USBToolBox, kept as a codeless kext source in `efi/kexts/`
+
+**Decision:** map USB with USBToolBox 1.2.0 and a hand-written `UTBMap.kext` (`efi/kexts/UTBMap.kext`, matched by
+the controllers' ACPI names), in the `base` stage. Keep every rear port, the internal audio and Bluetooth ports and
+the unknown internal port 17; leave out the front-panel headers (no front panel) and the AURA LED controller.
+**Why:** the firmware's `_UPC` marks the audio and Bluetooth ports not connectable, so macOS never created them;
+USBToolBox detaches the ACPI ports and takes the ports from the map alone. A codeless kext in the repo keeps the map
+reviewable and reproducible like the rest of the EFI (no tool-generated binary). Verified on the XTX machine
+2026-11-22 ([findings](findings/2026-11-22-usb-map.md)).
+**Revisit:** if a front panel is added (ports 2-4 / 7-9 / 13-14), if a USB 3 device shows a wrong pairing, or after
+a BIOS update (port numbers can change).
+
+## 2026-11-22: CPU sensors with SMCProcessorAMD; no AMDRyzenCPUPowerManagement
+
+**Decision:** read the CPU's temperature and package power with macos86/SMCProcessorAMD 1.0.1 (a VirtualSMC
+plugin, `base` stage). Leave CPU power management as it is (`DummyPowerManagement`, the CPU's firmware decides
+clocks and idle).
+**Why:** AMDRyzenCPUPowerManagement, the usual recommendation, replaces the kernel's CPU power-management dispatch
+and rewrites the P1 P-state definition MSR at load with a formula for older Ryzen parts; its Tahoe fork also reads
+and writes the GPU's registers on a timer, which would race Vermilion. SMCProcessorAMD only reads (binary
+disassembled: no `wrmsr`, no port I/O, one SMN index write as Linux `k10temp` does). Verified on the XTX machine
+([findings](findings/2026-11-22-cpu-sensors.md)).
+**Revisit:** if OS-level P-state control is ever wanted (then a Zen 4-correct implementation, tested on its own
+boot), or if per-core clocks are needed.
+
+## 2026-11-22: Bluetooth with MtkWirelessBT (same package as the Wi-Fi driver)
+
+**Decision:** MT7922 Bluetooth through Dino-VN/MtkWireless's `MtkWirelessBT` 1.1.1 + acidanthera BlueToolFixup
+2.7.2 + the two NVRAM variables it documents; `efi/build.py` gained `nvram_add` per stage for those.
+**Why:** it ships in the MtkWireless release already pinned for Wi-Fi, lists this board's USB ID, and documents
+26.7.1 25G241 x86_64 as tested; the alternatives were pulled (AirportMtkWlan's companion) or older and would need the
+ID added by hand (SimpleMtkBtFw). Verified on the XTX machine: AirPods pair and play
+([findings](findings/2026-11-22-bluetooth.md)).
+**Revisit:** after any macOS update (it patches bluetoothd by signature), or if bluetoothd starts crash-looping.

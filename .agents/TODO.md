@@ -16,6 +16,82 @@ clean-up pass on 2026-11-22: comments and docs only, the binaries unchanged.
 
 Next, in the owner's order (2026-11-22): performance and heat, the remaining APIs, sleep / wake, audio, HDMI.
 
+## Platform: ACPI, CPU, USB (thread 02, branch `ownback/postinstall-acpi-cpu-usb`)
+
+Inventory: [findings](findings/2026-11-19-postinstall-inventory.md) (ACPI complete, AMD_Vanilla correct, no CPU
+sensors, USB audio and Bluetooth not enumerated). Order: USB map -> CPU sensors -> Bluetooth loader -> audio /
+Ethernet checks, one EFI change per boot.
+
+- [x] 2026-11-22 Port walk with `tools/usbmap/usbwatch.py` (SanDisk + iPad, every rear port; no front panel):
+      8 rear ports found ([findings](findings/2026-11-22-usb-map.md))
+- [x] 2026-11-22 **EFI change 1: USB map, works** (boot 20:00): USBToolBox loaded; XH00 shows its 8 mapped ports;
+      the Realtek USB audio (`0b05:1a5c`, 6 devices, default input and output) and the Bluetooth device `0489:e0e2`
+      (`Wireless_Device`, no driver yet) enumerate; keyboard, mouse, Wi-Fi, the GPU desktop (b150, 1440p, Metal)
+      unchanged. `OC.prev` = the b150 EFI without the map. Was: (USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`, in the `base` stage). Built 2026-11-22:
+      `ocvalidate` clean; against the live `EFI/OC` only `Kexts/USBToolBox.kext`, `Kexts/UTBMap.kext` and two
+      `Kernel > Add` entries (before AMFIPass) differ; VermilionBoot byte-identical (b150, `3806555e`). Installed
+      with `efi/build.py install` (`EFI/OC.prev` = the b150 EFI booted until now). ESP staging area empty (no
+      `run-once.sh`, no flags) when installed.
+      **Boot:** Apple menu > Restart, OpenCore > Macintosh HD, no Reset NVRAM.
+      **Check after the boot:** `python3 tools/usbmap/usbwatch.py --ports` (XH00 shows 8 ports incl. 11, 16, 17);
+      `system_profiler SPAudioDataType` lists the USB audio; `ioreg -p IOUSB` shows `0489:e0e2`; keyboard, mouse,
+      Wi-Fi and the GPU desktop as before.
+      **Rollback:**
+      - macOS boots but something is wrong: `sudo mv "/Volumes/NO NAME/EFI/OC" "/Volumes/NO NAME/EFI/OC.usbmap"`, then
+        `sudo mv "/Volumes/NO NAME/EFI/OC.prev" "/Volumes/NO NAME/EFI/OC"`, then Apple menu > Restart.
+      - Boots but no USB keyboard / mouse in macOS: the firmware still drives USB, so: hold power to switch off,
+        power on, **F8 > Limine** (Linux), then `sudo mv /boot/EFI/OC /boot/EFI/OC.usbmap && sudo mv /boot/EFI/OC.prev
+        /boot/EFI/OC`, **power off fully**, power on (OpenCore > Macintosh HD).
+      - Hangs at boot: the same Linux route.
+- [x] 2026-11-22 CPU sensor candidates read ([findings](findings/2026-11-22-cpu-sensors.md)):
+      AMDRyzenCPUPowerManagement rejected (replaces the kernel's CPU PM, rewrites a P-state definition MSR), its
+      Tahoe fork rejected (polls the GPU's registers), **SMCProcessorAMD 1.0.1 chosen** (read-only, binary checked)
+- [x] 2026-11-22 **EFI change 2: SMCProcessorAMD 1.0.1, works** (boot 20:10): loaded; `TC0P` / `PCPR` read
+      ~54 C / ~40 W idle, 87 C / 120 W with 24 busy threads; the per-core clock keys are not published; USB map,
+      Wi-Fi, the GPU desktop (SUCCESS, b150) unchanged. Reader: `tools/sensors/cpusensors.py`. Was: (`base` stage, after UTBMap). Built 2026-11-22: `ocvalidate` clean;
+      against the live `EFI/OC` (the USB-map EFI) only `Kexts/SMCProcessorAMD.kext` and one `Kernel > Add` entry
+      differ. Installed with `efi/build.py install`: `EFI/OC.prev` = the USB-map EFI; the EFI before the map is in
+      `~/vermilion-rollback/EFI-OC.b150-nomap-20261122`. ESP staging area empty when installed.
+      **Boot:** Apple menu > Restart, OpenCore > Macintosh HD, no Reset NVRAM.
+      **Check after the boot:** `kextstat | grep SMCProcessorAMD`; `smcread -s | grep -E 'TC0|PCPR|PCTR|FCPE'`
+      (VirtualSMC 1.3.8's `Tools/smcread`); idle temperature 35-60 C and package power 20-60 W are plausible;
+      USB map, Wi-Fi, the GPU desktop as before.
+      **Rollback:**
+      - macOS boots but something is wrong: `sudo mv "/Volumes/NO NAME/EFI/OC" "/Volumes/NO NAME/EFI/OC.smcp"`, then
+        `sudo mv "/Volumes/NO NAME/EFI/OC.prev" "/Volumes/NO NAME/EFI/OC"`, then Apple menu > Restart.
+      - Hangs or panics at boot: hold power to switch off, power on, **F8 > Limine** (Linux), `sudo mv /boot/EFI/OC
+        /boot/EFI/OC.smcp && sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on (OpenCore >
+        Macintosh HD).
+- [x] 2026-11-22 **EFI change 3: Bluetooth, works** (owner paired AirPods, sound plays; boot 20:27). Was: **EFI change 3: Bluetooth** ([findings](findings/2026-11-22-bluetooth.md)): MtkWirelessBT 1.1.1 (from the
+      pinned MtkWireless package) + BlueToolFixup 2.7.2 (pinned) + NVRAM `bluetoothInternalControllerInfo` (14 zero
+      bytes) and `bluetoothExternalDongleFailed` (`00`), `base` stage. `efi/build.py` gained `nvram_add` (output
+      byte-identical without it). Built 2026-11-22: `ocvalidate` clean; against the live `EFI/OC` (sensor EFI) only
+      the two kexts, two `Kernel > Add` entries and the two NVRAM Add/Delete entries differ. Installed with
+      `efi/build.py install`: `EFI/OC.prev` = the sensor EFI (USB map + SMCProcessorAMD). ESP staging empty.
+      **Boot 1 (20:19):** Bluetooth up (`THIRD_PARTY_DONGLE`, On, firmware v9489 c6166), but a **black image**:
+      at login macOS asked for 1440p60 HDR first, `PhxFB: switch to id 14 (target 1440060) ... FAILED: link training
+      failed`, fell back to id 5 (144 Hz), then refused 240 ("a run failed in this boot: nothing more until reboot").
+      The good boot at 20:11 went straight to 240 HDR (`DONE`). `debug.phxscan=0` didn't help (set back to 1).
+      State saved: `~/vermilion-captures/black-20261122-2025.txt`. Restarted from T3 at ~20:30 to retry; if black
+      again, roll Bluetooth back (below) to tell whether it is related. For thread 00: the link-training failure.
+      **Boot 2 (20:27, restart from T3):** straight to 1440p240 HDR (`DONE: ODM 2:1 + DSC + FEC`), daemon `SUCCESS`
+      (8098 frames), Bluetooth On, Wi-Fi, sensors fine. So the black boot was a one-off DP link-training failure on the
+      60 Hz request, not Bluetooth (unverified beyond one good boot). **Open for thread 00:** a failed switch leaves a
+      black image and blocks every later switch until reboot.
+      **Boot:** Apple menu > Restart, OpenCore > Macintosh HD, no Reset NVRAM.
+      **Check:** `system_profiler SPBluetoothDataType` (THIRD_PARTY_DONGLE, On); pair a device; Wi-Fi still up;
+      CPU sensors, USB, the GPU desktop as before; no `bluetoothd` crash loop (`log show --last 5m --predicate
+      'process == "bluetoothd"'`).
+      **Rollback:**
+      - Boots but Bluetooth misbehaves / bluetoothd crash loop: `sudo mv "/Volumes/NO NAME/EFI/OC"
+        "/Volumes/NO NAME/EFI/OC.bt"`, then `sudo mv "/Volumes/NO NAME/EFI/OC.prev" "/Volumes/NO NAME/EFI/OC"`,
+        Restart. The two NVRAM variables stay set (inert without the kexts).
+      - Hangs or panics at boot: hold power, power on, **F8 > Limine**, `sudo mv /boot/EFI/OC /boot/EFI/OC.bt &&
+        sudo mv /boot/EFI/OC.prev /boot/EFI/OC`, **power off fully**, power on (OpenCore > Macintosh HD).
+- [x] 2026-11-22 `efi/README.md` brought up to date (stages, DSDT patches instead of the resolved DSDT, USB map,
+      CPU sensors, Bluetooth, installing from macOS)
+- [ ] Audio by ear (owner), Ethernet with a cable. Installer partition `disk0s4`: kept for now (owner, 2026-11-22)
+
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
 Owner's goal: "I need this GPU perfectly working". Baseline, measured on the XTX machine:
