@@ -37,7 +37,7 @@ and the live XTX machine (macOS 26.7.1 25G241).
 | **04 — Audio & Connectivity** | USB audio (no HDA codec: AppleALC doesn't apply), DP / HDMI audio, Ethernet, Wi-Fi, Bluetooth, Continuity | `ownback/audio-connectivity` | inventory and first baselines done 2026-11-22 ([finding](../.agents/findings/2026-11-22-audio-connectivity-inventory.md)); Wi-Fi fix booted and verified (EFI change 4) |
 | **05 — Apple Services, DRM & Security** | SMBIOS, iServices, FairPlay / Widevine, SIP / AMFI / Gatekeeper, TCC, FileVault | `ownback/apple-services` | inventory done 2026-11-22 ([Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md)); owner tests and proposals pending |
 | **06 — macOS Integration & Peripherals** | system apps, window management, input devices, sharing, dev workflows | `ownback/macos-integration` | inventory done 2026-11-23 ([finding](../.agents/findings/2026-11-23-macos-integration-inventory.md)); proposals waiting for the owner |
-| **07 — Sleep, Power & Final Validation** | sleep / wake, power and thermals, stress, benchmarks, regression, updates | none yet | dormant |
+| **07 — Sleep, Power & Final Validation** | sleep / wake, power and thermals, stress, benchmarks, regression, updates | `ownback/sleep-power-validation` | inventory done 2026-11-23 ([finding](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md)), manual sleep blocked; **paused** until the late sleep / validation thread of the new series (display sleep -> GPU stability, Linux CPU comparison -> GPU / CPU performance) |
 | Legacy Wi-Fi | the Wi-Fi bring-up of 2026-11-19 | `ownback/phase1-wifi` (1 commit not in `main`) | history only |
 
 Older branches `explore-7900xtx-efi-passthrough`, `gpu-1440p-polish`, `gpu-heat` are fully merged into `main`.
@@ -70,10 +70,10 @@ says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 | Continuity | iCloud signed in; **AirDrop: Mac not visible on the iPhone** (2026-11-22; suspects: `amtk_awdl_offchan=0`, MtkWireless AirDrop incomplete upstream); Handoff and AirPlay to Mac work; Universal Clipboard fails; owner keeps the Wi-Fi fix over AirDrop (2026-11-22) | same | 04 |
 | USB | mapped (2026-11-22): USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`, all 8 rear ports + internal audio / Bluetooth; USB 3 halves unverified | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 02 |
 | CPU sensors / package power | work since 2026-11-22: SMCProcessorAMD 1.0.1 (read-only), `tools/sensors/cpusensors.py`; per-core clocks not published | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) | 02 |
-| CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`; real P-state behaviour unmeasured | inventory | 02 / 07 |
+| CPU power management | AMD_Vanilla patches correct (`0x0C`), `DummyPowerManagement`. Measured 2026-11-23: 1-12 threads 5.0-5.15 GHz, 24 threads ~4.8 GHz, **never above 5.15 GHz** (frequency CCD rated 5.6); idle package 40-50 W. Suspect: idle is `HLT` only, the firmware's `_CST` C2 / C3 (I/O-port reads) are unused *(unverified; Linux comparison pending)* | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) | 02 / 07 |
 | NVMe | works: Apple driver + NVMeFix 1.1.3 (APST on), **Gen 5 x4** (System Information's empty "Link Speed" is only a missing label), TRIM / Unmap yes, SMART clean (2 % used), no thermal throttling (max 65 C sustained, limit 87 C). Cosmetic: shown as "external" (no `built-in` property; fix proposed) | [storage baseline](../.agents/findings/2026-11-22-storage-baseline.md) | 03 |
 | APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 03 |
-| Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path | TODO, pmset | 07 (with 00) |
+| Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0): Vermilion has no GPU resume path. **Manual sleep blocked since 2026-11-23 00:58** (`pmset -a disablesleep 1`, `SleepDisabled = Yes`; undo `sudo pmset -a disablesleep 0`): Apple menu > Sleep and the power button would most likely have lost the GPU. Firmware has `_S3`; S3 and display sleep untested | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) | 07 (with 00) |
 | NVRAM | read-only from macOS (`DisableVariableWrite`) | efi/machines | 02 / 05 |
 | SIP / AMFI / Gatekeeper | SIP custom `0x0A03` (authenticated root off, system volume still sealed); **AMFI on since 2026-11-22 23:45** (`amfi=0x80` replaced by VermilionTrust, a cdhash allowlist for Vermilion's code; AMFIPass still loaded); Gatekeeper on; XProtect 5377 and security data updates on since 2026-11-22 23:11 (`ConfigDataInstall = 1`; macOS / Rapid Security Responses still pinned), launch scans off | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 05 |
 | iServices | APNs connected, iMessage and FaceTime registered (IDS HTTP 200, 2026-11-22), iCloud signed in; SMBIOS well-formed, ROM = I225-V MAC. **en0 is the iPhone's USB interface** (not built-in; works anyway; optional fix) | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 05 |
@@ -82,6 +82,8 @@ says delete it and grow the container; the owner keeps it for now, 2026-11-22).
 | Display scaling | no HiDPI / scaled modes offered; the display reports 903 x 508 mm (wrong for 27") | same | 06 / 00 |
 | Virtualization | **`kern.hv_support = 0`**: no Hypervisor / Virtualization.framework on AMD (Docker Desktop, UTM-HVF, Parallels can't run); a platform limit | same | 06 |
 | Sharing (SSH, Screen Sharing, SMB), printers, Xcode | all off / not set up / not installed (2026-11-23) | same | 06 |
+| Shutdown / restart | clean: last 15 boots all previous-shutdown cause 5, SMART Unsafe Shutdowns unchanged over 6+ restarts; a ~2-3 s `shutdownStall` report at almost every restart (normal teardown); restart to accelerated desktop ~67 s (~45 s POST + picker) | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) | 07 |
+| Fans | GPU fan via SMU metrics; no motherboard / CPU fan readings on macOS (no Super I/O sensor kext) | same | 02 / 07 |
 | FileVault / login | FileVault off, Secure Token on; automatic login via the daemon (`/etc/kcpassword`), which FileVault would end | same | 05 / 00 |
 
 ## Known-good configuration (2026-11-22)
@@ -200,6 +202,8 @@ The details are in TODO. This list is for finding the right owner quickly.
 | Wi-Fi latency stalls every ~1.05 s (AWDL off-channel; cause proved) | 2026-11-19 | 04 | same |
 | Onboard audio: analog outputs not published by `usbaudiod` | 2026-11-22 | 04 | same |
 | Kernel panic at a restart, no panic report saved (`DisableVariableWrite` blocks the NVRAM log) | 2026-11-19 | 07 | TODO, [flicker / heat finding](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) |
+| Manual sleep (Apple menu, power button) would most likely lose the GPU: **blocked** with `disablesleep 1` until a resume path exists | 2026-11-23 | 07 | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) |
+| CPU tops out at 5.15 GHz, idle package 40-50 W (deep C-states unused?) | 2026-11-23 | 07 / 02 | same |
 | b138 froze the machine at 1280x1024 (cause open) | 2026-11-20 | 00 | [finding](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md) |
 | Tearing at 1440p60 with GPU present; input lag at 60 Hz | 2026-11-19 | 00.1 | TODO |
 | Residual VRR flicker (the OLED panel's; accepted) | 2026-11-22 | 00 | TODO "Display polish" |
@@ -256,6 +260,8 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | `tools/phxctl/perflog.sh` | display / present counters to a log for one boot |
 | `sysctl debug.phxtrust_stat` (VermilionTrust) | AMFI library-validation calls, refusals and overrides of Vermilion's code |
 | `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
+| `tools/sensors/cpuclk.c` | effective core clock from dependent adds (macOS and Linux; affinity tags or `taskset` to pick a CCD) |
+| `tools/validation/bootcheck.sh` | one read-only report per boot: shutdown cause, new crash / stall / panic reports, daemon result, sleep settings, display mode, SMART (with sudo) |
 | `tools/storage/nvmebench.sh` | NVMe / APFS throughput, latency, flush cost, SSD temperature, SMART before / after (fio, smartctl; writes 60-80 GB per run). Pitfalls in its README |
 | `tools/storage/nvmeior.c` | IOReport `NVMe` group: power-state residency, Apple's bandwidth-throttle tiers |
 | `tools/audio/audioprobe.m`, `uacdesc.c` | CoreAudio devices, formats, latency; I/O-cycle jitter, dropouts, overloads; USB audio descriptors (which device is which jack) |
@@ -284,12 +290,16 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 | 2026-11-22 | Internet over Wi-Fi | `networkQuality -s` | AWDL up: 64 / 32 Mbit/s, idle latency 143 ms; AWDL down: 101 / 48 Mbit/s, 14 ms (line-limited) | same |
 | 2026-11-22 | Security / iServices daemons | 39 min after boot, b150, idle desktop; `ps -axo time,comm` | ~37 s CPU in total (trustd 9.7, cloudd 7.1, tccd 6.0, identityservicesd 2.7 s): ~1.6 % of one thread; no daemon crash loop | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) |
 | 2026-11-23 | Quick Look / image decode | 13 min after boot, b150, 1440p240; `qlmanage -t -s 512` vs `sips -Z 512` of a 6016x6016 HEIC; no hardware decoder for any codec | Quick Look 12.2 s (11.4 s CPU); sips 1.6 s | [macOS integration](../.agents/findings/2026-11-23-macos-integration-inventory.md) |
-| — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable) | 04, 07 |
+| 2026-11-23 | CPU clock | 20-30 min after boot, `vermilion-trust` (VermilionTrust 1.0.3), 1440p240 30-bit, this session running; `tools/sensors/cpuclk.c` | 1 thread median 5.02 GHz (max 5.12); 2 threads on separate L3s 5.12 (max 5.14); 12 threads 4.97; 24 threads 4.77 (min 3.72, max 5.02) at Tctl 65 C | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) |
+| 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
+| — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | 04, 07 |
 
 ### Known bottlenecks and limits
 
 - CPU package temperature and power are measurable since 2026-11-22 (`tools/sensors/cpusensors.py`); per-core
   clocks aren't.
+- CPU: no clock above 5.15 GHz on either CCD and 40-50 W idle package power (2026-11-23). Suspect: macOS idles
+  cores with `HLT` only, so they never reach CC6 *(unverified until the Linux comparison)*.
 - Buffer objects live in system memory, not VRAM (the kext's comment, `phx_globals.cpp`). The cost for
   memory-bound loads is unmeasured.
 - Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits exist but are off and unverified on the XTX.
@@ -341,3 +351,5 @@ workloads, and say whether the path is hardware-accelerated or a fallback (softw
 - 2026-11-22: thread 03 storage inventory and first storage baseline (`tools/storage/`, branch `ownback/storage`).
 - 2026-11-22: thread 05 Apple services / security inventory (branch `ownback/apple-services`).
 - 2026-11-23: thread 06 macOS integration inventory (branch `ownback/macos-integration`).
+- 2026-11-23: thread 07 sleep / power / validation inventory, `cpuclk.c`, `bootcheck.sh` (branch
+  `ownback/sleep-power-validation`).

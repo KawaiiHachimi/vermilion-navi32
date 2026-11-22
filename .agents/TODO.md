@@ -138,7 +138,8 @@ Inventory and first baselines: [finding](findings/2026-11-22-audio-connectivity-
 - [x] 2026-11-22 Baseline with `tools/storage/nvmebench.sh` (fio 3.38 `--disable-shm`, smartmontools 7.5 in `~/.local`)
 - [ ] Linux reference run of `raw-read.fio` (read-only) on the next Linux boot, and check LUKS discards
       (`lsblk --discard`, `cryptsetup status`, `fstrim.timer`): owner
-- [ ] SMART "Unsafe Shutdowns" was 212 on 2026-11-22 21:07: read it after the next macOS restart and shutdown
+- [x] 2026-11-23 SMART "Unsafe Shutdowns" was 212 on 2026-11-22 21:07 and still 212 on 2026-11-23 00:51, after at
+      least 6 macOS restarts (read by thread 07): restarts shut the drive down cleanly. A full shutdown not checked yet
 - [ ] "External" label: add `device_properties` to `efi/build.py` and the machine profile, `built-in = <01>` on
       `PciRoot(0x0)/Pci(0x1,0x2)/Pci(0x0,0x0)`; one EFI change, owner's OK first (cosmetic)
 - [ ] Time Machine once the owner attaches a backup disk
@@ -293,6 +294,40 @@ Inventory: [finding](findings/2026-11-23-macos-integration-inventory.md).
 - Limit: `kern.hv_support = 0`. macOS has no AMD SVM support, so Docker Desktop, UTM / QEMU with HVF, Parallels,
   VMware Fusion and the Virtualization.framework don't run. Alternatives: QEMU TCG, containers on a Linux host
   over SSH
+
+## Sleep, power and validation (thread 07, branch `ownback/sleep-power-validation`, started 2026-11-23)
+
+[Finding](findings/2026-11-23-sleep-power-validation-inventory.md). Tools: `tools/validation/bootcheck.sh` (one
+read-only report per boot: shutdown cause, new reports, daemon result, sleep settings, display, SMART), and
+`tools/sensors/cpuclk.c` (effective core clock).
+
+- [x] 2026-11-23 Inventory (read-only): sleep settings, ACPI sleep objects, Vermilion's power hooks, shutdown causes,
+      stall and panic reports, CPU clocks, idle power and temperatures, fans, Recovery
+**Paused 2026-11-23** (coordination thread, owner's decision): the work now runs as one numbered series of threads,
+one at a time. Sleep / wake and the final validation come near the end; this section is picked up then.
+
+> **Lead to keep (2026-11-23): the CPU never runs above 5.15 GHz** on either CCD (the 7900X3D's frequency CCD is rated
+> 5.6 GHz) and idles at 40-50 W package. Suspect: macOS idles cores with `HLT` only and never uses the firmware's
+> `_CST` C2 / C3 (I/O-port reads of `0x414` / `0x415`), so cores never reach CC6 *(unverified until the Linux run)*.
+
+- [x] 2026-11-23 00:58 **Manual sleep blocked:** `sudo pmset -a disablesleep 1` (owner's OK via the coordination
+      thread). Verified: `pmset -g` shows `SleepDisabled 1`, IOPMrootDomain `SleepDisabled = Yes`. Apple menu > Sleep
+      and the power button no longer start a system sleep, which would most likely lose the GPU (no resume path).
+      **Undo:** `sudo pmset -a disablesleep 0`. Undo it only once a GPU resume path exists (or for the S3 test below)
+- [-] Display sleep test (`pmset displaysleepnow`, wake with a key; GPU power while dark; then `displaysleep 10`):
+      **deferred to the GPU stability thread** of the new series. Rollback then: Apple menu > Restart
+- [-] Linux reference run for the lead above: `cpuclk` pinned to each CCD with `taskset`, `cpuclk 24 15`, idle package
+      power (turbostat / RAPL): **deferred to the GPU / CPU performance thread** of the new series
+- [-] Stress and soak: 30 min CPU, 30 min `metalbench`, both together, `memtester`, 8 h idle: **deferred to the late
+      sleep / validation thread**
+- [-] Platform S3 test on a `-phxbringupoff` boot (one EFI change; GOP desktop; `disablesleep 0` for that boot): wake by
+      keyboard / mouse / power button, then USB, NVMe, Wi-Fi, Bluetooth, audio; instant wakes: **deferred to the late
+      sleep / validation thread**
+- [ ] GPU resume path (with thread 00), after the S3 test
+- [ ] No motherboard fan readings on macOS: `SMCSuperIO` if the Super I/O chip is supported (thread 02, EFI change)
+- [ ] Panics leave no report (`DisableVariableWrite` blocks the NVRAM panic log): find a way to keep one
+- [ ] Recovery boot test (OpenCore picker > Recovery) and an update dry run, once thread 05 has the update policy
+- [ ] Shutdown stall report at almost every restart (~2-3 s, normal teardown; low priority)
 
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
