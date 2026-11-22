@@ -110,12 +110,15 @@ static uint32_t gVrrBoot[3];   // OTG0 V_TOTAL_MIN, MAX, CONTROL before the firs
 static phxodm::VrrRegs gVrrSet{};
 static uint32_t gVrrMinHz = 48, gVrrOns = 0, gVrrOffs = 0, gVrrRefusals = 0;
 static const char *gVrrWhy = "never run";
+static uint32_t gVrrBootDbuf = 0, gVrrOffWaitUs = 0, gVrrOffWaitMaxUs = 0, gVrrOffTimeouts = 0;   // b150: the DRR double buffer
 static void vrrOffLocked(const phxp2::Env &e) {
     if (!gVrrOn) return;
-    e.io.wr(e.io.c, phxodm::kOtg0VCtl, gVrrBoot[2]);
-    e.io.wr(e.io.c, phxodm::kOtg0VMin, gVrrBoot[0]);
-    e.io.wr(e.io.c, phxodm::kOtg0VMax, gVrrBoot[1]);
-    gVrrOn = 0; gVrrOffs++; gVrrWhy = "off";
+    gVrrOn = 0;   // first: no flip writes a window or a trigger from here (scanPresent runs under the same scanLock)
+    bool to = false;
+    gVrrOffWaitUs = phxodm::vrrWriteOff(e, gVrrBoot, gVrrBootDbuf, &to);   // b150: latched at a frame start, then the boot mode
+    if (gVrrOffWaitUs > gVrrOffWaitMaxUs) gVrrOffWaitMaxUs = gVrrOffWaitUs;
+    if (to) gVrrOffTimeouts++;
+    gVrrOffs++; gVrrWhy = "off";
     gVrrRampVMin = gVrrRampVMax = gVrrRampHz = 0; gVrrRampPrimed = false;   // b147: no ramp while off
 }
 static int vrrOnLocked(const phxp2::Env &e) {
@@ -126,9 +129,9 @@ static int vrrOnLocked(const phxp2::Env &e) {
     phxodm::VrrRegs v{};
     if (!phxodm::vrrRegs(*m, gVrrMinHz, ctl, &v)) { gVrrWhy = "no range for this mode"; return EINVAL; }
     if (!gVrrOn) { gVrrBoot[0] = phxp2::rd(e, phxodm::kOtg0VMin); gVrrBoot[1] = phxp2::rd(e, phxodm::kOtg0VMax); gVrrBoot[2] = ctl; }
-    e.io.wr(e.io.c, phxodm::kOtg0VMax, v.vmax);   // Linux's order: MAX, MIN, then the CONTROL fields
-    e.io.wr(e.io.c, phxodm::kOtg0VMin, v.vmin);
-    e.io.wr(e.io.c, phxodm::kOtg0VCtl, v.ctl);
+    uint32_t db = 0;
+    phxodm::vrrWriteOn(e, v, &db);   // b150: Linux's DRR double buffer mode first, then MAX, MIN, the CONTROL fields
+    if (!gVrrOn) gVrrBootDbuf = db;
     gVrrSet = v; gVrrOn = 1; gVrrOns++; gVrrWhy = "on";
     gVrrRampVMin = v.vmin; gVrrRampVMax = v.vmax; gVrrRampHz = m->hz;   // b147: the ramp starts from the full range
     gVrrRampLo = v.vmin; gVrrRampHi = v.vmax; gVrrRampPrimed = false;
@@ -323,7 +326,7 @@ SYSCTL_PROC(_debug, OID_AUTO, phxvrr_floor, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_L
 static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
-    char b[896];
+    char b[1100];
     int n;
     if (!p2Up()) n = snprintf(b, sizeof b, "PhxBringup not ready");
     else {
@@ -332,10 +335,11 @@ static int phxVrrStatSysctl SYSCTL_HANDLER_ARGS {
         IOSleep(250);
         const uint32_t f1 = phxp2::rd(e, phxodm::kOtg0Frame);
         n = snprintf(b, sizeof b, "on=%d why=%s | now V_TOTAL 0x%x MIN 0x%x MAX 0x%x CONTROL 0x%08x | set MIN 0x%x MAX 0x%x CONTROL 0x%08x | "
-                     "triggers %lld | ramp %d %% window 0x%x-0x%x last %u lines writes %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x",
+                     "triggers %lld | ramp %d %% window 0x%x-0x%x last %u lines writes %lld | floor %u Hz want %d ons %u offs %u refusals %u drops %u resumes %u | OTG0 %u frames in 250 ms (%u Hz) | boot MIN 0x%x MAX 0x%x CONTROL 0x%x | dbuf now 0x%08x boot 0x%08x off wait %u us max %u timeouts %u | HUBP0 0x%08x",
                      gVrrOn, gVrrWhy, phxp2::rd(e, phxodm::kOtg0V), phxp2::rd(e, phxodm::kOtg0VMin), phxp2::rd(e, phxodm::kOtg0VMax),
                      phxp2::rd(e, phxodm::kOtg0VCtl), gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl, (long long)gVrrTrigs, gVrrRampPct, gVrrRampLo, gVrrRampHi, gVrrRampLines, (long long)gVrrRampWrites, gVrrMinHz, gVrrWant, gVrrOns, gVrrOffs,
-                     gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2]);
+                     gVrrRefusals, gVrrDrops, gVrrResumes, (f1 - f0) & 0xffffff, ((f1 - f0) & 0xffffff) * 4, gVrrBoot[0], gVrrBoot[1], gVrrBoot[2],
+                     phxp2::rd(e, phxodm::kOtg0Dbuf), gVrrBootDbuf, gVrrOffWaitUs, gVrrOffWaitMaxUs, gVrrOffTimeouts, phxp2::rd(e, phxodm::kHubp0Cntl));
     }
     if (n < 0) n = 0;
     if (n > (int)sizeof b - 1) n = (int)sizeof b - 1;

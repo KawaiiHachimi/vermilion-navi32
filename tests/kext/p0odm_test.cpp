@@ -98,6 +98,13 @@ struct Hw {
     uint32_t failRate = 0;          // link training at this symbol clock fails
     unsigned dalNak = 0;            // the next n DAL messages answer 0xfe
     uint32_t touchOutsideAt = 0;   // after this many writes, OTG2 turns on by itself (a foreign change)
+    // b150: HUBPn underflow status (bits 30:28) is sticky: only HUBP_UNDERFLOW_CLEAR (bit 31) clears it (XTX machine 2026-11-22)
+    uint32_t uf[2] = {0, 0};
+    unsigned ufAtWrite = 0;         // HUBP0's sticky comes up at this write (an underflow during a switch)
+    bool ufLive = false;            // ...and comes back after every clear (a live underflow)
+    // b150: OTG0's DRR double buffer: V_TOTAL_MIN / MAX / CONTROL latch at a frame start while the mode is not 0
+    uint32_t drrLatched[3] = {0, 0, 0};
+    bool drrPending = false;
     // b136: DET / compressed-buffer segments (20 in all, as the box: DET 9 + 9 + compbuf 2, or DET 4 + compbuf 16). A new
     // size applies at the next frame (or at once with OTG0 off), never under the OTG0 lock; a DET gives segments back only
     // while its HUBP is powered and clocked; a grow takes what is free (the compressed buffer flags CONFIG_ERROR when short).
@@ -135,6 +142,7 @@ struct Hw {
         frames += static_cast<uint32_t>(whole);
         frac -= whole;
         if (whole >= 1) applyDet();
+        if (whole >= 1 && drrPending) { drrLatched[0] = r[0x04FF0]; drrLatched[1] = r[0x04FF1]; drrLatched[2] = r[0x04FF3]; drrPending = false; }
     }
     bool linkUp() {
         return phyRate && phyRate == dpcd[0x100] * 2700u && ((dpcd[0x101] & 0x1f) == 4 || (dpcd[0x101] & 0x1f) == 2 || (dpcd[0x101] & 0x1f) == 1) && !(failHbr3 && phyRate == 81000) && phyRate != failRate;
@@ -148,7 +156,8 @@ struct Hw {
         case 0x05045: return (v & ~0x10100u) | ((v & 1u) ? 0x100u : 0u) | (otgOn() ? 0x10000u : 0u);
         case 0x04F8F: return (v & ~0x4u) | ((v & 2u) ? 4u : 0u);
         case 0x0504A: return (v & ~0x100u) | ((v & 1u) << 8);
-        case 0x03AB3: case 0x03B8F: return v | 2u;
+        case 0x03AB3: case 0x03B8F: return v | 2u | uf[a == 0x03B8F];
+        case 0x0501B: return (v & ~0x10u) | (drrPending ? 0x10u : 0u);
         case 0x0500C: return frames & 0xffffff;
         case 0x0397B: case 0x0397C: case 0x0397D: case 0x0397E:
             if (noDetModel) return (v & ~0x1f00u) | ((v & 0x1f) << 8);
@@ -165,6 +174,15 @@ struct Hw {
     void wr(uint32_t a, uint32_t v) {
         writes.push_back({a, v});
         if (touchOutsideAt && writes.size() == touchOutsideAt) r[0x05101] = 1;
+        if (ufAtWrite && writes.size() == ufAtWrite) uf[0] = 0x10000000u;
+        if (a == 0x03AB3 || a == 0x03B8F) {
+            if (v & 0x80000000u) uf[a == 0x03B8F] = ufLive ? 0x10000000u : 0;
+            v &= ~0x70000000u;
+        }
+        if (a >= 0x04FF0 && a <= 0x04FF3 && a != 0x04FF2) {
+            if (r[0x0501B] & 0x03000000u) drrPending = true;
+            else drrLatched[a == 0x04FF0 ? 0 : a == 0x04FF1 ? 1 : 2] = v;
+        }
         r[a] = v;
         if (a == phxdmub::kInbox1Wptr) {
             const uint64_t slot = kRing + r[phxdmub::kInbox1Rptr];
@@ -443,6 +461,65 @@ int main() {
         CHECK(!vrrRegs(m144, 0, 0, &v) && !vrrRegs(m144, 144, 0, &v) && !vrrRegs(m144, 200, 0, &v));
         const Mode mz{1, 1, 1, 60, 1, 0, 0, 0, 1, nullptr, nullptr};
         CHECK(!vrrRegs(mz, 48, 0, &v));
+    }
+    // ---- b150: the DRR double buffer around the range, and the underflow stickies ----
+    {
+        using namespace phxodm;
+        Hw h; gop(h); Env e = env(h);
+        VrrRegs v{0x5eb, 0xe35, 0x00020003u};
+        uint32_t db = 0xffffffffu;
+        const size_t w0 = h.writes.size();
+        vrrWriteOn(e, v, &db);
+        CHECK(db == 0 && h.writes.size() == w0 + 4);
+        CHECK(h.writes[w0] == std::make_pair(0x0501Bu, 0x02000000u));   // Linux's mode first: the range itself is latched at a frame start
+        CHECK(h.writes[w0 + 1].first == 0x04FF1 && h.writes[w0 + 2].first == 0x04FF0 && h.writes[w0 + 3].first == 0x04FF3);   // MAX, MIN, CONTROL
+        CHECK(h.drrPending && h.drrLatched[1] == 0);
+        h.advance(20000);
+        CHECK(!h.drrPending && h.drrLatched[0] == 0x5eb && h.drrLatched[1] == 0xe35 && h.drrLatched[2] == 0x00020003u);
+        vrrWriteOn(e, v, nullptr);
+        CHECK(h.writes.size() == w0 + 7);   // already mode 2: not written again
+        const uint32_t boot[3] = {0, 0, 0};
+        bool to = true;
+        const uint32_t f0 = h.frames;
+        const uint32_t us = vrrWriteOff(e, boot, db, &to);
+        CHECK(!to && us > 0 && us <= 100000 && h.frames > f0);                 // waited for a frame start
+        CHECK(!h.drrPending && h.drrLatched[1] == 0 && h.drrLatched[2] == 0);  // the boot values were latched before...
+        CHECK(h.writes.back() == std::make_pair(0x0501Bu, 0u) && h.r[0x0501B] == 0);   // ...the boot mode came back
+        CHECK(h.r[0x04FF0] == 0 && h.r[0x04FF1] == 0 && h.r[0x04FF3] == 0);
+        // never double buffered (a b149 state): off writes at once, no wait, no mode write
+        const size_t w1 = h.writes.size();
+        CHECK(vrrWriteOff(e, boot, 0, &to) == 0 && !to && h.writes.size() == w1 + 3);
+        // the OTG stopped: no frame start, the wait gives up after 100 ms and the boot mode still comes back
+        vrrWriteOn(e, v, nullptr);
+        h.r[0x05001] &= ~1u;
+        CHECK(vrrWriteOff(e, boot, 0, &to) == 100000 && to && !(h.r[0x0501B] & 0x03000000u));   // (the read-only pending bit is written back, as Linux's REG_UPDATE does)
+        CHECK(dbufWith(0x00000100u, 0x02000000u) == 0x02000100u && dbufWith(0x03000111u, 0) == 0x00000111u);   // other fields kept
+    }
+    {   // a sticky from before the run (the box, b147 and b149: Variable, then HDR): cleared, the run lands
+        using namespace phxodm;
+        Hw h; gop(h); State st{}; Run r{}; Env e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && r.staleUf == 0 && r.postRetries == 0);
+        h.uf[0] = 0x10000000u;
+        CHECK(run(e, st, r, 1440240, 0, aux(h), kSet) == kDone && r.staleUf == 1 && r.postRetries == 0 && !r.failed && curKey(r, kSet) == 1440240);
+        CHECK(h.uf[0] == 0);
+        h.uf[0] = 0x10000000u; h.uf[1] = 0x40000000u;
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && r.staleUf == 3 && h.uf[0] == 0 && h.uf[1] == 0);
+    }
+    {   // a sticky the switch raised itself: cleared once, the check again, landed
+        using namespace phxodm;
+        Hw h; gop(h); State st{}; Run r{}; Env e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone);
+        h.ufAtWrite = static_cast<unsigned>(h.writes.size()) + 40;
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.postRetries == 1 && r.staleUf == 0 && !r.failed && curHz(r, kSet) == 144);
+        CHECK(h.uf[0] == 0);
+    }
+    {   // a live underflow comes back after the clear: the run fails as before
+        using namespace phxodm;
+        Hw h; gop(h); State st{}; Run r{}; Env e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone);
+        h.ufAtWrite = static_cast<unsigned>(h.writes.size()) + 40; h.ufLive = true;
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kFailed && r.postRetries == 1 && r.failed && (r.last.hubp0 & 0x70000000u));
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kRefused);
     }
     std::printf("p0odm_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;

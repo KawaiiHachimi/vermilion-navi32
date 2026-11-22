@@ -213,6 +213,24 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      ramp default 5, ramp 0 restores the full range, `debug.phxp0odm_stat` keeps a failed run's post check
      (`last_fail_post`). **Test:** restart; Variable feels as with ramp 5; `sudo sysctl -w debug.phxvrr_ramp=0` gives the full
      range (no stuck rate). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`.
+  00. **2026-11-22 the failed Variable -> HDR switch, the white flashes, PhxAccel not loaded**
+     ([findings](findings/2026-11-22-vrr-underflow-and-auxkc.md)). The run failed on HUBP0's sticky underflow status alone
+     (twice: b147, b149); on the box the range / ramp writes took effect mid-frame (OTG0 DRR double buffer mode 0; Linux
+     runs 2) and raised that sticky at 144 Hz by hand (4 in 27 000 window changes; 0 in 19 600 with mode 2). PhxAccel:
+     the AuxKC is only rebuilt by the Allow click in Privacy & Security, the 17:57 restart skipped it.
+     **b150 installed 2026-11-22 18:25** (EFI `OC` = b150 sha 3806555e, `OC.prev` = b149 sha d34093c0;
+     `~/vermilion-rollback/`: VermilionBoot.kext.b149, AuxiliaryKernelExtensions.kc.0222). The AuxKC was rebuilt 18:22 with
+     b149's PhxAccel (UUID F954FE49; the 10-bit CPU copy, `debug.phxfb0_scan10`); the plugin is b149's, installed 18:00.
+     Host tests: p0odm 686405, the other tests/kext suites, mocks 225 + 159. (unverified at 240 / in HDR)
+     **Test:** restart. (1) `kmutil showloaded | grep vermilion.accel` shows F954FE49. (2) Variable for a while: no white
+     flash; `sysctl debug.phxvrr_stat` shows `dbuf now 0x02000000` and HUBP0 with bits 30:28 = 0 (0x0...). (3) HDR on from
+     Variable: the LG's OSD shows HDR; `sysctl debug.phxfb0_scan10` = 1; `sysctl debug.phxp0odm_stat` result=done
+     (`stale_cleared` / `post_retries` say whether a sticky was met). (4) HDR off: SDR again, scan10 = 0.
+     **Rollback:** Variable worse: pick a fixed rate (the range and the double buffer go off with it). Boot trouble: mount
+     the ESP and swap `EFI/OC` and `EFI/OC.prev` (from macOS: `sudo diskutil mount disk0s1`, then in
+     `/Volumes/NO NAME/EFI`: `mv OC OC.bad && mv OC.prev OC`; or from Linux). PhxAccel trouble:
+     `sudo cp -R ~/vermilion-rollback/VermilionAccel.kext.pre-hdr10 /Library/Extensions/VermilionAccel.kext`, chown
+     root:wheel, `sudo kmutil load -p ...`, **Allow** in Privacy & Security, restart.
 
       **Next:** install PhxAccel, boot once without the flag (b140 test), then `touch ~/gpu/phxboot-vrrprobe` and restart:
       does System Settings offer a variable refresh rate, and what does the log show. **Missing for the hardware:** a Linux

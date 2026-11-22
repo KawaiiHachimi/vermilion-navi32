@@ -305,6 +305,8 @@ IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]
                 OSIncrementAtomic64(&gVrrRampWrites);
             }
             if (gVrrRampPct > 0 && gVrrRampVMax > gVrrRampVMin) {   // b147: the ramp's window for the next frames
+                // b150: the window latches at the next frame start (Linux's DRR double buffer, set by vrrOnLocked); b147-b149
+                // changed it mid-frame, which cut frames short and raised HUBP0's underflow sticky (PhxP0Odm.h)
                 const uint64_t f = scanFrameLocked();
                 uint64_t ns = 0;
                 absolutetime_to_nanoseconds(mach_absolute_time(), &ns);

@@ -248,3 +248,18 @@ brightness swings between long and short frames). The common fix on any OS is a 
 twin's verticalBlankingExtension and, through "phxVrrSet" io bits 8-15 (PhxBringup b146+), OTG0's V_TOTAL_MAX: the menu,
 macOS's pacing and the hardware agree. With an older PhxBringup the EDID's minimum stays everywhere (the menu must match
 what OTG0 does). The boot daemon's `~/gpu/phxboot-vrrmin` changes it (0 = the EDID's).
+
+## 2026-11-22: the DRR double buffer is on only while Adaptive Sync's range is on
+
+Linux runs every OTG with `OTG_DRR_TIMING_DBUF_UPDATE_MODE` = 2 from driver load; the GOP leaves 0, and the mid-frame
+window changes that follow raised HUBP0's underflow sticky (findings 2026-11-22-vrr-underflow-and-auxkc.md). b150 sets
+Linux's 2 when the range goes on and puts the boot value back when it goes off, after the off values have latched.
+Not chosen: mode 2 for the whole boot, as Linux has it. The replay plans were captured on Linux under mode 2 but have only
+ever run here under mode 0 (their V_TOTAL / H_TOTAL writes would latch at a frame start instead of at once, around an OTG
+that the plans stop and start), and a plan that goes wrong blacks the owner's only screen. **Revisit:** if a plan is ever
+shown to need the double buffer, or once a plan run under mode 2 has been tried on the box.
+
+The replay engine's failed latch stays (one failed run = nothing more until reboot: no plan knows the state). What changed
+is what counts as failed: an underflow sticky from before the run is cleared and not held against it, and a sticky raised
+during the switch gets one clear and one more full post check.
+

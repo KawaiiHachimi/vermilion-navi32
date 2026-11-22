@@ -189,7 +189,12 @@ Steps:
    (section 7), so an empty result before the daemon ran is not an error by itself.
 
 To update the kext, keep the old one first (`sudo cp -R /Library/Extensions/VermilionAccel.kext ~/vermilion-rollback/`),
-replace it, run `kmutil load -p` again and reboot. A changed kext can bring the Allow prompt back.
+replace it and run `kmutil load -p` again. It prints "not approved to load" and macOS shows a "system software was
+updated" alert: click **Allow** in System Settings > Privacy & Security before restarting. The AuxKC is rebuilt at that
+click, not at the restart; without it the old build stays in the AuxKC and loads again (XTX machine, 2026-11-22). Check
+before the restart that the AuxKC is new (`ls -l /Library/KernelCollections/AuxiliaryKernelExtensions.kc`), and after it
+that `kmutil showloaded | grep org.vermilion.accel` shows the UUID of
+`dwarfdump --uuid /Library/Extensions/VermilionAccel.kext/Contents/MacOS/VermilionAccel`.
 
 ## 5. Install the Metal plugin, the translator and RADV
 
