@@ -171,6 +171,12 @@ wakes ~1300 times/s (the fence wait's 50 us timed steps), and presents come fast
      scanAllocSlot accepts ARGB2101010 (PHXN_SCAN_FMT_*), the Metal plugin copies l10r surfaces raw instead of through
      `scan_l10r.comp` while HDR; (d) the CPU copy (nvrm-accel.cpp, the l10r branch) copies raw while HDR. Test: a gradient
      in HDR without banding.
+  - **Display identity follows the EDID copy (2026-11-22):** PhxAccel's floor patch (getDDCBlock) changes macOS's EDID, and
+    macOS made a new display (new UUID, profile `LG ULTRAGEAR+-<UUID>.icc`, 01:32 / 02:23 / 17:26) each time the floor
+    changed (48 / 90 / 60): the owner's display profiles and settings looked gone. The floor is stable at 60 now. Owner's
+    profiles (LG 27GS95QE-B SDR / HDR, "corrected for macOS from LG/Microsoft-generated data") re-installed in
+    /Library/ColorSync/Profiles/Displays/; a copy in ~/Documents/ColorSync originals 2026-11-22/corrected/. Consider: keep
+    the label patch only when it does not change identity, or document that a floor change resets the display's settings.
   2. **Variable with HDR on.** **PhxAccel with id 18 installed 2026-11-22 18:40** (kStdHdrVrrTwin: id 17's timing with the
      HDR10 fields and the VRR extension, key 1440240, "phxVrrSet" 1; offered with both features; rollback
      `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr`). Needs Allow in Privacy & Security before the restart (AuxKC).
