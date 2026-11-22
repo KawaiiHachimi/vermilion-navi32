@@ -272,6 +272,28 @@ Inventory and first baselines: [finding](findings/2026-11-22-audio-connectivity-
       only, then `-12167` / AVFoundation `-11839` (decoder temporarily unavailable). HDCP state `Unknown`. Protected
       video needs a hardware (secure-path) decoder; Vermilion has none (VCN off, thread 00.1). Not fixable from 05
 
+## macOS integration and peripherals (thread 06, branch `ownback/macos-integration`, started 2026-11-23)
+
+Inventory: [finding](findings/2026-11-23-macos-integration-inventory.md).
+
+- [x] 2026-11-23 Inventory: keyboard and mouse work (mouse 1 kHz, keyboard 125 Hz); screenshots capture the real
+      GPU desktop once an app has Screen Recording permission; Spotlight indexes and answers; Stage Manager on;
+      SSH, Screen Sharing and File Sharing off; no printer set up; no webcam attached; no recurring system-app crash
+- [ ] Desktop performance baseline: app launch times, Mission Control / Stage Manager smoothness, input latency,
+      idle CPU (the inventory's `top` sample had Safari busy)
+- [ ] Display scaling: no HiDPI modes are offered, and the display reports 903 x 508 mm (a 27" panel is about
+      597 x 336). Ask the owner whether they want "looks like 1920x1080"; if yes, plan an override plist with
+      thread 00 (framebuffer size, GPU cost at 240 Hz). Reported size: thread 00
+- [ ] Quick Look: a 6016x6016 HEIC thumbnail takes 12.2 s (sips: 1.6 s). Software decode (no VCN, 00.1) explains
+      part; find out why Quick Look is 8x slower than sips
+- [ ] Screen Sharing, SSH, SMB: turn on and test one at a time (owner's OK, thread 05 for security)
+- [ ] Xcode and simulators: owner decides on the install; then test a simulator (Metal on Vermilion)
+- [ ] Continuity Camera (USB black picture): test with thread 04's AWDL test boot
+- [ ] Printers / scanners: if the owner has one
+- Limit: `kern.hv_support = 0`. macOS has no AMD SVM support, so Docker Desktop, UTM / QEMU with HVF, Parallels,
+  VMware Fusion and the Virtualization.framework don't run. Alternatives: QEMU TCG, containers on a Linux host
+  over SSH
+
 ## GPU performance, heat and APIs (branch `ownback/gpu-performance`, started 2026-11-22)
 
 Owner's goal: "I need this GPU perfectly working". Baseline, measured on the XTX machine:
