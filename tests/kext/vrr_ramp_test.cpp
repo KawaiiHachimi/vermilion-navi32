@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// vrr_ramp_test.cpp: host test of src/vermilion-boot/PhxVrrRamp.h (Adaptive Sync's frame-length ramp, kext b147).
+// vrr_ramp_test.cpp: host test of src/vermilion-boot/PhxVrrRamp.h (Adaptive Sync's frame-length ramp).
 //   c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o /tmp/vrr_ramp_test tests/kext/vrr_ramp_test.cpp && /tmp/vrr_ramp_test
 #include "PhxVrrRamp.h"
 #include <cstdio>

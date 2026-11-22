@@ -74,7 +74,7 @@ int main() {
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids) == 3);   // without block 2: no 240
         uint8_t bad[384]; std::memcpy(bad, full, 384); bad[256 + 40] ^= 1;    // another active width: not offered
         CHECK(modeList(0, bad, sizeof bad, 2560, 1440, ids) == 3);
-        // VRR probe: the twin of 6 (id 13) only with vrr, after the fixed rates; its timing is 6's; the anySize list too
+        // Adaptive Sync: the twin of 6 (id 13) only with vrr, after the fixed rates; its timing is 6's; the anySize list too
         CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, false, true) == 5 && ids[3] == 6 && ids[4] == 13 && isVrrTwin(*headMode(0, 13)));
         CHECK(modeList(0, full, sizeof full, 2560, 1440, ids, true, false) == 11);   // no vrr: no twin (the 10 plus the 240 row)
         const unsigned nv = modeList(0, full, sizeof full, 2560, 1440, ids, true, true);
@@ -84,7 +84,7 @@ int main() {
         CHECK(detailedTiming(0, 13, &t13) && detailedTiming(0, 6, &t) && t13.pixelHz == t.pixelHz && t13.vBlank == t.vBlank &&
               t13.hSyncPos == t.hSyncPos && !t13.vSyncPos && vrrExtension(t13, 48) == 6474 && vrrExtension(t13, 60) == 4856);
         CHECK(modeList(0, kLgEdid, sizeof kLgEdid, 2560, 1440, ids, false, true) == 3);   // no 240 timing: no twin
-        // HDR probe: the HDR twins 14..17 (of 3..6) only with hdr, after the variable twin; timings and switch keys as their bases
+        // HDR: the HDR twins 14..17 (of 3..6) only with hdr, after the variable twin; timings and switch keys as their bases
         const unsigned nh = modeList(0, full, sizeof full, 2560, 1440, ids, false, true, true);
         CHECK(nh == 10 && ids[4] == 13 && ids[5] == 14 && ids[8] == 17 && isHdrTwin(*headMode(0, 14)) && !isHdrTwin(*headMode(0, 3)));
         // Variable with HDR (2026-11-22): id 18, both twins at once, only with both features; HDR 240's key, the VRR extension
@@ -136,7 +136,7 @@ int main() {
         CHECK(detailedTiming(0, 8, &t8) && t8.pixelHz == 135000000ull && t8.hBlank == 408 && t8.vBlank == 42 && t8.hSyncPos && t8.vSyncPos);
         CHECK(detailedTiming(0, 9, &t8) && t8.hSyncWidth == 136 && !t8.hSyncPos && !t8.vSyncPos);
     }
-    {   // VRR probe: the LG's range limits descriptor (48-240 Hz), the offsets bits, and no descriptor at all
+    {   // Adaptive Sync: the LG's range limits descriptor (48-240 Hz), the offsets bits, and no descriptor at all
         EdidRange r{};
         CHECK(edidRange(kLgEdid, sizeof kLgEdid, &r) && r.minVHz == 48 && r.maxVHz == 240 && r.maxPclkMHz >= 1000);
         {   // the floor in macOS's EDID copy: the 0xFD minimum and AMD's FreeSync VSDB minimum, checksums kept

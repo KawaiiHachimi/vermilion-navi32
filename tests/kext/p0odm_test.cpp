@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-// p0odm_test.cpp: host test of the replay engine (src/vermilion-boot/PhxP0Odm.h + the generated plans: b133's entry to 240,
-// b135's capture-v3 plans for 60 / 120 / 240 to and from Linux's 144) against a model
+// p0odm_test.cpp: host test of the replay engine (src/vermilion-boot/PhxP0Odm.h + every generated plan: the entry to 240,
+// the 1440p rates, the other resolutions and the HDR modes to and from Linux's 144), of Adaptive Sync's range and double
+// buffer (vrrRegs, vrrWriteOn, vrrWriteOff) and of the underflow sticky handling, against a model
 // of the XTX machine: pipe 0 at the GOP's 1440p144 (macOS read 2026-11-20), pipe 1 dark, status bits that follow their
 // enables (OTG busy / clock on, ODM input clock, power-gating FSM, update lock, HUBP outstanding requests, DIG FIFO reset,
 // stream status), a frame counter from the DTO and the totals (two pixels per clock when DP_PIXEL_FORMAT bit 30 is set),
@@ -444,7 +445,7 @@ int main() {
         CHECK(run(env(h), st, r, kSel240, 0, aux(h), kSet) == kHalted && st.halted && r.pipeWhy && r.failed);
         CHECK(h.writes.size() == 20);   // stopped at the write after which the change was seen (no further write)
     }
-    {   // b142 Adaptive Sync: Linux's DRR values (capture v3 from-vrr-143.99: max 0x11c3, min 0x5eb) and the CONTROL fields
+    {   // Adaptive Sync: Linux's DRR values (capture v3 from-vrr-143.99: max 0x11c3, min 0x5eb) and the CONTROL fields
         using namespace phxodm;
         const Mode m144{144, 2560, 1440, 144, 0xa9f, 0x5eb, 0, 0x14, 4, nullptr, nullptr};
         const Mode m240{240, 2560, 1440, 240, 0xa9f, 0x652, 1, 0x1e, 4, nullptr, nullptr};
@@ -495,7 +496,7 @@ int main() {
         CHECK(vrrWriteOff(e, boot, 0, &to) == 100000 && to && !(h.r[0x0501B] & 0x03000000u));   // (the read-only pending bit is written back, as Linux's REG_UPDATE does)
         CHECK(dbufWith(0x00000100u, 0x02000000u) == 0x02000100u && dbufWith(0x03000111u, 0) == 0x00000111u);   // other fields kept
     }
-    {   // a sticky from before the run (the box, b147 and b149: Variable, then HDR): cleared, the run lands
+    {   // an underflow sticky from before the run (as Variable, then HDR, left one on the XTX machine): cleared, the run lands
         using namespace phxodm;
         Hw h; gop(h); State st{}; Run r{}; Env e = env(h);
         CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && r.staleUf == 0 && r.postRetries == 0);
