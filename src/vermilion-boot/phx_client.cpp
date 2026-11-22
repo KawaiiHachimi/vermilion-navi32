@@ -32,6 +32,9 @@ struct phx_pipe2_gamma;
 static IOReturn phxPipe2SetGammaFn(phx_pipe2_gamma *g);    // b98, phx_gamma.cpp (PhxGamma.h)
 struct phx_pipe0_setmode;
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m);   // b101, phx_pipe0.cpp (PhxSwitchABI.h)
+// phx_p0odm.cpp, for PhxAccel head 0 after a landed switch; param1 = uint32_t *io for both
+static IOReturn phxScanFmtFn(uint32_t *io);   // b149: out HUBP0's scan-out format now (8 ARGB8888, 10 ARGB2101010 in HDR)
+static IOReturn phxVrrSetFn(uint32_t *io);    // b144: in bit 0 Variable / fixed, bits 8-15 the floor in Hz; out 1 = range on
 IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool waitForFunction, void *param1, void *param2,
                                           void *param3, void *param4) {
     if (functionName && functionName->isEqualTo("phxPipe2SetMode"))
@@ -40,6 +43,10 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         return phxPipe2SetGammaFn(static_cast<phx_pipe2_gamma *>(param1));
     if (functionName && functionName->isEqualTo("phxPipe0SetMode"))
         return phxPipe0SetModeFn(static_cast<phx_pipe0_setmode *>(param1));
+    if (functionName && functionName->isEqualTo("phxScanFmt"))
+        return phxScanFmtFn(static_cast<uint32_t *>(param1));
+    if (functionName && functionName->isEqualTo("phxVrrSet"))
+        return phxVrrSetFn(static_cast<uint32_t *>(param1));
     if (functionName && functionName->isEqualTo("phxEdidRead")) {
         const uint32_t req = param4 ? *static_cast<uint32_t *>(param4) : 0u;
         // b80: the source follows the connector the GOP lit on pipe 0 (phxddc::scanoutSource) unless debug.phxedid_auto=0
@@ -62,6 +69,18 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         }
         if (param4) *static_cast<uint32_t *>(param4) = src;
         return edidFetch(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
+    }
+    if (functionName && functionName->isEqualTo("phxEdidReadFull")) {   // b134: head 0 only (pipe 0's connector, b80 rule)
+        int auto_src = -1;
+        if (gEdidAuto && mmio) {
+            phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                          [](void *, uint32_t, uint32_t) {}, [](void *, uint32_t) {}};   // reads only
+            auto_src = phxddc::scanoutSource(io);
+        }
+        bool sensed = false;
+        const uint32_t src = phxddc::resolveSource(0, auto_src, gEdidAuto != 0, static_cast<uint32_t>(gEdidSrc), 0, &sensed);
+        if (param4) *static_cast<uint32_t *>(param4) = src;
+        return edidFetchFull(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
     }
     return IOService::callPlatformFunction(functionName, waitForFunction, param1, param2, param3, param4);
 }
@@ -110,9 +129,11 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxedid_auto_src);
         sysctl_register_oid(&sysctl__debug_phxedid_other_src);   // b81
         sysctl_register_oid(&sysctl__debug_phxedid_other_info);
+        sysctl_register_oid(&sysctl__debug_phxedid_full);   // b127
         sysctl_register_oid(&sysctl__debug_phxkey);
         sysctl_register_oid(&sysctl__debug_phxcalls);
         sysctl_register_oid(&sysctl__debug_phxscan);
+        sysctl_register_oid(&sysctl__debug_phxscan_layout);   // b126
         if (!gMmIdxLock) gMmIdxLock = IOSimpleLockAlloc();   // b82: before the sysctls that use it
         sysctl_register_oid(&sysctl__debug_phxpipe2);
         sysctl_register_oid(&sysctl__debug_phxpipe2_stat);
@@ -131,6 +152,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxdmub_trace_pre);
         sysctl_register_oid(&sysctl__debug_phxscdc_fix); sysctl_register_oid(&sysctl__debug_phxscdc_fix_stat);
         sysctl_register_oid(&sysctl__debug_phxdmub_regtest); sysctl_register_oid(&sysctl__debug_phxdmub_regtest_stat);   // b111
+        sysctl_register_oid(&sysctl__debug_phxdmub_caps); sysctl_register_oid(&sysctl__debug_phxdmub_caps_stat);   // b141
         sysctl_register_oid(&sysctl__debug_phxgamma);   // b98
         sysctl_register_oid(&sysctl__debug_phxgamma_test);
         sysctl_register_oid(&sysctl__debug_phxgamma_stat);
@@ -145,6 +167,11 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxc3); sysctl_register_oid(&sysctl__debug_phxc3_stat); sysctl_register_oid(&sysctl__debug_phxpoweron);   // b113
         sysctl_register_oid(&sysctl__debug_phxdplink); sysctl_register_oid(&sysctl__debug_phxdplink_stat);   // b116
         sysctl_register_oid(&sysctl__debug_phxdpstream); sysctl_register_oid(&sysctl__debug_phxdpstream_stat);   // b117
+        sysctl_register_oid(&sysctl__debug_phxdpb_retrain); sysctl_register_oid(&sysctl__debug_phxdpb_retrain_stat);   // b129
+        sysctl_register_oid(&sysctl__debug_phxp0odm); sysctl_register_oid(&sysctl__debug_phxp0odm_stat);   // b131
+        sysctl_register_oid(&sysctl__debug_phxp0odm_active);
+        sysctl_register_oid(&sysctl__debug_phxvrr); sysctl_register_oid(&sysctl__debug_phxvrr_stat);   // b142
+        sysctl_register_oid(&sysctl__debug_phxvrr_ramp); sysctl_register_oid(&sysctl__debug_phxvrr_floor);   // b147
         sysctl_register_oid(&sysctl__debug_phxdpwatch); sysctl_register_oid(&sysctl__debug_phxdpwatch_stat); sysctl_register_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122
         sysctl_register_oid(&sysctl__debug_phxhotplug); sysctl_register_oid(&sysctl__debug_phxhotplug_stat);
     }

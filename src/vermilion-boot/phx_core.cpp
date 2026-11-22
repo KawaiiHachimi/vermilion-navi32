@@ -38,6 +38,10 @@ bool PhxBringup::start(IOService *provider) {
     doorbellMap = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
     smuLock = IOLockAlloc();
     gpuLock = IOLockAlloc();
+    // b140: the scanout lock exists from the start. It was made by the first GPU-present acquire, and the replay engine
+    // (odmRunLocked) needs it: the login screen's 240 Hz request at 20:39:39 on 2026-11-20 came 7 s before GPU present
+    // started and was refused "not ready", so the login screen stayed at the firmware's 60 Hz.
+    scanLock = IOLockAlloc();
     if (!gWaitSleepLock) gWaitSleepLock = IOLockAlloc();
     uint32_t dbg = 0;
     debug = PE_parse_boot_argn("phxdebug", &dbg, sizeof(dbg)) && dbg == 1;
@@ -55,10 +59,16 @@ bool PhxBringup::start(IOService *provider) {
     setProperty("phx-fwbuf-mc", fwBufMc, 64);
     setProperty("phx-build", PHX_KEXT_BUILD, 32);
     setProperty("phx-edid-fn", kOSBooleanTrue);   // b79: PhxAMDFB may call the "phxEdidRead" platform function
+    setProperty("phx-edid-full-fn", kOSBooleanTrue);   // b134: ... and "phxEdidReadFull" (out = 512 bytes)
+    // b138: phxPipe0SetMode takes the replay set's keys (height * 1000 + Hz) and its plans write Linux's HUBP0 pitch per mode:
+    // PhxAccel b138 then offers the EDID's other resolutions on head 0 and resizes its scan-out geometry
+    setProperty("phx-p0-keys", kOSBooleanTrue);
     setProperty("phx-edid-req", kOSBooleanTrue);  // b81: ...and ask it for a source (param4 in, phxddc::resolveSource)
     setProperty("phx-pipe2-mode-fn", kOSBooleanTrue);   // b93: PhxAMDFB head 1 may call "phxPipe2SetMode" (PhxSwitchABI.h)
     setProperty("phx-pipe2-gamma-fn", kOSBooleanTrue);  // b98: ...and "phxPipe2SetGamma" (PhxGamma.h; writes only with debug.phxgamma=1)
-    setProperty("phx-pipe0-mode-fn", kOSBooleanTrue);   // b101: PhxAMDFB head 0 may call "phxPipe0SetMode" (PhxSwitchABI.h; needs debug.phxpipe0_enable=1)
+    setProperty("phx-pipe0-mode-fn", kOSBooleanTrue);
+    setProperty("phx-scanfmt-fn", kOSBooleanTrue);   // b149: PhxAMDFB's CPU copy may call "phxScanFmt" (10-bit HDR)
+    setProperty("phx-vrr-fn", kOSBooleanTrue);   // b144: PhxAMDFB head 0 may call "phxVrrSet" (System Settings' Variable)   // b101: PhxAMDFB head 0 may call "phxPipe0SetMode" (PhxSwitchABI.h; needs debug.phxpipe0_enable=1)
     setProperty("phx-stage", "E3");
     setProperty("phx-debug", debug);
     setProperty("phx-fb-aper-phys", fbAperPhys, 64);
@@ -97,6 +107,8 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_plan); sysctl_unregister_oid(&sysctl__debug_phxdmub_ring);
         sysctl_unregister_oid(&sysctl__debug_phxdmub_dead);
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_head1);   // b87
+        sysctl_unregister_oid(&sysctl__debug_phxscan_layout);   // b126
+        sysctl_unregister_oid(&sysctl__debug_phxedid_full);   // b127
         sysctl_unregister_oid(&sysctl__debug_phxdmub_trace);   // b88
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_mode);   // b90
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_switch);   // b91
@@ -108,6 +120,7 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxdmub_trace_pre);
         sysctl_unregister_oid(&sysctl__debug_phxscdc_fix); sysctl_unregister_oid(&sysctl__debug_phxscdc_fix_stat);
         sysctl_unregister_oid(&sysctl__debug_phxdmub_regtest); sysctl_unregister_oid(&sysctl__debug_phxdmub_regtest_stat);   // b111
+        sysctl_unregister_oid(&sysctl__debug_phxdmub_caps); sysctl_unregister_oid(&sysctl__debug_phxdmub_caps_stat);   // b141
         sysctl_unregister_oid(&sysctl__debug_phxgamma); sysctl_unregister_oid(&sysctl__debug_phxgamma_test);   // b98
         sysctl_unregister_oid(&sysctl__debug_phxgamma_stat);
         sysctl_unregister_oid(&sysctl__debug_phxpipe0); sysctl_unregister_oid(&sysctl__debug_phxpipe0_enable);   // b99
@@ -121,6 +134,10 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxc3); sysctl_unregister_oid(&sysctl__debug_phxc3_stat); sysctl_unregister_oid(&sysctl__debug_phxpoweron);   // b113
         sysctl_unregister_oid(&sysctl__debug_phxdplink); sysctl_unregister_oid(&sysctl__debug_phxdplink_stat);   // b116
         sysctl_unregister_oid(&sysctl__debug_phxdpstream); sysctl_unregister_oid(&sysctl__debug_phxdpstream_stat);   // b117
+        sysctl_unregister_oid(&sysctl__debug_phxdpb_retrain); sysctl_unregister_oid(&sysctl__debug_phxdpb_retrain_stat);   // b129
+        sysctl_unregister_oid(&sysctl__debug_phxp0odm); sysctl_unregister_oid(&sysctl__debug_phxp0odm_stat); sysctl_unregister_oid(&sysctl__debug_phxp0odm_active);   // b131
+        sysctl_unregister_oid(&sysctl__debug_phxvrr); sysctl_unregister_oid(&sysctl__debug_phxvrr_stat);   // b142
+        sysctl_unregister_oid(&sysctl__debug_phxvrr_ramp); sysctl_unregister_oid(&sysctl__debug_phxvrr_floor);   // b147
         sysctl_unregister_oid(&sysctl__debug_phxdpwatch); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_stat); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122
         sysctl_unregister_oid(&sysctl__debug_phxhotplug); sysctl_unregister_oid(&sysctl__debug_phxhotplug_stat);
         gPhx = nullptr;

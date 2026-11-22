@@ -140,11 +140,15 @@ if [ "${2%%=*}" = debug.phxdpwatch ] || [ "${2:-}" = debug.phxdpwatch_stat ]; th
         if [ -n "$f" ]; then cat "$f"; else rd "$st/val.dpw" 0; echo "dpwatch v1 level=$RV samples=0 span_ms=0 events=0"; fi; exit 0;;
   esac
 fi
+# 11-19: SIM_WAITSTEP_NOOID=1 = a PhxBringup without debug.phxwait_step_us
+[ "${2%%=*}" = debug.phxwait_step_us ] && [ "${SIM_WAITSTEP_NOOID:-0}" = 1 ] && { echo "sysctl: unknown oid 'debug.phxwait_step_us'" >&2; exit 1; }
+# 11-22: SIM_VRRMIN_NOOID=1 = a PhxAccel without debug.phxfb0_vrrmin
+[ "${2%%=*}" = debug.phxfb0_vrrmin ] && [ "${SIM_VRRMIN_NOOID:-0}" = 1 ] && { echo "sysctl: unknown oid 'debug.phxfb0_vrrmin'" >&2; exit 1; }
 # 11-04: debug.phxhotplug0 (PhxAccel hp1+; SIM_HP0_NOOID=1 = a PhxAccel without it)
 [ "${2%%=*}" = debug.phxhotplug0 ] && [ "${SIM_HP0_NOOID:-0}" = 1 ] && { echo "sysctl: unknown oid 'debug.phxhotplug0'" >&2; exit 1; }
 case "${1:-}" in
   -w) echo "$*" >>"$st/sysctl.log"; oid=${2%%=*}
-      case "$oid" in debug.phxhotplug|debug.phxhotplug0|debug.phxgamma)
+      case "$oid" in debug.phxhotplug|debug.phxhotplug0|debug.phxgamma|debug.phxwait_step_us|debug.phxpipe0_enable|debug.phxpipe0_modes)
         k=no; [ -e "$st/killed" ] && k=yes; b=no; [ -e "$st/bound" ] && b=yes; echo "$2 killed=$k bound=$b" >>"$st/stage.log"
         if [ "$oid" = debug.phxgamma ] && [ -n "${SIM_GAMMA_BUSY:-}" ]; then
           rd "$st/gbusyn" 0; n=$((RV + 1)); echo $n >"$st/gbusyn"
@@ -154,7 +158,9 @@ case "${1:-}" in
         echo "${2#*=}" >"$st/val.$oid"; echo "$oid: 0 -> ${2#*=}";;
       esac; exit 0;;
   -n) case "${2:-}" in debug.phxagdc) echo "${SIM_AGDC:-1}";; debug.nvaccel_iop_ok) echo 128;; kern.bootargs) echo "${SIM_BOOTARGS:-keepsyms=1}";;
-        debug.phxhotplug|debug.phxhotplug0|debug.phxgamma) rd "$st/val.$2" 0; echo "$RV";; *) echo 0;; esac; exit 0;;
+        debug.phxhotplug|debug.phxhotplug0|debug.phxgamma) rd "$st/val.$2" 0; echo "$RV";; debug.phxwait_step_us) rd "$st/val.$2" 50; echo "$RV";;
+        debug.phxpipe0_stat) if [ "${SIM_P0_OLD:-0}" = 1 ]; then echo "busy=0 gen=0 enable=0 why="; else echo "busy=0 gen=0 enable=0 dal_sent=0 det_writes=0 why="; fi;;
+        *) echo 0;; esac; exit 0;;
 esac
 exit 0
 EOF
@@ -195,7 +201,9 @@ case "${2:-}" in *com.apple.loginwindow)
   case "$1" in
     read)   v=$("$pb" -c "Print :$3" "$f" 2>/dev/null) || { echo "The domain/default pair of ($2, $3) does not exist" >&2; exit 1; }
             case "$v" in true) echo 1;; false) echo 0;; *) echo "$v";; esac;;
-    write)  [ "${4:-}" = -bool ] || exit 1; case "${5:-}" in true|YES|yes|1) b=true;; *) b=false;; esac
+    write)  if [ "${4:-}" != -bool ]; then [ -n "${4:-}" ] || exit 1   # a string value (autoLoginUser)
+              "$pb" -c "Set :$3 $4" "$f" >/dev/null 2>&1 || "$pb" -c "Add :$3 string $4" "$f" >/dev/null 2>&1; exit 0; fi
+            case "${5:-}" in true|YES|yes|1) b=true;; *) b=false;; esac
             "$pb" -c "Set :$3 $b" "$f" >/dev/null 2>&1 || "$pb" -c "Add :$3 bool $b" "$f" >/dev/null 2>&1;;
     delete) "$pb" -c "Delete :$3" "$f" >/dev/null 2>&1 || { echo "Domain ($2) not found." >&2; exit 1; };;
     *) exit 1;;
@@ -238,7 +246,8 @@ echo "GRBM_STATUS 0x02004: 0xa0003028 (mock)"; exit 0
 EOF
   cat >"$BIN/launchctl" <<'EOF'
 #!/bin/bash
-st="${SIM_STATE:-/tmp}"; echo "launchctl $*" >>"$st/launchctl.log"; exit 0
+st="${SIM_STATE:-/tmp}"; echo "launchctl $*" >>"$st/launchctl.log"
+[ "${SIM_LAUNCHCTL_FAIL:-0}" = 1 ] && [ "$1" = setenv ] && exit 1; exit 0
 EOF
   cat >"$BIN/shutdown" <<'EOF'
 #!/bin/bash
@@ -312,6 +321,10 @@ world() {   # world: a fresh fake root + default-healthy SIM_* config
   SIM_DPW_NOOID=0 SIM_DPW_L2_EINVAL=0   # 11-03 S3 dpwatch
   SIM_HP0_NOOID=0   # 11-04 hotplug0
   SIM_LW_BROKEN_AT_TERM=0 SIM_LW_FAIL=""   # 11-04 login-window guard
+  SIM_LAUNCHCTL_FAIL=0   # 11-19 wscdcopy
+  SIM_WAITSTEP_NOOID=0   # 11-19 waitstep
+  SIM_VRRMIN_NOOID=0     # 11-22 VRR floor
+  SIM_P0_OLD=0           # 11-20 p0modes
   SIM_TERM_LATE="" SIM_SHUTDOWN_TERM=0
   # 11-03 first-WindowServer fix: its model off, no silent crashes, the watch after `done` off
   SIM_WSMODEL=0 SIM_WS_SILENT="" SIM_WS_LATE_SILENT="" SIM_WS_LATE_LOGOUT="" SIM_DEFAULTS_FAIL="" SIM_WS_REWRITE=0 SIM_SHUTDOWN_W15=0 SIM_RESAVE="" SIM_OFFER_GATE=0 SIM_OFFER_LATE="" SIM_HEAD0_SINGLE=0 SIM_NO_SOLO=0 SIM_AOCBOOT1_RC=0; NOWATCH=1; WATCHMAX=""
@@ -362,13 +375,14 @@ boot() {
            SIM_BRINGUP SIM_CLAIM SIM_NMXACCEL SIM_PHXFB SIM_FB SIM_METAL SIM_AGDC SIM_USERS SIM_CRASH_PER_STEP SIM_TERM_IN_WATCH SIM_WS_NORESTART SIM_SQUAT SIM_SQUAT_LATE SIM_AGDC_LATE \
            SIM_BOOTARGS SIM_SYSCTL_FAIL SIM_GAMMA_BUSY SIM_CDPREF SIM_NO_RESYNC SIM_RESYNC_ID SIM_NMODES SIM_AOCBOOT_RC \
            SIM_TERM_LATE SIM_SHUTDOWN_TERM SIM_MARK="$FR/var/db/phxboot.pending" \
-           SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL
+           SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL SIM_LAUNCHCTL_FAIL SIM_WAITSTEP_NOOID SIM_VRRMIN_NOOID SIM_P0_OLD
     export PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin"
     env PHXBOOT_G="$FR/gpu" PHXBOOT_HOME="$FR" PHXBOOT_LOG="$LOGF" PHXBOOT_MARK="$FR/var/db/phxboot.pending" \
         PHXBOOT_OFF="$FR/gpu/phxboot-off" PHXBOOT_DESKTOP="$FR/gpu/phxboot-desktop" \
         PHXBOOT_ALLOW="$FR/Library/GPUBundles/nvmtl-allow.txt" PHXBOOT_DR="$FR/Library/Logs/DiagnosticReports" \
         PHXBOOT_MB="$FR/usr/local/sbin/mesboot" PHXBOOT_NO_WATCH=$NOWATCH PHXBOOT_WATCH_MAX="$WATCHMAX" PHXBOOT_RUNAS="" \
-        PHXBOOT_WSPTMP="$W" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" \
+        PHXBOOT_WSPTMP="$W" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" PHXBOOT_KCPASSWORD="$FR/etc/kcpassword" \
+        PHXBOOT_GPUPRESENT="$FR/Library/GPUBundles/nvmtl/ws-gpu-present" PHXBOOT_WSASYNC="$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async" \
         bash "$DAEMON" )
 }
 # reboot_world: the state a reboot resets (the WindowServer and kernel state), keeping the fake root (prefs, stash, flags)
@@ -751,7 +765,122 @@ sc_b21_two_boots() {    world; NOWATCH=0; WATCHMAX=4; SIM_SHUTDOWN_W15=1; boot1;
                         expect_log "OFF before the Metal WindowServer restart: SHOWFULLNAME back to the user.s .absent."; expect_sfn absent; expect_b21orig none; expect_killall; go b21_two_boots; }
 sc_b21_off_fails() {    world; sfn_set true; echo absent >"$FR/gpu/phxboot-b21guard.orig"; SIM_LW_FAIL=delete
                         expect_log "OFF FAILED: SHOWFULLNAME reads .1., not the user.s .absent. \(rc 1\)"; expect_sfn true; expect_b21orig absent; expect_log 'SUCCESS'; expect_killall; go b21_off_fails; }
-ALL="squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails"
+# 11-19 pre-start hook ($G/phxboot-pre.sh): it runs before the flags are read (a staged phxboot-desktop arms this boot); a
+# failing or hanging hook is logged and the boot goes on as without it
+prehook(){ printf '%s\n' "$1" >"$FR/gpu/phxboot-pre.sh"; }
+sc_prehook_desktop() {  world; DESK=0; prehook 'touch "$1/phxboot-desktop"; echo "pre: staged phxboot-desktop"'
+                        expect_log 'pre: staged phxboot-desktop'; expect_log 'desktop-arm: 1'; expect_order 'pre: staged' 'desktop-arm: 1'; expect_log 'SUCCESS'; expect_killall; go prehook_desktop; }
+sc_prehook_fail() {     world; DESK=0; prehook 'echo "pre: broken"; exit 3'
+                        expect_log 'pre-hook: .*phxboot-pre.sh exit 3'; expect_log 'no desktop arm: GOP'; expect_no_killall; expect_no_reboot; go prehook_fail; }
+sc_prehook_hang() {     world; DESK=0; prehook 'exec /bin/sleep 30'; export PHXBOOT_PRE_WAIT=2
+                        expect_log 'pre-hook: .* still running after 2s: killed'; expect_log 'no desktop arm: GOP'; expect_no_reboot; go prehook_hang; unset PHXBOOT_PRE_WAIT; }
+# 11-19 wscdcopy (GPU present E3): launchd's environment for the restarted WindowServer, only with both GPU present switches
+gp_world(){ world; mkdir -p "$FR/Library/GPUBundles/nvmtl"; touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present"; [ "${1:-}" = async ] && touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async"; true; }
+lc_has(){ X_CMDS="${X_CMDS:-}
+grep -q 'launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1' '$ST/launchctl.log'"; }
+lc_hasnt(){ X_CMDS="${X_CMDS:-}
+! grep -q 'NVMTL_WS_PRESENT_CDCOPY' '$ST/launchctl.log'"; }
+sc_cdcopy_off() {       gp_world async; expect_nolog 'wscdcopy'; expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_off; }
+sc_cdcopy_on() {        gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1'; expect_log 'gpu present allowed'
+                        expect_order 'wscdcopy: NVMTL' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_killall; lc_has; go cdcopy_on; }
+sc_cdcopy_noasync() {   gp_world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs .*ws-gpu-present-async: NVMTL_WS_PRESENT_CDCOPY not set'
+                        expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_noasync; }
+sc_cdcopy_nogp() {      world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs .*ws-gpu-present and'; expect_nolog 'gpu present allowed'
+                        expect_log 'flip on'; expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_nogp; }
+sc_cdcopy_lcfail() {    gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; SIM_LAUNCHCTL_FAIL=1; expect_log 'wscdcopy: launchctl setenv failed'
+                        expect_log 'SUCCESS'; expect_killall; go cdcopy_lcfail; }
+sc_cdcopy_nodesk() {    gp_world async; DESK=0; touch "$FR/gpu/phxboot-wscdcopy"; expect_nolog 'wscdcopy'; expect_log 'no desktop arm: GOP'; expect_no_killall; lc_hasnt; go cdcopy_nodesk; }
+# 11-19 waitstep: debug.phxwait_step_us from ~/gpu/phxboot-waitstep before the WindowServer restart (desktop boots only)
+ws_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-waitstep"; }
+# 11-20 p0modes: ~/gpu/phxboot-p0modes arms the pipe-0 engine and the head-0 mode list before the claim (b128, 1440p)
+sc_p0modes_off() {      world; expect_nolog 'p0modes'; expect_writes 'phxpipe0_enable' 0; expect_writes 'phxpipe0_modes' 0; expect_log 'SUCCESS'; go p0modes_off; }
+alu(){ /usr/libexec/PlistBuddy -c "Print :autoLoginUser" "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
+expect_alu(){ expect_cmd "[ \"\$(alu)\" = $1 ]"; }
+al_world(){ world; echo dnanu >"$FR/gpu/phxboot-autologin"; mkdir -p "$FR/etc"; echo x >"$FR/etc/kcpassword"; }
+sc_al_off() {           world; expect_nolog 'autologin:'; expect_alu absent; expect_log 'SUCCESS'; go al_off; }
+sc_al_on() {            al_world; expect_log 'autologin: .* off \(daemon start\)'; expect_log "autologin: .* on for 'dnanu' before the Metal WindowServer restart \(reads 'dnanu'\)"
+                        expect_order 'autologin: .* off \(daemon start\)' 'autologin: .* on for'; expect_order 'autologin: .* on for' 'restarting WindowServer once'
+                        expect_alu dnanu; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go al_on; }
+sc_al_user_in() {       al_world; SIM_USERS="user console 2026 Nov 20"; expect_log 'a user is logged in before arming'; expect_nolog 'autologin: .* on for'; expect_alu absent; go al_user_in; }
+sc_al_nokc() {          world; echo dnanu >"$FR/gpu/phxboot-autologin"; expect_log 'autologin: .*kcpassword missing'; expect_alu absent; expect_log 'SUCCESS'; go al_nokc; }
+sc_al_metal_fail() {    al_world; SIM_METAL=0; expect_log 'FAIL \(Metal device never came up\)'; expect_nolog 'autologin: .* on for'; expect_alu absent; expect_reboot; go al_metal_fail; }
+sc_al_shutdown() {      al_world; NOWATCH=0; WATCHMAX=4; SIM_SHUTDOWN_W15=1; expect_rc 143; expect_log 'SUCCESS'; expect_log 'autologin: .* off \(shutdown \(TERM\)\)'
+                        expect_alu absent; expect_no_reboot; go al_shutdown; }
+sc_al_b21off() {        al_world; echo 0 >"$FR/gpu/phxboot-b21guard"; expect_log 'autologin: .* off \(daemon start\)'; expect_log 'autologin: .* on for'; expect_alu dnanu; go al_b21off; }
+sc_p0modes_on() {       world; touch "$FR/gpu/phxboot-p0modes"; expect_writes '^-w debug.phxpipe0_enable=1$' 1; expect_writes '^-w debug.phxpipe0_modes=1$' 1
+                        expect_log 'p0modes: pipe-0 engine on, head-0 mode list armed'; expect_log 'claim: phxpipe0_modes was set before the claim'
+                        expect_order 'p0modes: pipe-0 engine on' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_no_reboot; go p0modes_on; }
+sc_p0modes_oldkext() {  world; touch "$FR/gpu/phxboot-p0modes"; SIM_P0_OLD=1; expect_log 'p0modes: VermilionBoot before b128'; expect_writes 'phxpipe0_enable' 0
+                        expect_writes 'phxpipe0_modes' 0; expect_log 'SUCCESS'; expect_no_reboot; go p0modes_oldkext; }
+sc_p0modes_fail() {     world; touch "$FR/gpu/phxboot-p0modes"; SIM_SYSCTL_FAIL=debug.phxpipe0_modes; expect_log 'p0modes: enable rc 0, modes rc 1'
+                        expect_log 'SUCCESS'; expect_no_reboot; go p0modes_fail; }
+sc_waitstep_off() {     world; expect_nolog 'waitstep'; expect_writes 'phxwait_step_us' 0; expect_log 'SUCCESS'; go waitstep_off; }
+sc_waitstep_on() {      world; ws_flag 200; expect_writes '^-w debug.phxwait_step_us=200$' 1; expect_log 'waitstep: debug.phxwait_step_us=200 rc 0, reads 200'
+                        expect_order 'waitstep: debug' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_killall; go waitstep_on; }
+sc_waitstep_empty() {   world; ws_flag ''; expect_writes '^-w debug.phxwait_step_us=200$' 1; expect_log 'waitstep: debug.phxwait_step_us=200 rc 0'; expect_log 'SUCCESS'; go waitstep_empty; }
+sc_waitstep_space() {   world; ws_flag ' 100
+'; expect_writes '^-w debug.phxwait_step_us=100$' 1; expect_log 'waitstep: debug.phxwait_step_us=100 rc 0, reads 100'; expect_log 'SUCCESS'; go waitstep_space; }
+sc_waitstep_edges() {   world; ws_flag 1000; expect_writes '^-w debug.phxwait_step_us=1000$' 1; expect_log 'SUCCESS'; go waitstep_edges; }
+sc_waitstep_low() {     world; ws_flag 19; expect_writes 'phxwait_step_us' 0; expect_log "waitstep: .*holds '19', not 20-1000"; expect_log 'SUCCESS'; go waitstep_low; }
+sc_waitstep_high() {    world; ws_flag 1001; expect_writes 'phxwait_step_us' 0; expect_log "waitstep: .*holds '1001', not 20-1000"; expect_log 'SUCCESS'; go waitstep_high; }
+sc_waitstep_bad() {     world; ws_flag 'abc'; expect_writes 'phxwait_step_us' 0; expect_log "waitstep: .*holds 'abc', not 20-1000"; expect_log 'SUCCESS'; go waitstep_bad; }
+sc_waitstep_octal() {   world; ws_flag '0200'; expect_writes 'phxwait_step_us' 0; expect_log "waitstep: .*holds '0200', not 20-1000"; expect_log 'SUCCESS'; go waitstep_octal; }
+sc_waitstep_huge() {    world; ws_flag '99999999999999999999'; expect_writes 'phxwait_step_us' 0; expect_log 'waitstep: .*not 20-1000'; expect_log 'SUCCESS'; go waitstep_huge; }
+sc_waitstep_nooid() {   world; ws_flag 200; SIM_WAITSTEP_NOOID=1; expect_writes 'phxwait_step_us' 0; expect_log 'waitstep: PhxBringup without debug.phxwait_step_us'; expect_log 'SUCCESS'; go waitstep_nooid; }
+sc_waitstep_fail() {    world; ws_flag 200; SIM_SYSCTL_FAIL=debug.phxwait_step_us; expect_writes '^-w debug.phxwait_step_us=200$' 1
+                        expect_log 'waitstep: debug.phxwait_step_us=200 rc 1, reads 50 \(sysctl: .*Operation not permitted\)'; expect_log 'SUCCESS'; expect_killall; go waitstep_fail; }
+sc_waitstep_nodesk() {  world; DESK=0; ws_flag 200; expect_nolog 'waitstep'; expect_writes 'phxwait_step_us' 0; expect_log 'no desktop arm: GOP'; go waitstep_nodesk; }
+sc_waitstep_gp() {      gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; ws_flag 200; expect_order 'wscdcopy: NVMTL' 'waitstep: debug.phxwait_step_us=200 rc 0'
+                        expect_order 'waitstep: debug' 'restarting WindowServer once'; expect_log 'SUCCESS'; lc_has; go waitstep_gp; }
+# 11-20 stuck squat: with OpenCore's DisableVariableWrite, macOS cannot clear phxfb-squat, so a reboot onto IONDRV came
+# back squatting (three reboots in a row on the XTX machine). The second squat boot runs the safe desktop instead.
+sc_squat_kill_pending(){ world; DESK=0; SIM_SQUAT=1; touch "$FR/gpu/phxboot-off"; expect_log 'rebooting onto IONDRV'; expect_reboot; expect_file "$FR/gpu/phxboot-nvstuck"; go squat_kill_pending; }
+sc_stuck_loop() {       gp_world; DESK=0; SIM_SQUAT=1; touch "$FR/gpu/phxboot-p0modes" "$FR/var/db/phxboot.pending"; boot1
+                        grep -q 'squat boot: rebooting onto IONDRV' "$W/boot1.log" || echo "FAIL  stuck_loop: boot 1 did not reboot"
+                        expect_log 'nvstuck: still a squat boot'; expect_log 'safe desktop on the stuck squat'; expect_log 'SUCCESS'; expect_log 'safe desktop up'
+                        expect_nolog 'rebooting onto IONDRV'; expect_writes 'phxscan' 0; expect_writes 'phxpipe0_enable' 0; expect_nolog 'flip on'
+                        expect_killall; expect_no_reboot; go stuck_loop; }
+sc_stuck_safe_hung() {  world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off" "$FR/var/db/phxboot.pending" "$FR/gpu/phxboot-safe"
+                        expect_log 'safe desktop did not finish last boot'; expect_nolog 'bring-up'; expect_no_killall; expect_no_reboot; go stuck_safe_hung; }
+sc_stuck_cleared() {    world; DESK=0; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-safe"; expect_log 'not a squat boot: phxfb-squat is clear'
+                        expect_nofile "$FR/gpu/phxboot-nvstuck"; expect_no_reboot; go stuck_cleared; }
+sc_stuck_metal_fail() { world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"; SIM_METAL=0
+                        expect_log 'FAIL \(Metal device never came up\)'; expect_log 'stuck squat: no reboot after the failure'; expect_no_reboot; go stuck_metal_fail; }
+sc_stuck_crash() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"; SIM_CRASH_PER_STEP=1
+                        expect_log 'WindowServer crashed/hung'; expect_log 'stuck squat: no reboot after the failure'; expect_no_reboot; go stuck_crash; }
+sc_stuck_failf() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-failed"
+                        expect_log 'stuck squat after a failed attempt'; expect_log 'safe desktop up'; expect_file "$FR/gpu/phxboot-failed"; expect_no_reboot; go stuck_failf; }
+sc_stuck_full() {       world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-safe"
+                        expect_nolog 'safe desktop'; expect_log 'SUCCESS'; expect_nofile "$FR/gpu/phxboot-safe"; expect_no_reboot; go stuck_full; }
+# 11-20 Adaptive Sync: on by default (no write); ~/gpu/phxboot-novrr and the safe desktop write debug.phxfb0_vrr=0 before the claim
+sc_vrr_default() {      world; expect_nolog 'vrr: '; expect_writes 'phxfb0_vrr' 0; expect_log 'SUCCESS'; go vrr_default; }
+sc_vrr_off() {          world; touch "$FR/gpu/phxboot-novrr"; expect_writes '^-w debug.phxfb0_vrr=0$' 1; expect_log 'vrr: off'
+                        expect_order 'vrr: off' 'NMXAccel up'; expect_log 'SUCCESS'; go vrr_off; }
+sc_vrr_safe() {         world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"
+                        expect_log 'safe desktop up'; expect_log 'vrr: off .*the safe desktop'; expect_writes '^-w debug.phxfb0_vrr=0$' 1; expect_no_reboot; go vrr_safe; }
+# 11-22 VRR floor: PhxAccel's default 60 (no write); ~/gpu/phxboot-vrrmin (0 or 24-240) writes debug.phxfb0_vrrmin before the claim
+vm_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-vrrmin"; }
+sc_vrrmin_default() {   world; expect_writes 'phxfb0_vrrmin' 0; expect_nolog 'vrr: '; expect_log 'SUCCESS'; go vrrmin_default; }
+sc_vrrmin_on() {        world; vm_flag 72; expect_writes '^-w debug.phxfb0_vrrmin=72$' 1; expect_log 'vrr: floor 72 Hz'
+                        expect_order 'vrr: floor' 'NMXAccel up'; expect_log 'SUCCESS'; go vrrmin_on; }
+sc_vrrmin_space() {     world; vm_flag ' 60
+'; expect_writes '^-w debug.phxfb0_vrrmin=60$' 1; expect_log 'SUCCESS'; go vrrmin_space; }
+sc_vrrmin_edid() {      world; vm_flag 0; expect_writes '^-w debug.phxfb0_vrrmin=0$' 1; expect_log 'vrr: floor 0 Hz'; go vrrmin_edid; }
+sc_vrrmin_bad() {       world; vm_flag 'abc'; expect_writes 'phxfb0_vrrmin' 0; expect_log "vrr: .*holds 'abc', not 0 or 24-240"; expect_log 'SUCCESS'; go vrrmin_bad; }
+sc_vrrmin_low() {       world; vm_flag 23; expect_writes 'phxfb0_vrrmin' 0; expect_log "holds '23'"; go vrrmin_low; }
+sc_vrrmin_high() {      world; vm_flag 241; expect_writes 'phxfb0_vrrmin' 0; expect_log "holds '241'"; go vrrmin_high; }
+sc_vrrmin_octal() {     world; vm_flag 060; expect_writes 'phxfb0_vrrmin' 0; expect_log "holds '060'"; go vrrmin_octal; }
+sc_vrrmin_empty() {     world; vm_flag ''; expect_writes 'phxfb0_vrrmin' 0; expect_log "holds ''"; go vrrmin_empty; }
+sc_vrrmin_nooid() {     world; vm_flag 60; SIM_VRRMIN_NOOID=1; expect_log 'vrr: no debug.phxfb0_vrrmin'; expect_log 'SUCCESS'; go vrrmin_nooid; }
+sc_vrrmin_safe() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"; vm_flag 72
+                        expect_log 'safe desktop up'; expect_writes 'phxfb0_vrrmin' 0; expect_no_reboot; go vrrmin_safe; }
+# 11-21 HDR: on by default (no write); ~/gpu/phxboot-nohdr and the safe desktop write debug.phxfb0_hdr=0 before the claim
+sc_hdr_default() {      world; expect_nolog 'hdr: '; expect_writes 'phxfb0_hdr' 0; expect_log 'SUCCESS'; go hdr_default; }
+sc_hdr_off() {          world; touch "$FR/gpu/phxboot-nohdr"; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_log 'hdr: off'
+                        expect_order 'hdr: off' 'NMXAccel up'; expect_log 'SUCCESS'; go hdr_off; }
+sc_hdr_safe() {         world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"
+                        expect_log 'safe desktop up'; expect_log 'hdr: off .*the safe desktop'; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_no_reboot; go hdr_safe; }
+ALL="squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails prehook_desktop prehook_fail prehook_hang cdcopy_off cdcopy_on cdcopy_noasync cdcopy_nogp cdcopy_lcfail cdcopy_nodesk waitstep_off waitstep_on waitstep_empty waitstep_space waitstep_edges waitstep_low waitstep_high waitstep_bad waitstep_octal waitstep_huge waitstep_nooid waitstep_fail waitstep_nodesk waitstep_gp p0modes_off p0modes_on p0modes_oldkext p0modes_fail al_off al_on al_user_in al_nokc al_metal_fail al_shutdown al_b21off squat_kill_pending stuck_loop stuck_safe_hung stuck_cleared stuck_metal_fail stuck_crash stuck_failf stuck_full vrr_default vrr_off vrr_safe vrrmin_default vrrmin_on vrrmin_space vrrmin_edid vrrmin_bad vrrmin_low vrrmin_high vrrmin_octal vrrmin_empty vrrmin_nooid vrrmin_safe hdr_default hdr_off hdr_safe"
 make_fakes; make_world_tpl
 TORUN="${*:-$ALL}"
 echo "== phxboot mock harness :: daemon=$DAEMON"

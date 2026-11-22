@@ -54,6 +54,8 @@ public:
     IOReturn scanPresent(const void *who, uint32_t slot, uint64_t out[3]);
     IOReturn scanStatus(const void *who, phxn_scan_status *st);
     IOReturn scanRelease(const void *who, uint64_t out[2]);   // also when `who` closes; idempotent
+    int scanLayoutFor(uint64_t bytes, phxscanlay::Layout *l) const;   // b126: PhxScanLayout.h's choice for the live registers
+    int scanLayoutStat(char *buf, size_t cap);                        // b126: debug.phxscan_layout (reads registers only)
     bool scanHeldBy(const void *who) const { return scan.owner == who; }
     // b82 (M7 S2, phx_pipe2.cpp): register access for the pipe-1 engine, and one VRAM dword through MM_INDEX/MM_DATA
     uint32_t p2Rd(uint32_t reg) const;
@@ -71,6 +73,7 @@ private:
         const void *owner;            // the client that acquired (kept after a watchdog restore until it releases/closes)
         bool acquired;                // HUBP0 may show a slot
         uint64_t consoleMc, fbBase, slotMc[PHXN_SCAN_MAX_SLOTS];
+        phxscanlay::Layout lay;       // b126: the slots' VRAM layout for this acquisition (PhxScanLayout.h)
         bool slotUsed[PHXN_SCAN_MAX_SLOTS];
         uint32_t front, pending, pitchPx, planeH;
         uint64_t presents, latched, replaced, refused, restores, watchdogRestores, lastCallAbs, frameExt;
@@ -148,6 +151,9 @@ private:
     int ctxPid[kMaxCtx]{};
     char ctxName[kMaxCtx][20]{};
 public:
+    IOLock *scanLockForEngines() const { return scanLock; }   // b131: debug.phxp0odm holds it so no flip runs mid-plan
+    bool scanYieldForModeLocked(uint32_t targetH);
+    bool scanAcquiredLocked() const { return scan.acquired; }   // b144 (scanLock held)             // b139: give the plane back before a size change (scanLock held)
     void vmTag(uint32_t handle, int pid, const char *name) {
         if (handle && handle <= kMaxCtx) { ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
     // the process whose context a hardware VMID points at, for a fault report
@@ -188,9 +194,34 @@ public:
     // 0x10 + n = DC_I2C DDC line n, 0x10 = DDC1; 0x20 + n = DP AUX engine n). A 32-byte header ('PEDI', source, rc,
     // length, SW_STATUS, ARB, DC_GPIO_HPD_Y, HPD0-4 sense bits | AUX defers << 8) then 256 bytes. Every read is one fresh
     // transfer; nothing is cached or published yet (step 2). Writes only the engine's own registers.
+    // b127 debug.phxedid_full (full = true): the same header with 'PEDF', word 3 = length | (1 + the extension count) << 16,
+    // then 512 bytes (up to 4 blocks; AUX sources read blocks 2-3 through the E-DDC segment pointer, PhxDdc.h readEdidFull).
     volatile UInt32 edidBusy{0};
-    int edidRead(struct sysctl_req *req, unsigned src) {
-        enum { kHdr = 32, kOut = kHdr + 256 };
+    int edidRead(struct sysctl_req *req, unsigned src, bool full = false) {
+        enum { kHdr = 32, kOut = kHdr + 256, kOutFull = kHdr + phxddc::kEdidMaxBlocks * 128 };
+        if (full) {
+            if (!req->oldptr) return SYSCTL_OUT(req, nullptr, kOutFull);    // size query: no hardware access
+            if (!mmio) return ENXIO;
+            if (!OSCompareAndSwap(0, 1, &edidBusy)) return EBUSY;
+            phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                          [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                          [](void *, uint32_t us) { IODelay(us); }};
+            uint8_t *buf = static_cast<uint8_t *>(IOMalloc(kOutFull));
+            if (!buf) { OSCompareAndSwap(1, 0, &edidBusy); return ENOMEM; }
+            bzero(buf, kOutFull);
+            phxddc::Diag d{};
+            unsigned len = 0, ann = 0;
+            const int rc = phxddc::readEdidFull(io, src, buf + kHdr, &len, &ann, &d);
+            uint32_t hpd = 0;
+            for (unsigned n = 0; n < 5; n++) if (phxddc::hpdSensed(io, n)) hpd |= 1u << n;
+            const uint32_t hdr[8] = {0x46444550u, src, static_cast<uint32_t>(rc), len | ann << 16, d.status, d.arb,
+                                     rreg(phxddc::kGpioHpdY), hpd | (d.retries << 8)};
+            memcpy(buf, hdr, sizeof hdr);
+            OSCompareAndSwap(1, 0, &edidBusy);
+            const int err = SYSCTL_OUT(req, buf, kOutFull);
+            IOFree(buf, kOutFull);
+            return err;
+        }
         if (!req->oldptr) return SYSCTL_OUT(req, nullptr, kOut);            // size query: no hardware access
         if (!mmio) return ENXIO;
         if (!OSCompareAndSwap(0, 1, &edidBusy)) return EBUSY;
@@ -226,6 +257,26 @@ public:
         phxddc::Diag d{};
         unsigned n = 0;
         *rc = phxddc::readEdid(io, src, out, &n, &d);
+        *len = n;
+        OSCompareAndSwap(1, 0, &edidBusy);
+        return kIOReturnSuccess;
+    }
+    // b134: "phxEdidReadFull" = the whole EDID (up to 4 blocks, AUX blocks 2-3 through the E-DDC segment pointer, b127's
+    // readEdidFull, read on the box 2026-11-20) for PhxAMDFB's head-0 mode offer (the LG's 240 Hz timing is a DisplayID
+    // timing in block 2). out holds phxddc::kEdidMaxBlocks * 128 bytes. Same lock and bounds as edidFetch.
+    IOReturn edidFetchFull(uint8_t *out, uint32_t *len, int32_t *rc, uint32_t src) {
+        if (!out || !len || !rc) return kIOReturnBadArgument;
+        *len = 0; *rc = phxddc::kErrArg;
+        if (!mmio) return kIOReturnNotReady;
+        bool got = false;
+        for (unsigned i = 0; i < 20 && !(got = OSCompareAndSwap(0, 1, &edidBusy)); i++) IOSleep(5);
+        if (!got) return kIOReturnBusy;
+        phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                      [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                      [](void *, uint32_t us) { IODelay(us); }};
+        phxddc::Diag d{};
+        unsigned n = 0, ann = 0;
+        *rc = phxddc::readEdidFull(io, src, out, &n, &ann, &d);
         *len = n;
         OSCompareAndSwap(1, 0, &edidBusy);
         return kIOReturnSuccess;

@@ -102,6 +102,7 @@ static const Allow kAllowP0[] = {
     {0x03B1C, 0xffffffffu, "HUBPREQ0_REF_FREQ_TO_PIX_FREQ"},
     {0x041CF, 0xffffffffu, "DSCL0_OTG_H_BLANK"},
     {0x041D0, 0xffffffffu, "DSCL0_OTG_V_BLANK"},
+    {0x04D01, 0xffffffffu, "FMT0_FMT_BIT_DEPTH_CONTROL (b128: output depth / dither, 1440p plans)"},
     {0x04D14, 0xffffffffu, "DPG0_DPG_CONTROL"},
     {0x04D17, 0xffffffffu, "DPG0_DPG_COLOUR_R_CR"},
     {0x04D18, 0xffffffffu, "DPG0_DPG_COLOUR_G_Y"},
@@ -123,6 +124,8 @@ static const Allow kAllowP0[] = {
     {0x05651, 0x00000002u, "DIG1_DIG_FIFO_CTRL0 (DIG_FIFO_RESET; b106)"},
     {0x056CC, 0x00000001u, "DP1_DP_VID_STREAM_CNTL (DP_VID_STREAM_ENABLE)"},
     {0x056CD, 0x00000001u, "DP1_DP_STEER_FIFO (DP_STEER_FIFO_RESET)"},
+    {0x056C9, 0x07000000u, "DP1_DP_PIXEL_FORMAT (b128: DP_COMPONENT_DEPTH only)"},
+    {0x056CA, 0xff000000u, "DP1_DP_MSA_COLORIMETRY (b128: DP_MSA_MISC0 = depth / format)"},
     {0x056D0, 0x00000c00u, "DP1_DP_VID_TIMING (DP_VID_N_MUL; Linux-convention plans only)"},
     {0x0570C, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM1"},
     {0x0570D, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM2"},
@@ -211,7 +214,12 @@ static const Fp kInv[] = {
 };
 static constexpr unsigned kNInv = sizeof kInv / sizeof kInv[0];
 
-struct Plan { const phx_s2_step *s; unsigned n; phx_p0_info info; };
+// b128: detMin = the DET0 segments the plan needs with one display (0 = the XT rule: 9 above 60 Hz), set by macSet's DET
+// step; dalMin = the two DAL SetHardMinByFreq arguments (DISPCLK, DPPCLK) macSet sends when DENTIST is above the plan's
+// dividers (null = none, the survey refuses instead); opts kOptStickyClear = macSet clears a stale OPTC0 underflow sticky.
+// The 1080p plans leave all three 0 (aggregate init): unchanged behaviour on the XT.
+static constexpr uint32_t kOptStickyClear = 1;
+struct Plan { const phx_s2_step *s; unsigned n; phx_p0_info info; uint32_t detMin; const uint32_t *dalMin; uint32_t opts; };
 static constexpr unsigned kMaxEntries = 48;
 
 enum Res { kDone = 0, kSame = 1, kRefused = 2, kFellBack = 3, kDark = 4 };
@@ -230,6 +238,8 @@ struct Env {
     uint32_t otg1NextH, otg1NextV;   // b103: the OTG1 totals the pipe-1 switch sets next (0 = none): a plan for them passes the pair check
     int solo;          // p0solo (debug.phxpipe0_solo, 0 default): with OTG1 dark, the 1080p144 plan is accepted (the AOC alone)
     int live;          // b123 (debug.phxpipe0_live, 0 default): a pair re-plan of double-buffered frame / HUBP registers runs live (liveShell)
+    uint32_t (*dal)(void *c, uint32_t msg, uint32_t arg);   // b128: one DAL message (RESP, 1 = OK); null = none (plans with dalMin refused)
+    int (*pmfwIdle)(void *c);                                // b128: no DAL / driver SMU message in flight (1)
 };
 #define PHXP0_HAS_LIVE 1
 #define PHXP0_HAS_SOLO 1
@@ -268,6 +278,7 @@ struct State {
     char s7Why[120];
     uint32_t liveReplans, liveFails, liveWrites;          // b123: live pair re-plans done / that failed (then the full-shell revert),
                                                           // plan writes of the last live re-plan
+    uint32_t dalSent, detWrites, odmPreClears;            // b128: DAL hard minimums sent, DET writes, stale OPTC0 stickies cleared
 };
 
 inline uint32_t rd(const Env &e, uint32_t r) { return phxp2::readAllowed(r) ? e.io.rd(e.io.c, r) : 0xdeadbeefu; }
@@ -658,7 +669,9 @@ inline bool dentistFits(uint32_t d, uint32_t max) {
 }
 
 // Reads only. Every refusal leaves the hardware untouched; with the gate off nothing is even read.
-inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, const Plan **curOut) {
+// b128: preClk = macSet's first pass before its DET / DAL steps: the DENTIST and one-display DET checks are skipped (those
+// steps raise them; the full survey after them checks both again).
+inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, const Plan **curOut, bool preClk = false) {
     st.surveys++;
     const char *w = nullptr;
     char d[120];
@@ -680,8 +693,10 @@ inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     if ((rd(e, kDigFifo) & kFifoCfg) != kFifoGop) return refuse(st, "preflight", "DIG1_DIG_FIFO_CTRL0 is not the GOP's enabled, out of reset, read start level 7 (0x1d)");
     const uint32_t m = rd(e, kVidM) & 0xffffff;
     const uint32_t wantM = static_cast<uint32_t>((static_cast<uint64_t>(kVidM60) * cur->info.pclkKhz + kVidM60Khz / 2) / kVidM60Khz);
-    if (!mWithin(m, wantM)) { snprintf(d, sizeof d, "DP_VID_M 0x%x, want 0x%x +-1 %% (the GOP's HBR x4 link at %u kHz)", m, wantM, cur->info.pclkKhz); return refuse(st, "preflight", d); }
-    if (!dentistFits(rd(e, kDentist), tg.info.dentistMax)) { snprintf(d, sizeof d, "DENTIST dividers above 0x%x: DISPCLK/DPPCLK too low for %s (the two DAL hard mins first)", tg.info.dentistMax, tg.info.name); return refuse(st, "preflight", d); }
+    // b128: or half that M = the same 4 lanes at HBR2 (the XTX machine's GOP trains DP B at HBR2 x4 for 1440p: 0x395e at
+    // 241.5 MHz, macOS 2026-11-19); the verify still follows the measured M, so the link may not change either way
+    if (!mWithin(m, wantM) && !mWithin(m, wantM / 2)) { snprintf(d, sizeof d, "DP_VID_M 0x%x, want 0x%x (HBR x4) or 0x%x (HBR2 x4) +-1 %% at %u kHz", m, wantM, wantM / 2, cur->info.pclkKhz); return refuse(st, "preflight", d); }
+    if (!preClk && !dentistFits(rd(e, kDentist), tg.info.dentistMax)) { snprintf(d, sizeof d, "DENTIST dividers above 0x%x: DISPCLK/DPPCLK too low for %s (the two DAL hard mins first)", tg.info.dentistMax, tg.info.name); return refuse(st, "preflight", d); }
     const bool otg1 = rd(e, kOtg1Control) & kMasterEnState;
     // b103: the pair (pairFits); e.otg1Next* = the OTG1 totals the pipe-1 switch sets right after this call (the safe
     // order: the heavier pair's plan first)
@@ -691,7 +706,11 @@ inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, c
         return refuse(st, "preflight", d);
     }
     if (otg1 && tg.info.hz > 60 && (rd(e, kDet0) & 0x1f) < 9) return refuse(st, "preflight", "DET0 below 9 segments with two pipes lit");
-    if (!otg1 && tg.info.hz > 60 && (rd(e, kDet0) & 0x1f) < 9) return refuse(st, "preflight", "DET0 below 9 segments for 144 with one display (det.sh set 9 first)");
+    if (!otg1 && tg.info.hz > 60 && !preClk && (rd(e, kDet0) & 0x1f) < (tg.detMin ? tg.detMin : 9u)) {
+        if (!tg.detMin) return refuse(st, "preflight", "DET0 below 9 segments for 144 with one display (det.sh set 9 first)");
+        snprintf(d, sizeof d, "DET0 below %u segments for %s with one display", tg.detMin, tg.info.name);
+        return refuse(st, "preflight", d);
+    }
     if ((rd(e, kArb) & 3) != 2) return refuse(st, "preflight", "stutter allowed (DCHUBBUB_ARB_DRAM_STATE_CNTL & 3 != 2): force it off first (0x1002)");
     if (rd(e, kHubp0Cntl) & kHubpUnderflow) return refuse(st, "preflight", "HUBP0 underflow status set");
     if (rd(e, kOdm0) & (kOdmSticky | kOdmCurrent)) return refuse(st, "preflight", "ODM0 OPTC underflow sticky / current set");
@@ -801,6 +820,52 @@ inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, cons
 // ended done or fell back, so the caller re-baselines the pipe-1 engine's pipe-0 fingerprint (phxp2::rebasePipe0) with
 // st.pubHTotal / st.pubVTotal before it releases the display lock.
 static constexpr uint32_t kSmuSetHardMinByFreq = 0x1b, kPpclkUclk = 2;
+// b128 (1440p plans): DET for one display, as Linux runs it on the XTX machine at 60/120/144 Hz (DET0 4, DET1-3 0; the GOP
+// leaves 3/3/3/3). Pipes 1-3 must be off (OTG1 dark, HUBP1-3 clocks off). Shrinks DET1-3 first, then grows DET0, each
+// waiting for SIZE_CURRENT (upstream's pipe-1 DET step, phxp2::detTwoPipe, the same writes; CRB budget 20 segments with
+// COMPBUF). Its own allow-list: DCHUBBUB_DET0-3_CTRL DETn_SIZE only. Never lowered back.
+static constexpr uint32_t kDetCtrlP0[4] = {0x0397B, 0x0397C, 0x0397D, 0x0397E}, kCompbufP0 = 0x0397A,
+                          kHubpClkP0[3] = {0x03B90, 0x03C6C, 0x03D48};   // HUBP1-3_HUBP_CLK_CNTL (bit 0 HUBP_CLOCK_ENABLE)
+inline bool detSolo(const Env &e, State &st, uint32_t want0, const char **why) {
+    if (rd(e, kOtg1Control) & kMasterEnState) { *why = "DET: OTG1 lit (one display only)"; return false; }
+    for (uint32_t r : kHubpClkP0) if (rd(e, r) & 1) { *why = "DET: a HUBP1-3 clock is on (another pipe in use)"; return false; }
+    const uint32_t want[4] = {want0, 0, 0, 0};
+    static const unsigned order[4] = {1, 2, 3, 0};
+    for (unsigned i = 0; i < 4; i++) {
+        const unsigned k = order[i];
+        const uint32_t v = rd(e, kDetCtrlP0[k]);
+        if ((v & 0x1f) == want[k]) continue;
+        uint32_t sum = rd(e, kCompbufP0) & 0x1f;
+        for (unsigned j = 0; j < 4; j++) sum += j == k ? want[k] : (rd(e, kDetCtrlP0[j]) & 0x1f);
+        if (sum > 20) { *why = "DET: CRB budget would exceed 20 segments"; return false; }
+        e.io.wr(e.io.c, kDetCtrlP0[k], (v & ~0x1fu) | want[k]);
+        st.writes++; st.detWrites++;
+        unsigned t = 0;
+        while (((rd(e, kDetCtrlP0[k]) >> 8) & 0x1f) != want[k] && t++ < 50) e.io.delayUs(e.io.c, 1000);
+        if (t > 50) { *why = "DET: SIZE_CURRENT never followed"; return false; }
+    }
+    if (rd(e, kCompbufP0) >> 31) { *why = "DET: COMPBUF config error"; return false; }
+    return true;
+}
+// b128: the DAL hard minimums of the plan (DISPCLK, DPPCLK), the two Linux sends for this mode on the XTX machine (capture
+// 2026-11-20) and upstream's pipe-1 switch sends for 1080p165 (phxp2 DAL step): DALSMC SetHardMinByFreq (9), never lowered.
+// The PMFW then moves DENTIST itself; waited for up to 100 ms. Nothing else from Linux's DAL list is sent.
+static constexpr uint32_t kDalSetHardMinByFreqP0 = 9;
+inline bool dalMins(const Env &e, State &st, const Plan &tg, char *d, size_t n) {
+    if (!e.dal || !e.pmfwIdle) { snprintf(d, n, "no DAL callback"); return false; }
+    if (!e.pmfwIdle(e.io.c)) { snprintf(d, n, "a PMFW message is in flight"); return false; }
+    for (unsigned i = 0; i < 2; i++) {
+        st.dalSent++;
+        const uint32_t r = e.dal(e.io.c, kDalSetHardMinByFreqP0, tg.dalMin[i]);
+        if (r != 1) { snprintf(d, n, "SetHardMinByFreq 0x%08x answered 0x%x", tg.dalMin[i], r); return false; }
+    }
+    for (unsigned t = 0; t < 50 && !dentistFits(rd(e, kDentist), tg.info.dentistMax); t++) e.io.delayUs(e.io.c, 2000);
+    if (!dentistFits(rd(e, kDentist), tg.info.dentistMax)) {
+        snprintf(d, n, "DENTIST 0x%08x still above %s's dividers 0x%x after the hard minimums", rd(e, kDentist), tg.info.name, tg.info.dentistMax);
+        return false;
+    }
+    return true;
+}
 enum : uint32_t { kMacRoundTrip = 1, kMacStutterOff = 2, kMacUclkPin = 4 };   // = PhxSwitchABI.h PHX_P0SW_*
 struct MacOut { int res, stage, rtRes; uint32_t curHz, flags; bool rebase; };
 inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, uint32_t uclkMhz, MacOut *o) {
@@ -819,7 +884,27 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     const uint32_t arb = rd(e, kArb);
     const bool forced = (arb & 3) != 2;
     if (forced) { e.io.wr(e.io.c, kArb, (arb & ~3u) | 2u); st.writes++; st.arbForced++; e.io.delayUs(e.io.c, 1000); o->flags |= kMacStutterOff; }
-    int r = run(e, st, pl, np, tg, kCmdSurvey);
+    int r = kDone;
+    // b128 (1440p plans): a stale OPTC0 underflow sticky (set since boot on the XTX machine, no current underflow) is cleared
+    // first, the shell's stage-10 write (Linux optc1_clear_optc_underflow); back within 20 ms = a live underflow, which the
+    // survey refuses. Then a survey without the clock / DET checks, the DET step, the DAL hard minimums, the full survey.
+    if (tg.opts & kOptStickyClear) {
+        const uint32_t odm = rd(e, kOdm0);
+        const char *w = nullptr;
+        if ((odm & kOdmSticky) && !(odm & kOdmCurrent) && W(e, st, kOdm0, kOdmSticky | kOdmClear, kOdmClear, false, &w)) {
+            st.odmPreClears++; e.io.delayUs(e.io.c, 20000);
+        }
+    }
+    if (tg.detMin || tg.dalMin) {
+        st.runs++; st.lastCmd = kCmdSurvey; st.target = static_cast<int>(tg.info.hz);
+        const Plan *c0 = nullptr;
+        r = survey(e, st, pl, np, tg, &c0, true);
+        const char *w = nullptr;
+        char d[120];
+        if (r == kDone && tg.detMin && tg.info.hz > 60 && (rd(e, kDet0) & 0x1f) < tg.detMin && !detSolo(e, st, tg.detMin, &w)) r = refuse(st, "DET", w);
+        if (r == kDone && tg.dalMin && !dentistFits(rd(e, kDentist), tg.info.dentistMax) && !dalMins(e, st, tg, d, sizeof d)) r = refuse(st, "DAL", d);
+    }
+    if (r == kDone) r = run(e, st, pl, np, tg, kCmdSurvey);
     if (r == kDone && cur && tg.info.hz > cur->info.hz && uclkMhz) {
         char d[96];
         if (!e.smu) { r = refuse(st, "UCLK pin", "no SMU callback"); }
@@ -984,6 +1069,7 @@ inline int stat(const State &st, int enable, int modeSel, char *b, int n) {
     // b105: the last refused write, its register, mask and the shell stage it was in
     if (st.refReg) PHXP0_OUT("0x%05X/0x%08x@%s%s", st.refReg, st.refMask, kStageName[st.refStage >= 0 && st.refStage <= kStVerify ? st.refStage : 0], st.refRevert ? "(revert)" : "");
     else PHXP0_OUT("none");
+    PHXP0_OUT(" dal_sent=%u det_writes=%u odm_preclears=%u", st.dalSent, st.detWrites, st.odmPreClears);   // b128
     PHXP0_OUT(" why=%s%s%s", st.why, st.warn[0] ? " warn=" : "", st.warn);
     return o;
 }

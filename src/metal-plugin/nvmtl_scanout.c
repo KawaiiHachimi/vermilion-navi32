@@ -15,6 +15,16 @@
 struct nvmtl_scan_query { uint32_t h_active, v_active, h_total, v_total, pitch_px, hubp_format, sw_mode, otg, refresh_mhz, pix_clk_khz, dcc_en, flags;
                           uint64_t frame_count, console_mc, plane_mc, earliest_mc; uint32_t acquired, plane_w, plane_h, reserved; };
 struct nvmtl_scan_slot { uint64_t mc, latched_frame; uint32_t used, flags, presents, latches; };
+#define NVMTL_SCANST_FMT10 (1u << 1)   /* kext b149+ (PHXN_SCANST_FMT10): HUBP0 scans ARGB2101010 (10-bit HDR) */
+/* An 8-bit BGRA pixel on the 10-bit scan-out: each channel's 8 bits on top of its 10, the top two repeated below, alpha 3.
+   PhxAccel has the same function as phxhead::bgraTo2101010 (src/vermilion-accel/accel/phxhead.h) for its CPU copy. Two
+   copies on purpose: this plugin is a C unit built without any kext header (it mirrors the kernel ABI above the same
+   way), and phxhead.h is C++. Not a licence boundary (both sides are PolyForm Noncommercial). Change both together. */
+static inline uint32_t nvmtl_bgra_to_2101010(uint32_t v)
+{
+    return 0xC0000000u | (((v >> 16) & 0xffu) << 22) | (((v >> 22) & 0x3u) << 20) | (((v >> 8) & 0xffu) << 12) |
+           (((v >> 14) & 0x3u) << 10) | ((v & 0xffu) << 2) | ((v >> 6) & 0x3u);
+}
 struct nvmtl_scan_status { uint32_t acquired, flags, front_slot, pending_slot; uint64_t frame_count, console_mc, plane_mc, earliest_mc;
                            uint64_t presents, latched, replaced, repeats, vupdates, latch_irq, latch_poll, refused, first_latch_ns, last_latch_ns;
                            uint64_t idle_ms, watchdog_restores, storm_trips, geom_refused; struct nvmtl_scan_slot slot[3]; };
@@ -38,6 +48,14 @@ static struct {
     dispatch_source_t keepalive;
 } g_scan;
 static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
+static int g_scan_geom_wait;
+/* The size GPU present first ran at (the boot mode). GPU present runs only at this size; every other size is drawn by the
+   CPU copy. Why: the XTX machine froze ~0.5 s after a switch to 1280x1024, the one place where GPU present could restart
+   at another size (Linux's pitch equals the width there) and the first use of the small slot layout on that card. The
+   cause is not known (.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md); lift this only with that understood. */
+static uint32_t g_scan_first_w, g_scan_first_h;
 
 static void nvmtl_scan_off_locked(const char *why)
 {
@@ -107,14 +125,25 @@ static int nvmtl_scan_start_locked(uint32_t w, uint32_t h, uint32_t pitch)
     struct nvmtl_scan_query q;
     int r = g_scan.query(g_dev, &q);
     if (r || q.plane_w != w || q.plane_h != h || q.pitch_px * 4 != pitch) {
-        nvlog("ws gpu present: plane %ux%u pitch %u vs surface %ux%u pitch %u (query %d)", q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
-        nvmtl_scan_off_locked("the display surface does not match the plane"); return -1; }
+        /* The plane may follow later (a resolution change: the kext's pitch is Linux's, wider than WindowServer's rows
+           below 1440p, so those modes run on the CPU copy). Not off for the session: query again in 2 s (cheap). */
+        static unsigned said; if (said++ < 8) nvlog("ws gpu present: plane %ux%u pitch %u vs surface %ux%u pitch %u (query %d) - CPU copy, trying again in 2 s",
+                                                    q.plane_w, q.plane_h, q.pitch_px * 4, w, h, pitch, r);
+        g_scan_geom_wait = 1;   /* these retries are not plane losses: they do not count toward the 50 restarts */
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
+    if (g_scan_first_w && (w != g_scan_first_w || h != g_scan_first_h)) {
+        static unsigned saidSize; if (saidSize++ < 8) nvlog("ws gpu present: surface %ux%u is not the first size %ux%u - CPU copy (b139: GPU present only at the first size)",
+                                                            w, h, g_scan_first_w, g_scan_first_h);
+        g_scan_geom_wait = 1;
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
+    g_scan_geom_wait = 0;
     uint64_t console = 0, frame = 0;
     if ((r = g_scan.acquire(g_dev, &console, &frame))) { nvlog("ws gpu present: acquire -> %d (debug.phxscan=1 and debug.phxfb_flip=0 needed)", r);
         /* a restart may find the console still busy (a flip pending): try again later */
         if (g_scan.restarts && g_scan.restarts < 50) { g_scan.restarts++; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; return -1; }
         g_scan.state = -1; return -1; }
     g_scan.state = 1;
+    if (!g_scan_first_w) { g_scan_first_w = w; g_scan_first_h = h; }
     const VkDeviceSize size = (VkDeviceSize)pitch * h;
     for (int k = 0; k < 3; k++) {
         VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -180,11 +209,18 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
       if (g < 0) { nvmtl_scan_off_locked("head map stall"); goto out; }
       if (g == 0) { ret = 1; goto out; } }
     if (g_scan.state == 0 && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= g_scan.retryAt) {
-        if (g_scan.retryAt) { g_scan.restarts++; nvlog("ws gpu present: restart %d after the plane was lost", g_scan.restarts); }
+        if (g_scan.retryAt && !g_scan_geom_wait) { g_scan.restarts++; nvlog("ws gpu present: restart %d after the plane was lost", g_scan.restarts); }
         nvmtl_scan_start_locked(w, h, pitch);
     }
     if (g_scan.state != 1) goto out;
-    if (w != g_scan.w || h != g_scan.h || pitch != g_scan.pitch) { nvmtl_scan_off_locked("the display surface changed size"); goto out; }
+    if (w != g_scan.w || h != g_scan.h || pitch != g_scan.pitch) {
+        /* A resolution change (PhxAccel resizes head 0): give the plane back, free the slots and start again in 0.5 s, so
+           GPU present comes back when the desktop returns to its first size */
+        nvmtl_scan_off_locked("the display surface changed size");
+        nvmtl_scan_teardown_locked();
+        g_scan_geom_wait = 1;
+        g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 500000000ull;
+        goto out; }
     nvk_buffer *src = NULL;
     /* WindowServer frees its BGRA display surfaces and makes l10r ones that can get the same id at the same address.
        An entry matched by id and address alone then kept the old import: the freed surface's pages, still wired, so
@@ -211,6 +247,12 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     struct nvmtl_scan_status st;
     memset(&st, 0, sizeof st);
     if (g_scan.status(g_dev, &st) || !st.acquired) { nvmtl_scan_lost_locked("the plane was taken back", &st); goto out; }
+    /* 10-bit HDR: with HUBP0 on ARGB2101010 an l10r surface goes to the slot as it is (MPCC0 blends with global alpha:
+       l10r's top two bits are not used) and a BGRA one is widened; the 8-bit scan-out narrows l10r (scan_l10r.comp) */
+    const int fmt10 = (st.flags & NVMTL_SCANST_FMT10) != 0;
+    { static int lastFmt10 = -1;
+      if (fmt10 != lastFmt10) { nvlog("ws gpu present: scan-out %s, surface %s", fmt10 ? "ARGB2101010 (10-bit HDR)" : "ARGB8888",
+                                      l10r ? "l10r" : "BGRA"); lastFmt10 = fmt10; } }
     uint32_t k = UINT32_MAX;
     for (uint32_t n = 0; n < 3 && k == UINT32_MAX; n++) { const uint32_t c = (g_scan.next + n) % 3; if (st.slot[g_scan.slotId[c]].flags & 4u) k = c; }
     if (k == UINT32_MAX) { g_scan.drops++; nvmtl_e0("D sid %u dropped", sid); ret = 1; goto out; }
@@ -225,7 +267,17 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     pvkBeginCommandBuffer(g_scan.cb, &bi);
     VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT };
     pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, NULL, 0, NULL);
-    if (l10r) {
+    if (fmt10 && !l10r) {
+        /* BGRA on the 10-bit scan-out: widened on the CPU into the slot (host-visible VRAM). Rare: WindowServer draws l10r
+           once colour management is up; no 10-bit variant of scan_l10r.comp is built for it */
+        void *dp = NULL;
+        if (pvkMapMemory(g_dev, g_scan.slotMem[k], 0, VK_WHOLE_SIZE, 0, &dp) != VK_SUCCESS || !dp) {
+            pvkEndCommandBuffer(g_scan.cb); nvmtl_scan_off_locked("slot map failed (10-bit widen)"); goto out; }
+        const uint32_t *sp = (const uint32_t *)base; uint32_t *wp = (uint32_t *)dp;
+        for (size_t i = 0, n = (size_t)pitch / 4 * h; i < n; i++) wp[i] = nvmtl_bgra_to_2101010(sp[i]);
+        pvkUnmapMemory(g_dev, g_scan.slotMem[k]);
+        { static unsigned saidWiden; if (saidWiden++ < 4) nvlog("ws gpu present: BGRA surface %u widened to 10 bits on the CPU", sid); }
+    } else if (l10r && !fmt10) {
         VkDescriptorBufferInfo dbi[2] = { { (VkBuffer)src->buf, 0, (VkDeviceSize)pitch * h }, { g_scan.slot[k], 0, (VkDeviceSize)pitch * h } };
         VkWriteDescriptorSet wds[2] = { { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, g_scan.ds, 0, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NULL, &dbi[0], NULL },
                                         { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, g_scan.ds, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NULL, &dbi[1], NULL } };

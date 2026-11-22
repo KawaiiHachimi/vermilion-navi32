@@ -4,10 +4,16 @@
 #pragma once
 #include <stdint.h>
 static constexpr uint32_t kDcnVmFbLocationBase          = 0x3935;   // DCN_VM_FB_LOCATION_BASE
+static constexpr uint32_t kDcnVmFbLocationTop           = 0x3936;   // DCN_VM_FB_LOCATION_TOP (16 MiB units, inclusive; Linux on the XTX: 0x85ff)
 static constexpr uint32_t kHubp0SurfaceConfig           = 0x3aa5;   // HUBP0_DCSURF_SURFACE_CONFIG
 static constexpr uint32_t kHubp0TilingConfig            = 0x3aa7;   // HUBP0_DCSURF_TILING_CONFIG
 static constexpr uint32_t kHubp0DchubpCntl              = 0x3ab3;   // HUBP0_DCHUBP_CNTL (underflow status 30:28, clear 31)
 static constexpr uint32_t kHubpreq0SurfacePitch         = 0x3ac7;   // HUBPREQ0_DCSURF_SURFACE_PITCH
+static constexpr uint32_t kHubp0PriViewportDim          = 0x3aaa;   // HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION (b138: width [13:0])
+// Adaptive Sync's per-flip writes (phx_scan.cpp). The kernel-free PhxP0Odm.h names the first two again as
+// phxodm::kOtg0VMin / kOtg0VMax, for its own range writes and the host test.
+static constexpr uint32_t kOtg0VTotalMin = 0x04FF0, kOtg0VTotalMax = 0x04FF1;   // OTG0_OTG_V_TOTAL_MIN / MAX (the ramp's window)
+static constexpr uint32_t kOtg0TrigAManualTrig = 0x04FFA;   // OTG0_OTG_TRIGA_MANUAL_TRIG (Linux optc2_program_manual_trigger)
 static constexpr uint32_t kHubpreq0PrimaryAddr          = 0x3aca;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS
 static constexpr uint32_t kHubpreq0PrimaryAddrHigh      = 0x3acb;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS_HIGH
 static constexpr uint32_t kHubpreq0SurfaceControl       = 0x3ada;   // HUBPREQ0_DCSURF_SURFACE_CONTROL (bit 0 DCC)

@@ -34,6 +34,7 @@
 #include "PhxNativeABI.h"
 #include "PhxVmTables.h"
 #include "phx_regs_dcn32.h"
+#include "PhxScanLayout.h"   // b126: GPU-present slot layout by frame size (phx_scan.cpp)
 #include "PhxDdc.h"
 #include "PhxEdid.h"
 #include "PhxHpd.h"   // b102 hot-plug K1 + A2 (phx_hpd.cpp)
@@ -46,7 +47,8 @@ extern struct sysctl_oid sysctl__debug_phxpipe2, sysctl__debug_phxpipe2_stat, sy
     sysctl__debug_phxscdc,   // b107 SCDC1 (read only)
     sysctl__debug_phxdmub_restart, sysctl__debug_phxdmub_restart_stat, sysctl__debug_phxdmub_trace_pre,   // b109 DMCUB restart
     sysctl__debug_phxscdc_fix, sysctl__debug_phxscdc_fix_stat,   // b109 SCDC fix
-    sysctl__debug_phxdmub_regtest, sysctl__debug_phxdmub_regtest_stat;   // b111 one-write DMUB REG_SEQ test
+    sysctl__debug_phxdmub_regtest, sysctl__debug_phxdmub_regtest_stat,   // b111 one-write DMUB REG_SEQ test
+    sysctl__debug_phxdmub_caps, sysctl__debug_phxdmub_caps_stat;   // b141 the GOP firmware's QUERY_FEATURE_CAPS answer
 extern struct sysctl_oid sysctl__debug_phxgamma, sysctl__debug_phxgamma_test, sysctl__debug_phxgamma_stat;   // b98 head-1 gamma (phx_gamma.cpp)
 extern struct sysctl_oid sysctl__debug_phxpipe0, sysctl__debug_phxpipe0_enable, sysctl__debug_phxpipe0_mode, sysctl__debug_phxpipe0_stat,
     sysctl__debug_phxpipe0_plan, sysctl__debug_phxpipe0_dead,   // b99 pipe-0 mode engine (phx_pipe0.cpp)
@@ -59,11 +61,18 @@ extern struct sysctl_oid sysctl__debug_phxdpcd, sysctl__debug_phxdpcd_stat;   //
 extern struct sysctl_oid sysctl__debug_phxc3, sysctl__debug_phxc3_stat, sysctl__debug_phxpoweron;   // b113 C3 REG_SEQ programs (phx_pipe2.cpp)
 extern struct sysctl_oid sysctl__debug_phxdplink, sysctl__debug_phxdplink_stat;   // b116 multiport S2b (phx_dplink.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpstream, sysctl__debug_phxdpstream_stat;   // b117 multiport S2c (phx_dpstream.cpp)
+extern struct sysctl_oid sysctl__debug_phxdpb_retrain, sysctl__debug_phxdpb_retrain_stat;   // b129 DP B retrain (phx_dpbretrain.cpp)
+extern struct sysctl_oid sysctl__debug_phxp0odm, sysctl__debug_phxp0odm_stat, sysctl__debug_phxp0odm_active;   // b131 240 Hz (phx_p0odm.cpp, phx_sysctl.cpp)
+extern struct sysctl_oid sysctl__debug_phxvrr, sysctl__debug_phxvrr_stat;   // b142 Adaptive Sync (phx_p0odm.cpp)
+extern struct sysctl_oid sysctl__debug_phxvrr_ramp, sysctl__debug_phxvrr_floor;   // b147 its ramp and live floor
 extern struct sysctl_oid sysctl__debug_phxdpwatch, sysctl__debug_phxdpwatch_stat, sysctl__debug_phxdpwatch_snap;   // b120 / b122 multiport S3 step 0 (phx_dpwatch.cpp)
 static void phxDpWatchStop();   // b120, phx_dpwatch.cpp: called by stop()
+struct phx_pipe0_setmode;
+static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0odm.cpp: 240 Hz for phxPipe0SetMode (phx_pipe0.cpp)
+static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 125u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 150u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles
@@ -91,3 +100,5 @@ static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called 
 #include "phx_dplink.cpp"   // b116
 #include "phx_dpstream.cpp"   // b117
 #include "phx_dpwatch.cpp"   // b120
+#include "phx_dpbretrain.cpp"   // b129
+#include "phx_p0odm.cpp"   // b131

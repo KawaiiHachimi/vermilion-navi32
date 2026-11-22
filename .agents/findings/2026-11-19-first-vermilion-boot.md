@@ -1,0 +1,123 @@
+# 2026-11-19: first Vermilion boot on the XTX: the bring-up works, the accelerator kext waits for approval
+
+Installed from Recovery (`recovery_install.sh` with `VERMILION_DATA="/Volumes/Macintosh HD - Data"`: its own
+search found 3 candidates, fix pending), then one boot of Macintosh HD with the `vermilion` EFI stage, flags `sdma`,
+`cg`, `uclk=456`, no desktop arm, nobody logged in. `/var/log/phxboot.log` (read from Linux with apfs-fuse):
+
+```
+squat boot ...: 0 (decided by IOFramebuffer after 0s)
+desktop-arm: 0
+Extension with identifiers org.vermilion.accel not approved to load. Please approve using System Settings.
+== bring-up + claim ==
+gfx hqd after map: active=1 base=0x800a1700 cntl=0x20a0088a dbctl=0x40000458 rptr=0
+gfx: scratch1=0xdeadbeef (want deadbeef) testbuf=0x6f7a6f7a (want 6f7a6f7a) rptr=0 rptr_wb=968 grbm=0x0000302c cp_stat=0x00000000
+adopt gfx queue -> kr 0x0
+navi31 up: compute + gfx queues ready
+sdma: sdma idle: RLC_RLCS_SDMA_INT_STAT 0x00000300 (0x00000003 = both idle)
+cg: ...
+uclk: smu msg 0x1b arg 0x000201c8 -> kr 0x00000000 resp 0x01 (OK) out 0x000001c8
+claim -> kr 0x0
+NMXAccel did not start (apps-only this boot)
+```
+
+**The whole bring-up runs on the XTX (rev 0xC8) unchanged**: PSP/SMU/RLC, MES, KIQ, the gfx queue passes its
+scratch and test-buffer checks, both SDMA engines idle, clock gating on, the SMU accepts the UCLK pin (456 MHz),
+claim OK. Nothing in the bring-up needed an XTX change.
+
+## Why VermilionAccel did not load
+
+From the unified log (kernelmanagerd, kernelmanager_helper, syspolicyd):
+
+- `kmutil load -p` asks for a new AuxKC with the kext: `auxkc build requires reboot, calling out to syspolicyd`.
+- syspolicyd: `Kernel Extension ALLOWED: Kext ((null), org.vermilion.accel)` (SIP `0x0A03` includes
+  `CSR_ALLOW_UNAPPROVED_KEXTS`; `KextPolicy` has `allowed=1`), `Triggered kext upgrade`, then
+  **`Holding work until alerts available`**: the AuxKC rebuild waits for a user session that can show the
+  "restart required" alert. Nobody was logged in, so kmutil returned error 27 ("not approved").
+- The kext can't go through OpenCore instead: it links against `IOAcceleratorFamily2`,
+  `AppleGraphicsDeviceControl` and `IOSurface`, which are in the System KC, not the Boot KC OpenCore injects into.
+
+Next: one boot with a login, so syspolicyd can finish the AuxKC rebuild (then shut down). Check from Linux that
+`/Library/KernelCollections/AuxiliaryKernelExtensions.kc` changed and contains `org.vermilion.accel` before the
+next boot.
+
+## Second and third boot (2026-11-19): VermilionAccel loads, NMXAccel up, Metal for apps
+
+- Boot with a login (18:47 Pacific): syspolicyd rebuilt the AuxKC (`/Library/KernelCollections/AuxiliaryKernelExtensions.kc`
+  03:48 local, 1.29 MB, contains `org.vermilion.accel`); that boot still logged "not approved" (the new AuxKC applies
+  from the next boot). The bring-up ran again unchanged.
+- Next boot (18:49, 49 s after `SHUTDOWN_TIME`, probably a restart, so the GPU may have been warm; unverified):
+  bring-up OK, `NMXAccel up`, `no desktop arm: GOP + Metal for apps`, `done 18:50:08`, 5 s after the daemon started.
+  No crash reports, no `phxhang-*` dump. The owner reports the desktop is faster (apps get Metal; WindowServer still
+  composites on the CPU). A `shutdown_stall` report at 19:01 lists only slow userspace daemons (softwareupdated, akd).
+- The hook `esp_flags.sh` was hardened (retries for listing and mounting while diskarbitrationd starts; a non-path
+  `Mount Point` counts as unmounted), 7/7 in its test. Run as root on macbox against its real EFI partition: an
+  unmounted partition has no `Mount Point` line, gets mounted, the flags are taken and deleted, the partition is
+  unmounted (0.9 s). The hook copies every `phxboot-*` file, including `phxboot-pre.sh` itself, so the new hook was
+  staged that way, together with `phxboot-desktop` for the first desktop-arm boot.
+
+Security note: the EFI partition is a write path into `~/gpu`, which root runs at boot. That is no new exposure
+on this machine (writing the EFI partition already needs root, and `~/gpu` is user-writable by design,
+INSTALL.md 6), but it belongs in the docs before the hook is offered upstream.
+
+## Fourth boot (2026-11-19): first desktop arm, WindowServer aborts 4x: no AIR bitcode reader
+
+`phxboot-desktop` came in through the hook (`esp-flags: set phxboot-desktop`, and the hardened hook replaced itself).
+The arm path ran to the end on the XTX at 1440p: `PhxAMDFB on panel after 1s`, `Metal device ready after 1s`,
+`AGDC up after 1s`, `armed`, `restarting WindowServer once`, then `WindowServer crashed/hung 3 times` within 33 s,
+`frames=0`, revert to GOP (warm restart; the next boot's bring-up was fine again, so a warm macOS restart is OK on
+this card). The four `WindowServer-*.ips` all abort in `CA::OGL::new_metal_context` with
+`newLibraryWithURL: translation produced nothing for /System/Library/Frameworks/QuartzCore.framework/Resources/default.metallib`.
+The plugin log in `/var/log/phxhang-20261118-191100/` says why:
+
+```
+library: in-memory bitcode reader unavailable: dlopen(.../NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib ...) (no such file)
+library: air-opt spawn failed: No such file or directory
+library: metallib 160188176 bytes, 180 bitcode blobs, 0 entries indexed, 0 visible
+```
+
+The GPU side looked healthy (GRBM idle, all VMIDs free): this is the missing runtime piece, not a GPU fault. The
+owner's "WindowServer crashed" dialog at the next login reported these same four crashes (no crash in that boot).
+Also from the log: the device reports `AMD Radeon RX 7900 XT (RADV NAVI31)` and 84 CUs, the XT canned profile
+(docs/XTX.md item 1, cosmetic for now).
+
+Fix: NullMoth 3.0's `air-runtime/libLLVM.dylib` (LLVM 21.1.8, x86_64, ad-hoc signed; exports all 13 functions the
+plugin looks up; loads and creates a context on macOS 26.7.3 on macbox) and `libzstd.1.dylib`, installed by
+`tools/phxctl/air_runtime_install.sh` (md5-checked). Delivered without Recovery: the hook gained `run-once.sh` (moved
+off the EFI partition, then run as root before the flags are read); the installed hook only copies flags, so the next
+boot copies the new hook (`flags/phxboot-pre.sh`), and the boot after it runs `run-once.sh`, which installs the
+reader and sets `phxboot-desktop`. Tests: `espflags_test.sh` 10/10, daemon scenarios green.
+
+## Fifth and sixth boot (2026-11-19): SUCCESS, the accelerated desktop on the XTX; a phantom "UNKNOWN" display
+
+- The new hook ran `run-once.sh`: `air-runtime: installed libLLVM.dylib libzstd.1.dylib`, `phxboot-desktop set`.
+- `PhxAMDFB on panel after 1s`, `Metal device ready after 1s`, `AGDC up after 1s`, WindowServer restart,
+  **`SUCCESS at 19:48:17: WindowServer pid 1046, frames=749 -- accelerated desktop survived`**. `Metal compositor
+  activated.` in WindowServer's log. No crash reports.
+- Owner: the screen went black ~15 s after boot and came back with the wallpaper only (no login window); a blind
+  login worked; System Settings shows two displays, the monitor and "UNKNOWN"; the mouse feels odd; the refresh rate
+  feels low, with input lag (not measured).
+- Cause of the second display: CoreDisplay sets modes on two framebuffers (`fbRegID 0x100000677`, the
+  monitor, and `displayID 0x0 fbRegID 0x1000004d7`). The firmware framebuffer (IONDRV) stays registered next to
+  PhxAMDFB on a desktop-arm boot that is not a squat boot (`fBeside` in phxfb.cpp marks exactly this case, but nothing
+  hides IONDRV). Upstream's squat boot avoids it: PhxFBSquatter takes the IOFramebuffer category so IONDRV never starts.
+  The login window most likely went to the invisible display.
+- Squat needs `phxfb-squat` in NVRAM at boot, and macOS can't write firmware NVRAM here (`DisableVariableWrite`).
+  Linux can (it doesn't boot through OpenCore): `phxfb-squat` written as an EFI variable in Apple's GUID
+  (`7C436110-...`, attributes NV+BS+RT, value "1"), where `boot-args` and `csr-active-config` already live. Expected
+  (unverified): every OpenCore boot is a squat boot until the variable is deleted from Linux or by the picker's Reset
+  NVRAM, because the kext's removal at probe can't reach the firmware. A failed squat boot reboots, and the default
+  boot entry is Limine, so it lands in Linux. Recovery would have no display while the variable is set.
+
+## Seventh boot (2026-11-19): squat boot works; one display; the input lag is the CPU copy through the BAR
+
+- `phxfb-squat` written from Linux worked: `squat boot ...: 1 (decided by PhxFBSquatter after 0s)`, the desktop
+  armed, one display only (the owner confirmed "UNKNOWN" is gone). The owner shut down cleanly during the 120 s
+  watch (`clean shutdown (TERM) ... in-progress mark cleared`), so no SUCCESS line, as designed. The EFI variable is
+  still set after the boot (macOS can't delete it here), so every OpenCore boot is now a squat boot.
+- Input lag and the low refresh feel: the kernel log says
+  `PhxFB: alias: carve-out 0x0, scan-out BAR offset 0x0: no system-RAM view, copying through the BAR` and the
+  iop plane is `2560x1440 ... vidmem 14745600 bytes ... scanout 0`: every frame (14.7 MB) is copied by the CPU over
+  PCIe into the scanned buffer. The two direct paths don't fit at 1440p: phxfb's flip buffer B and the three
+  GPU-present slots are 8 MiB regions (`phxhead.h` `kErrTooBig`; `PhxNativeABI.h`: slots at 24/32/40 MiB, the PSP ring
+  at 48 MiB). This is docs/XTX.md's "16 MiB scan slots" item.
+- Not measured yet: the monitor's actual refresh (the GOP's mode). The owner can read it on the monitor's OSD.

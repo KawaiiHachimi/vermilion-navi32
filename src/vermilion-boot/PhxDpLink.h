@@ -35,13 +35,18 @@ constexpr uint32_t kSeg1 = 0xC0, kSeg2 = 0x34C0;   // DCN BASE_IDX 1 / 2 (the ca
 // ---- connectors -----------------------------------------------------------------------------------------------------
 // dig = DIG FE = DIG BE = PHY index (multiport 3.4: FE = BE = PHY letter on DCN32); hpd = HPDn sense line; aux = DP_AUXn;
 // hpdsel = the DMUB hpdsel byte = VBIOS HPD pin id = hpd + 1 (traces: DP E 5, DP A 4, DP B 3, HDMI D 1).
-struct Conn { const char *name; uint8_t dig, phy, hpd, aux, hpdsel; };
+// retrain (b129): 1 = the GOP's own link, only for PhxDpbRetrain.h (the live pipe-0 link retrained in place, HBR3 allowed).
+struct Conn { const char *name; uint8_t dig, phy, hpd, aux, hpdsel, retrain; };
 static constexpr Conn kConns[] = {
-    {"DP-A", 0, 0, 3, 3, 4},
-    {"DP-E", 4, 4, 4, 4, 5},
+    {"DP-A", 0, 0, 3, 3, 4, 0},
+    {"DP-E", 4, 4, 4, 4, 5, 0},
 };
 static constexpr unsigned kNConns = sizeof kConns / sizeof kConns[0];
 // DP B (DIG1 / PHY B) is the GOP's pipe 0 and HDMI D (DIG3 / PHY D) is pipe 1: never in kConns, so never driven here.
+// b129: DP B (DIG1 / PHY B / HPD2 / AUX2, hpdsel 3), the GOP's pipe-0 link. Not in kConns: connByDig never returns it,
+// so the multiport probes (PhxDpRun.h, PhxDpStream.h) still refuse DP B. Linux's 144 -> 240 Hz capture (2026-11-20) sent
+// TRANSMITTER_CONTROL with exactly these bytes for it (phyid 1, hpdsel 3).
+static constexpr Conn kConnDpB = {"DP-B", 1, 1, 2, 2, 3, 1};
 inline const Conn *connByDig(unsigned dig) {
     for (const Conn &c : kConns) if (c.dig == dig) return &c;
     return nullptr;
@@ -107,9 +112,9 @@ static_assert(beCntl(kConns[1], false) == 0x40000000u && beCntl(kConns[1], true)
               beCntl(kConns[0], true) == 0x30000100u, "BE_CNTL = trace (DP E) / snap (DP A)");
 
 // ---- link rates, caps, link choice ------------------------------------------------------------------------------------
-enum : uint8_t { kRbr = 0x06, kHbr = 0x0a, kHbr2 = 0x14 };
+enum : uint8_t { kRbr = 0x06, kHbr = 0x0a, kHbr2 = 0x14, kHbr3 = 0x1e };   // kHbr3: retrain connectors only (b129)
 struct Link { uint8_t rate, lanes; };
-inline constexpr uint32_t symclk10k(uint8_t rate) { return rate * 2700u; }   // RBR 16200, HBR 27000, HBR2 54000
+inline constexpr uint32_t symclk10k(uint8_t rate) { return rate * 2700u; }   // RBR 16200, HBR 27000, HBR2 54000, HBR3 81000
 inline constexpr uint64_t linkKbps(Link l) { return static_cast<uint64_t>(l.rate) * 270000u * 8u / 10u * l.lanes; }
 struct Sink { uint8_t rev, maxRate, maxLanes; bool enhanced, tps3, tps4, downspread; uint8_t trainIntervalRaw; };
 inline bool parseCaps(const uint8_t caps[16], Sink *s) {
@@ -156,15 +161,17 @@ inline bool txAllowed(const uint32_t c[16], const Conn &k, const char **why) {
     const char *w = nullptr;
     const uint32_t phy = c[1] & 0xff, act = (c[1] >> 8) & 0xff, b2 = (c[1] >> 16) & 0xff, lanes = c[1] >> 24;
     const uint32_t hs = c[3] & 0xff, fe = (c[3] >> 8) & 0xff, b10 = (c[3] >> 16) & 0xff, b11 = c[3] >> 24;
-    const bool rateOk = c[2] == symclk10k(kRbr) || c[2] == symclk10k(kHbr) || c[2] == symclk10k(kHbr2);
+    const bool rateOk = c[2] == symclk10k(kRbr) || c[2] == symclk10k(kHbr) || c[2] == symclk10k(kHbr2) ||
+                        (k.retrain && c[2] == symclk10k(kHbr3));
     if (c[0] != kTxHdr) w = "not TRANSMITTER_CONTROL (128/1, 60 bytes)";
-    else if (phy != k.phy || (phy != 0 && phy != 4)) w = "PHY not this connector's (never PHY B / PHY D)";
+    else if (phy != k.phy || (phy != 0 && phy != 4 && !(k.retrain && phy == 1)))
+        w = "PHY not this connector's (never PHY D; PHY B only for the DP B retrain)";
     else if (hs != k.hpdsel) w = "hpdsel not this connector's";
     else if (fe != 0) w = "digfe_sel not 0";
     else if (act == kTxEnable) {
         if (b2 != 0) w = "ENABLE digmode not DP";
         else if (lanes != 1 && lanes != 2 && lanes != 4) w = "ENABLE lanes";
-        else if (!rateOk) w = "ENABLE symclk not RBR/HBR/HBR2";
+        else if (!rateOk) w = "ENABLE symclk not RBR/HBR/HBR2 (HBR3: retrain only)";
         else if (b10 != 0x00 || b11 != 0xf4) w = "ENABLE bytes 10/11";
     } else if (act == kTxVsemph) {
         if ((b2 & ~0x1bu) || (b2 & 3) + ((b2 >> 3) & 3) > 3) w = "SETUP_VSEMPH dplaneset (vs + pe <= 3)";
@@ -184,6 +191,7 @@ inline bool txAllowed(const uint32_t c[16], const Conn &k, const char **why) {
 inline bool dpcdWriteAllowed(uint32_t a, unsigned n) {
     if (!n || n > 5) return false;
     if (a == 0x600) return n == 1;
+    if (a == 0x120 || a == 0x160) return n == 1;   // b131: FEC_CONFIGURATION, DSC_ENABLE (the ODM 2:1 path only writes them)
     return a >= 0x100 && a + n <= 0x109;
 }
 
@@ -242,6 +250,8 @@ struct Opts {
     uint8_t eqMaxLoops = 6;
     bool onePpc = false;       // b119: the DIG/DP side in one pixel per clock (an OTG clocked the GOP's way, S2d); default =
                                // Linux's two pixels per clock (every golden of the host test)
+    bool fec = false;          // b131: FEC_READY during training (Linux dp_set_fec_ready: DPCD 0x120 = 1 after TRAINING_PATTERN
+                               // 0, DP_DPHY_CNTL FEC_READY_SHADOW 0x20 kept through the patterns); the caller turns FEC on after
 };
 inline uint32_t pixFmt(const Opts &o) { return o.onePpc ? kPixFmt8bpc1ppc : kPixFmt8bpc2ppc; }
 inline uint32_t fifoBase(const Opts &o) { return o.onePpc ? kFifoBase1ppc : kFifoBase; }
@@ -280,11 +290,13 @@ inline int dpWr(Ctx &x, uint32_t a, const uint8_t *b, unsigned n) {
 inline int dpWr1(Ctx &x, uint32_t a, uint8_t v) { return dpWr(x, a, &v, 1); }
 
 // The DP block side of a training pattern (Linux dcn10_link_encoder_dp_set_phy_pattern, trace order).
+constexpr uint32_t kDphyFecReady = 0x20u, kDphyFecEn = 0x10u;   // DP_DPHY_CNTL FEC_READY_SHADOW / FEC_EN (b131)
+inline uint32_t dphyIdle(const Opts &o) { return o.fec ? kDphyFecReady : 0u; }
 inline void phyPattern(Ctx &x, uint32_t sel) {
     const Regs g = regs(x.k.dig);
     W(x, g.tpsSel, sel);
     W(x, g.linkCntl, 0);
-    W(x, g.dphyCntl, 0);
+    W(x, g.dphyCntl, dphyIdle(x.o));
     W(x, g.prbs, kTrainPrbs);
 }
 inline int drive(Ctx &x, Link l, uint8_t vs, uint8_t pe) {
@@ -327,6 +339,10 @@ inline int trainOnce(Ctx &x, const Sink &s, Link l) {
     const uint32_t crUs = (ival[0] & 0x7f) ? (ival[0] & 0x7f) * 4000u : 100u;
     const uint32_t eqUs = (ival[1] & 0x7f) ? (ival[1] & 0x7f) * 4000u : 400u;
     if ((rc = dpWr1(x, 0x102, 0))) return rc;
+    if (x.o.fec) {                                                                // b131, Linux order (ODM 2:1 capture)
+        if ((rc = dpWr1(x, 0x120, 1))) return rc;
+        W(x, g.dphyCntl, kDphyFecReady);
+    }
     if ((rc = dpWr1(x, 0x108, 1))) return rc;                                     // 8b/10b
     if ((rc = dpWr1(x, 0x107, s.downspread ? 0x10 : 0x00))) return rc;
     if ((rc = dpWr1(x, 0x101, static_cast<uint8_t>(l.lanes | (s.enhanced ? 0x80 : 0))))) return rc;
@@ -383,7 +399,7 @@ inline int trainOnce(Ctx &x, const Sink &s, Link l) {
     W(x, g.framing, kFramingIdle | (s.enhanced ? kFramingEnhanced : 0));
     W(x, g.scram, kScram);
     W(x, g.linkCntl, kLinkTrained);
-    W(x, g.dphyCntl, 0);
+    W(x, g.dphyCntl, dphyIdle(x.o));
     W(x, g.prbs, kTrainPrbs);
     D(x, 5000);
     uint8_t a[6];

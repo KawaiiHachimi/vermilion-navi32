@@ -1,0 +1,98 @@
+{
+  "_comment": "The XTX machine (docs/REFERENCE-MACHINES.md). Values that differ from OpenCore's Sample.plist, by stage. Each stage starts from the one named in 'inherits' and adds to it. SMBIOS serials are NOT here: build.py reads them from ~/.config/vermilion/smbios-<machine>.json.",
+  "name": "ASUS ROG STRIX B650E-I + Ryzen 9 7900X3D + RX 7900 XTX",
+  "cpu_physical_cores": 12,
+  "smbios_model": "MacPro7,1",
+  "rom_from_interface": "eno1",
+  "acpi": ["SSDT-CPUR-B650EI.dsl", "SSDT-EC-USBX-B650EI.dsl"],
+  "_acpi": "SSDT-CPUR: the firmware declares CPUs only as ACPI0007 devices; macOS needs Processor () objects (24, matching the MADT's enabled IDs). See the table's header.",
+  "dsdt_fix": false,
+  "_dsdt_fix": "Replacing the DSDT with a recompiled, resolved copy (fix_dsdt.py resolve) loaded cleanly but did not get past the CoreAnalyticsHub hang (third boot, 2026-11-18). Replaced by in-place NOP patches below, the method proven on other ASUS AM5 boards (nullmoth/1401 issue 21).",
+  "acpi_patches": [
+    {"comment": "DSDT BIOS 4005 line 12901 @0x0ED92: unconditional chipset PCIe tree (If (G002 != 3 && G000 == 1)); 26/26 devices present under Linux",
+     "table": "DSDT", "find": "a04fa7909293473030320a03934730303001", "count": 1},
+    {"comment": "DSDT BIOS 4005 line 13497 @0x0F812: unconditional chipset xHCI + ports (If (G002 != 3 && G000 == 1 && G004 != 0x43FA1022)); 18/18 present",
+     "table": "DSDT", "find": "a0496e909293473030320a03909347303030019293473030340c2210fa43", "count": 1},
+    {"comment": "DSDT BIOS 4005 line 15053 @0x10E80: unconditional DP20.NV00 (If (... && G002 != 5)); 1/1 present",
+     "table": "DSDT", "find": "a04206909293473030320a03909347303030019293473030320a05", "count": 1},
+    {"comment": "DSDT BIOS 4005 line 15079 @0x10EE3: unconditional DP00.NV00 (If (... && G002 != 6)); 1/1 present",
+     "table": "DSDT", "find": "a04206909293473030320a03909347303030019293473030320a06", "count": 1},
+    {"comment": "DSDT BIOS 4005 line 15461 @0x113C2: unconditional DP40.EP00 (If (G002 != 3 && G000 == 1 && G002 != 4 && G003 == 0)); 1/1 present",
+     "table": "DSDT", "find": "a04c0590909293473030320a03934730303001909293473030320a04934730303300", "count": 1}
+  ],
+  "_acpi_patches": "Each Find is an If header (opcode A0, PkgLength, predicate) in the firmware DSDT, replaced by the same number of NOPs (A3): the block body then runs while the table loads, as on Linux. The blocks are the ones whose devices all exist under Linux on BIOS 4005 (fix_dsdt.py resolve plan). build.py checks each Find occurs exactly once in the dumped DSDT. Re-derive after a BIOS update.",
+
+  "booter_quirks": {
+    "AvoidRuntimeDefrag": true,
+    "DevirtualiseMmio": true,
+    "EnableSafeModeSlide": true,
+    "EnableWriteUnprotector": false,
+    "ProvideCustomSlide": true,
+    "RebuildAppleMemoryMap": true,
+    "SetupVirtualMap": true,
+    "SyncRuntimePermissions": true,
+    "DisableVariableWrite": true,
+    "_DisableVariableWrite": "Ryzen 7000/8000/9000 boards hang when the macOS installer writes firmware variables (freeze at ~12-19 minutes remaining, 2026-11-19). Fix from nullmoth/1401 docs/TROUBLESHOOTING.md and issue 21.",
+    "ResizeAppleGpuBars": 0,
+    "_ResizeAppleGpuBars": "0 = macOS sees the GPU BARs at their default sizes (BAR0 256 MiB) while Resizable BAR stays on in the BIOS for Linux. Vermilion maps BAR0 as a VRAM window and was validated with 256 MiB (src/vermilion-boot/phx_core.cpp). OpenCore 1.0.8 accepts only -1 or 0 here."
+  },
+  "kernel_quirks": {
+    "DisableIoMapper": true,
+    "DisableLinkeditJettison": true,
+    "PanicNoKextDump": true,
+    "PowerTimeoutKernelPanic": true,
+    "ProvideCurrentCpuInfo": true,
+    "XhciPortLimit": false
+  },
+  "kernel_patches": [
+    {"comment": "Pike R. Alpha | AGDP board-id -> board-ix (agdpmod=pikera without WhateverGreen) | 26+",
+     "identifier": "com.apple.driver.AppleGraphicsDevicePolicy", "find": "626f6172642d6964", "replace": "626f6172642d6978",
+     "min_kernel": "25.0.0", "count": 0}
+  ],
+  "_kernel_patches": "Navi (RDNA) cards need agdpmod=pikera or they hang/black-screen when the graphics stack takes over (stall after 'IOG flags 0x3 (0x51)', 2026-11-19). WhateverGreen breaks on macOS 26 (Dortania Tahoe page), so this is the same rename as a kernel patch, exactly as nullmoth/1401 p1401/policy.py PIKERA_PATCH does for AMD dGPUs on Tahoe.",
+  "kernel_emulate": {
+    "DummyPowerManagement": true
+  },
+  "uefi_quirks": {
+    "RequestBootVarRouting": true,
+    "ReleaseUsbOwnership": false,
+    "ResizeGpuBars": -1
+  },
+  "uefi_drivers": ["HfsPlus.efi", "OpenRuntime.efi", "ResetNvramEntry.efi --preserve-boot"],
+  "_uefi_drivers": "--preserve-boot: the picker's Reset NVRAM keeps the firmware boot entries (Limine, OpenCore). Without it a reset wiped them all on 2026-11-18.",
+  "misc": {
+    "Boot": {"ShowPicker": true, "Timeout": 10, "PickerMode": "Builtin", "HideAuxiliary": false, "PollAppleHotKeys": true},
+    "Debug": {"AppleDebug": true, "ApplePanic": true, "DisableWatchDog": true, "Target": 67},
+    "Security": {"AllowSetDefault": true, "BlacklistAppleUpdate": true, "DmgLoading": "Signed", "ExposeSensitiveData": 6,
+                 "ScanPolicy": 0, "SecureBootModel": "Disabled", "Vault": "Optional"}
+  },
+  "tools": ["OpenShell.efi"],
+
+  "stages": {
+    "install": {
+      "_comment": "Phase 1 first boot and the macOS install: the fewest kexts that boot, SIP on, verbose.",
+      "kexts": ["Lilu", "VirtualSMC", "NVMeFix", "RestrictEvents", "AppleMCEReporterDisabler"],
+      "boot_args": ["-v", "keepsyms=1", "debug=0x100"],
+      "csr_active_config": "00000000"
+    },
+    "base": {
+      "_comment": "Phase 1 after the install: Wi-Fi, then the rest of the machine, one change per boot. Wi-Fi: AirportMtkWlan 2.1.6 loaded but never attached to the card (boot 1, 2026-11-19); MtkWirelessWifi 1.1.1 since then (findings/2026-11-19-wifi-mt7922.md).",
+      "inherits": "install",
+      "kexts_add": ["MtkWirelessWifi"],
+      "boot_args_add": ["pci=0x8000000"],
+      "_boot_args_add": "pci=0x8000000 = kIOPCIConfiguratorDefaultETF (IOPCIFamily-726 IOPCIConfigurator.h): macOS keeps the firmware's extended/10-bit tag settings. Without it IOPCIBridge::probeBusGated sets 10-Bit Tag Requester Enable on the GPP7 root port (Linux leaves it off), and the MT7922 and I225-V, the only chipset endpoints without 10-bit tag completer support, stop answering (2026-11-19, findings/2026-11-19-wifi-mt7922.md). AMD_Vanilla's 'Disable 10 bit tags' patch is enabled but the bit was set anyway."
+    },
+    "vermilion": {
+      "_comment": "Phase 2: Vermilion (docs/INSTALL.md section 1). Needs build/VermilionBoot.kext from the macOS build host. Inherited install from 2026-11-19 (GPU first, Wi-Fi untested); re-parented onto base on 2026-11-19 for the Wi-Fi test, so the booted stage gets AirportMtkWlan and nothing else changes.",
+      "inherits": "base",
+      "kexts_add": ["AMFIPass", "VermilionBoot"],
+      "boot_args_add": ["amfi=0x80", "ipc_control_port_options=0", "phxdebug=1"],
+      "csr_active_config": "030A0000"
+    },
+    "vermilion-pcilog": {
+      "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
+      "inherits": "vermilion",
+      "boot_args_add": ["pci_log_mode=0x6", "pci_log=0x677"]
+    }
+  }
+}

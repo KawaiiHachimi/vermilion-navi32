@@ -121,6 +121,58 @@ static int phxfb0OfferSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb0_offer, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfb0OfferSysctl, "I",
             "head 0's offer gate: 1 = every listed mode offered, 0 = only the lit one (closed at start with a mode list); write 1 (root) to open it and drop the IOFBConfig cache");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_offer_opens, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0OfferOpens, "head 0: offer gate openings");
+// ---- head 0's display features: Adaptive Sync, its floor, HDR, the 10-bit scan-out ------------------------------------
+// The first three are read once, when head 0 starts, and the boot daemon (tools/phxctl/phxboot-navi31.sh) writes them
+// before the claim. So they are registered when the kext loads (phxVrrOids, called from _start in nvrm-accel.cpp), not
+// at PhxAMDFB's start like kFbOids. Never in kFbOids too: a second registration panics.
+//
+// Adaptive Sync (.agents/findings/2026-11-20-adaptive-sync-research.md; works on the XTX machine). 1 (default) = when
+// the EDID has a range limits descriptor, the 240 Hz DisplayID timing is listed and PhxBringup switches the range
+// ("phxVrrSet", property phx-vrr-fn, b144+), head 0 publishes IOFBTimingRange with Apple's AMD driver's VRR sync flag
+// (0x10) and offers the variable twin of 240, whose timing carries verticalBlankingExtension: System Settings shows
+// "Variable (60-240 Hz)" next to the fixed rates. 0 = none of it (the boot daemon's ~/gpu/phxboot-novrr, the safe
+// desktop). The XT machine's monitors have no such timing: its lists are unchanged (head0_1440_test).
+int gPhxVrr = 1;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrr, 1,
+           "Adaptive Sync on head 0 (read at its start): 1 = offer System Settings' Variable when the monitor and PhxBringup support it, 0 = never");
+// HDR (.agents/findings/2026-11-21-hdr.md; works on the XTX machine). 1 (default) = with Adaptive Sync's timing range
+// published (the LG) and PhxBringup b145+ (its HDR replay modes), head 0's timing range also reports RGB, 8 / 10 bpc,
+// BT.2020 and SDR | HDR10, it offers a 30-bit depth, and the 1440p rates get HDR10 twins: System Settings shows "High
+// Dynamic Range" (CoreDisplay's SupportsHDRMode looks for the HDR10 twin of the current mode). 0 = none of it (the boot
+// daemon's ~/gpu/phxboot-nohdr, the safe desktop).
+int gPhxHdr = 1;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_hdr, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxHdr, 1,
+           "HDR on head 0 (read at its start): 1 = offer System Settings' High Dynamic Range when the monitor and PhxBringup support it, 0 = never");
+// Adaptive Sync's floor: the lowest rate Variable may reach, in Hz. The LG flickers near its EDID minimum of 48 Hz (the
+// monitor's own VRR behaviour: also on Windows and Linux), so the default is 60. Head 0 uses the larger of this and the
+// EDID's minimum for the menu ("Variable (60-240 Hz)"), the twin's verticalBlankingExtension and, with PhxBringup b146+,
+// OTG0's V_TOTAL_MAX; 0 = the EDID's minimum. The boot daemon's ~/gpu/phxboot-vrrmin sets it.
+int gPhxVrrMin = 60;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_vrrmin, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxVrrMin, 60,
+           "Adaptive Sync floor on head 0 in Hz (read at its start): Variable runs from max(this, the EDID's minimum) to the mode's rate; 0 = the EDID's minimum");
+// 10-bit HDR (read only): 1 while HUBP0 scans ARGB2101010 (PhxBringup b149+'s HDR plans; read through "phxScanFmt"
+// after each head-0 switch). The CPU copy (nvrm-accel.cpp) then copies l10r as it is and widens BGRA, instead of
+// narrowing to 8 bits.
+int gPhxScan10 = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxfb0_scan10, CTLFLAG_RD | CTLFLAG_LOCKED, &gPhxScan10, 0,
+           "b149: 1 = head 0 scans ARGB2101010 (HDR, 10 bits per colour): the CPU copy keeps l10r's 10 bits");
+// Registers / unregisters the four sysctls above (kext load / unload). Named after the first one it held.
+static bool gVrrOidsUp = false;
+void phxVrrOids(bool up) {
+    if (up == gVrrOidsUp) return;
+    if (up) {
+        sysctl_register_oid(&sysctl__debug_phxfb0_vrr);
+        sysctl_register_oid(&sysctl__debug_phxfb0_hdr);
+        sysctl_register_oid(&sysctl__debug_phxfb0_vrrmin);
+        sysctl_register_oid(&sysctl__debug_phxfb0_scan10);
+    } else {
+        sysctl_unregister_oid(&sysctl__debug_phxfb0_vrr);
+        sysctl_unregister_oid(&sysctl__debug_phxfb0_hdr);
+        sysctl_unregister_oid(&sysctl__debug_phxfb0_vrrmin);
+        sysctl_unregister_oid(&sysctl__debug_phxfb0_scan10);
+    }
+    gVrrOidsUp = up;
+}
 static int phxfbResyncSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb_resync, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfbResyncSysctl, "I",
             "head 0 (root): 1 = take the mode OTG0 runs now as current (after a kext-only pipe-0 set); reads the last result: the id now current, 0 never run, -1 no head 0, -2 no mode list, -3 OTG0 at no listed mode (nothing changed), -4 busy");
@@ -287,6 +339,27 @@ class PhxAMDFB : public IOFramebuffer {
     bool fBeside = false;   // another framebuffer (the firmware's IONDRV one) already drives this GPU: not the console
     IOPhysicalAddress fBase = 0;
     uint32_t fWidth = 0, fHeight = 0, fRowBytes = 0;
+    // b138: the boot console's geometry (the GOP's surface A, its VRAM and flip-B placement); fWidth / fHeight / fRowBytes
+    // follow the lit mode once PhxBringup resizes the scan-out (head 0 with phx-p0-keys), else they stay these
+    uint32_t fBootW = 0, fBootH = 0, fBootRowBytes = 0;
+    uint32_t fVrrMinHz = 0;   // Adaptive Sync: Variable's floor while it is offered (phxhead::vrrFloor; 0 = not offered)
+    bool fVrrFloorFn = false; // PhxBringup b146+: "phxVrrSet" takes the floor
+    uint32_t fVrrSaid = 0;    // Adaptive Sync: mode ids whose extension was logged (bit per id)
+    bool fHdrOk = false;      // HDR: the twins are listed (the monitor, gPhxHdr, PhxBringup b145+); set with the mode list
+    bool fHdr = false;        // HDR: the timing range reports HDR10 too (fHdrOk and the range was published)
+    // HDR: the depth macOS set (1 = 30-bit). No hardware follows it: the scan-out's format is the lit plan's (8-bit in
+    // SDR, ARGB2101010 in HDR, gPhxScan10), and the copies convert to that.
+    IOIndex fDepth = 0;
+    bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
+    const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
+        return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
+    }
+    uint32_t modeW(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->w : fWidth; }
+    uint32_t modeH(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->h : fHeight; }
+    uint32_t modeRow(IODisplayModeID mode) const {
+        const phxhead::HeadMode *m = modeOf(mode);
+        return m && fAnySize ? phxhead::modeRowBytes(*m, fBootW, fBootH, fBootRowBytes) : fRowBytes;
+    }
     static constexpr uint64_t kFrameNs = 16666667ull;   // 60 Hz, when the refresh cannot be measured
     uint64_t fFrameNs = kFrameNs;
     uint32_t fRefreshMilliHz = 60000, fHTotal = 0, fVTotal = 0;
@@ -603,6 +676,9 @@ class PhxAMDFB : public IOFramebuffer {
         if (fFlipOk) return true;
         if (!fMmio || !fSurfMap || !fRowBytes || !fHeight) return false;
         const uint64_t size = (uint64_t)fRowBytes * fHeight;
+        // b138: B sits past A's boot-sized surface and is mapped at that size, whatever the lit mode: a frame copied with the
+        // geometry from before a resize still fits it
+        const uint64_t bootSize = fBootRowBytes && fBootH ? (uint64_t)fBootRowBytes * fBootH : size;
         uint64_t barStart = 0, barLen = 0;
         for (uint32_t i = 0; i < fPCI->getDeviceMemoryCount(); i++) {
             IODeviceMemory *dm = fPCI->getDeviceMemoryWithIndex(i);
@@ -612,18 +688,18 @@ class PhxAMDFB : public IOFramebuffer {
         }
         const uint64_t aVram = fBase - barStart, fbMc = (uint64_t)(R(kRegFbBase) & 0xffffff) << 24;
         fAmc = ((uint64_t)(R(fFR.addrHi) & 0xffff) << 32) | R(fFR.addrLo);
-        uint64_t bVram = (aVram + size + 0x1fffff) & ~0x1fffffull;
+        uint64_t bVram = (aVram + bootSize + 0x1fffff) & ~0x1fffffull;
         const phxhead::Range bw = phxhead::flipBRange(fHead);
         if (bVram < bw.lo) bVram = bw.lo;
         const uint32_t pitchPx = (R(fFR.pitch) & 0x3fff) + 1;
         PFBLOG("flip: A at VRAM 0x%llx (MC 0x%llx, FB base 0x%llx), pitch %u px, B at VRAM 0x%llx, %llu bytes, BAR 0x%llx+0x%llx",
                aVram, fAmc, fbMc, pitchPx, bVram, size, barStart, barLen);
-        if (!barLen || fAmc - fbMc != aVram || pitchPx * 4 != fRowBytes || bVram + size > bw.hi || bVram + size > barLen) {
+        if (!barLen || fAmc - fbMc != aVram || pitchPx * 4 != fRowBytes || bVram + bootSize > bw.hi || bVram + bootSize > barLen) {
             PFBLOG("flip: layout does not fit the double buffer - staying on the copy");
             return false;
         }
         if (!fBackMap)
-            if (IODeviceMemory *dm = IODeviceMemory::withRange(barStart + bVram, size)) { fBackMap = dm->map(kIOMapWriteCombineCache); dm->release(); }
+            if (IODeviceMemory *dm = IODeviceMemory::withRange(barStart + bVram, bootSize)) { fBackMap = dm->map(kIOMapWriteCombineCache); dm->release(); }
         if (!fBackMap) { PFBLOG("flip: B would not map"); return false; }
         const volatile uint64_t *a = (const volatile uint64_t *)fSurfMap->getVirtualAddress();
         volatile uint64_t *b = (volatile uint64_t *)fBackMap->getVirtualAddress();
@@ -763,7 +839,8 @@ public:
         return IODeviceMemory::withRange(fBase, (IOPhysicalLength)fRowBytes * fHeight);
     }
     IODeviceMemory *getVRAMRange() override { return getApertureRange(kIOFBSystemAperture); }
-    const char *getPixelFormats() override { return IO32BitDirectPixels "\0"; }
+    // HDR: head 0 also offers Apple's AMD driver's depth 2, 30-bit (index 1 here; no 16-bit, no 64-bit float)
+    const char *getPixelFormats() override { return fHdr ? IO32BitDirectPixels "\0" kIO30BitDirectPixels "\0" : IO32BitDirectPixels "\0"; }
     // head 0's offer gate (phxoffer.h): while closed only the lit mode is listed. getDisplayModes never writes more entries
     // than the count it follows reported (IOFramebuffer sizes the array by that count; the gate may open in between).
     bool offerClosed() const { return fHead == 0 && fNModes && !gHead0OfferOpen; }
@@ -792,7 +869,7 @@ public:
         if (phxRotOwns(fRot, fHead, mode)) return phxRotInfo(fRot, fHead, mode, info, rotModes().single);
         if (!listed(mode) || !info) return kIOReturnBadArgument;
         bzero(info, sizeof(*info));
-        info->maxDepthIndex = 0; info->nominalWidth = fWidth; info->nominalHeight = fHeight;
+        info->maxDepthIndex = fHdr ? 1 : 0; info->nominalWidth = modeW(mode); info->nominalHeight = modeH(mode);   // b138: per mode
         const phxhead::HeadMode *hm = fNModes ? phxhead::headMode(fHead, (uint32_t)mode) : nullptr;
         const uint32_t mhz = hm ? hm->milliHz : fRefreshMilliHz;
         info->refreshRate = (IOFixed1616)(((uint64_t)mhz << 16) / 1000); info->flags = modeFlags(mode);
@@ -801,18 +878,25 @@ public:
     UInt64 getPixelFormatsForDisplayMode(IODisplayModeID, IOIndex) override { return 0; }
     IOReturn getPixelInformation(IODisplayModeID mode, IOIndex depth, IOPixelAperture aperture, IOPixelInformation *pi) override {
         if (phxRotOwns(fRot, fHead, mode)) return phxRotPixelInfo(fRot, mode, depth, aperture, pi);
-        if (!listed(mode) || depth != 0 || aperture != kIOFBSystemAperture || !pi) return kIOReturnUnsupportedMode;
+        if (!listed(mode) || (depth != 0 && !(depth == 1 && fHdr)) || aperture != kIOFBSystemAperture || !pi) return kIOReturnUnsupportedMode;
         bzero(pi, sizeof(*pi));
-        pi->bytesPerRow = fRowBytes; pi->bitsPerPixel = 32; pi->pixelType = kIORGBDirectPixels;
-        pi->componentCount = 3; pi->bitsPerComponent = 8;
-        pi->componentMasks[0] = 0x00FF0000; pi->componentMasks[1] = 0x0000FF00; pi->componentMasks[2] = 0x000000FF;
-        strlcpy(pi->pixelFormat, IO32BitDirectPixels, sizeof(pi->pixelFormat));
-        pi->activeWidth = fWidth; pi->activeHeight = fHeight;
+        pi->bytesPerRow = modeRow(mode); pi->bitsPerPixel = 32; pi->pixelType = kIORGBDirectPixels;   // b138: per mode
+        pi->componentCount = 3;
+        if (depth == 1) {   // HDR: 30-bit, Apple's AMD driver's depth 2 (2:10:10:10)
+            pi->bitsPerComponent = 10;
+            pi->componentMasks[0] = 0x3FF00000; pi->componentMasks[1] = 0x000FFC00; pi->componentMasks[2] = 0x000003FF;
+            strlcpy(pi->pixelFormat, kIO30BitDirectPixels, sizeof(pi->pixelFormat));
+        } else {
+            pi->bitsPerComponent = 8;
+            pi->componentMasks[0] = 0x00FF0000; pi->componentMasks[1] = 0x0000FF00; pi->componentMasks[2] = 0x000000FF;
+            strlcpy(pi->pixelFormat, IO32BitDirectPixels, sizeof(pi->pixelFormat));
+        }
+        pi->activeWidth = modeW(mode); pi->activeHeight = modeH(mode);
         return kIOReturnSuccess;
     }
     IOReturn getCurrentDisplayMode(IODisplayModeID *mode, IOIndex *depth) override {
         // rot14: a rotated id only while its plan is still the raster (a resync may have moved fModeId, phxrot::currentId)
-        *mode = (IODisplayModeID)phxrot::currentId(fRot.curValid, fRot.cur.id, fRot.cur.plan, fNModes ? fModeId : 1); *depth = 0;
+        *mode = (IODisplayModeID)phxrot::currentId(fRot.curValid, fRot.cur.id, fRot.cur.plan, fNModes ? fModeId : 1); *depth = fHdr ? fDepth : 0;
         return kIOReturnSuccess; }
     IOReturn getStartupDisplayMode(IODisplayModeID *mode, IOIndex *depth) override { return getCurrentDisplayMode(mode, depth); }
     // rotation S1: a rotated mode is its plan's raster (the pipe switches only when the rate differs), then the angle
@@ -820,11 +904,13 @@ public:
         const bool rot = phxRotOwns(fRot, fHead, mode);
         const IODisplayModeID hw = rot ? (IODisplayModeID)phxRotPlan(fRot, mode) : mode;
         IOReturn r;
-        if (!fNModes) r = (hw == 1 && depth == 0) ? kIOReturnSuccess : kIOReturnUnsupported;
-        else if (depth != 0 || !listed(hw)) r = kIOReturnUnsupportedMode;
+        const bool depthOk = depth == 0 || (depth == 1 && fHdr && !fHead);   // HDR: 30-bit, no hardware change
+        if (!fNModes) r = (hw == 1 && depthOk) ? kIOReturnSuccess : kIOReturnUnsupported;
+        else if (!depthOk || !listed(hw)) r = kIOReturnUnsupportedMode;
         else if (fHead) r = switchHead1Mode(hw);
         else { OSIncrementAtomic(&gHead0SwBusy); r = switchHead0Mode(hw); OSDecrementAtomic(&gHead0SwBusy); }   // hp0 holds meanwhile
         if (r == kIOReturnSuccess && (rot || fRot.curValid)) phxRotSelect(fRot, fHead, rot ? (uint32_t)mode : 0);
+        if (r == kIOReturnSuccess && fHdr) fDepth = depth;
         return r;
     }
     IOReturn getTimingInfoForDisplayMode(IODisplayModeID mode, IOTimingInformation *info) override {
@@ -852,6 +938,28 @@ public:
             // rot5 / rot9: while a head is gated, a head's other modes leave CoreDisplay's default-mode choice (phxrot::h0Vbe,
             // h1Vbe), so the current one stays the default at a new display set
             d.verticalBlankingExtension = phxRotH0Vbe(fHead, (uint32_t)mode, fModeId);
+            // Adaptive Sync: a variable twin carries the stretch down to the floor (fVrrMinHz), as Apple's AMD driver's
+            // mode validation hands it out (AGDC notifyModeValidation); macOS folds every mode with one into "Variable",
+            // so the fixed rates carry none; rotation's own mark keeps priority
+            const phxhead::HeadMode *vm = fHead ? nullptr : phxhead::headMode(0, (uint32_t)mode);
+            if (fVrrMinHz && vm && phxhead::isVrrTwin(*vm) && !d.verticalBlankingExtension) {
+                d.verticalBlankingExtension = phxhead::vrrExtension(t, fVrrMinHz);
+                if (mode > 0 && mode < 32 && !(fVrrSaid & (1u << mode))) {
+                    fVrrSaid |= 1u << mode;
+                    PFBLOG("vrr: mode %d %ux%u: verticalBlankingExtension %u (to %u Hz)", (int)mode, t.hActive, t.vActive,
+                           d.verticalBlankingExtension, fVrrMinHz);
+                }
+            }
+            if (fHdr) {
+                // HDR: SDR modes as the pipe sends them; the HDR twins report HDR10 (Apple's AMD driver copies these
+                // from its own timings; CoreDisplay's SupportsHDRMode looks for the HDR10 twin of the current mode)
+                const phxhead::HeadMode *hm = fHead ? nullptr : phxhead::headMode(0, (uint32_t)mode);
+                const bool hdr = hm && phxhead::isHdrTwin(*hm);
+                d.pixelEncoding = kIOPixelEncodingRGB444;
+                d.bitsPerColorComponent = hdr ? kIOBitsPerColorComponent10 : kIOBitsPerColorComponent8;
+                d.colorimetry = hdr ? kIOColorimetryBT2020 : kIOColorimetrysRGB;
+                d.dynamicRange = hdr ? kIODynamicRangeHDR10 : kIODynamicRangeSDR;
+            }
             info->flags = kIODetailedTimingValid;
         }
         return kIOReturnSuccess;
@@ -916,9 +1024,13 @@ public:
         if (!fEdidLen) { memcpy(fEdid, kPhxEDID, sizeof kPhxEDID); fEdidLen = sizeof kPhxEDID; }   // start() not run yet
         if (blockNumber < 1 || blockNumber * 128 > fEdidLen) return kIOReturnUnsupported;
         IOByteCount want = (*length && *length < 128) ? *length : 128;
-        memcpy(data, fEdid + (blockNumber - 1) * 128, want);
+        uint8_t blk[128];
+        memcpy(blk, fEdid + (blockNumber - 1) * 128, sizeof blk);
+        // Adaptive Sync: macOS's copy carries the floor as the minimum rate (the menu's label; fEdid itself stays the monitor's)
+        const unsigned fl = fVrrMinHz ? phxhead::edidFloorPatch(blk, blockNumber - 1, fVrrMinHz) : 0;
+        memcpy(data, blk, want);
         *length = want;
-        PFBLOG("getDDCBlock %u -> %llu bytes", (unsigned)blockNumber, (unsigned long long)want);
+        PFBLOG("getDDCBlock %u -> %llu bytes%s", (unsigned)blockNumber, (unsigned long long)want, fl ? " (VRR floor in the minimum rate)" : "");
         return kIOReturnSuccess;
     }
     IOReturn registerForInterruptType(IOSelect type, IOFBInterruptProc proc, OSObject *target, void *ref, void **iref) override {
@@ -953,6 +1065,8 @@ public:
         return kIOPMAckImplied;
     }
     IOReturn setAttribute(IOSelect attribute, uintptr_t value) override {
+        // HDR: kIOFBHDRMetaDataAttribute is taken and never read (the replay plans carry Linux's infoframe)
+        if (fHdr && attribute == 'hdrm') return kIOReturnSuccess;
         if (attribute == kIOWindowServerActiveAttribute) return kIOReturnSuccess;
         if (attribute == kIOPowerAttribute) {
             if (value) { IOReturn r = IOFramebuffer::setAttribute(attribute, value); handleEvent(kIOFBNotifyDidPowerOn);
@@ -968,6 +1082,7 @@ public:
         return IOFramebuffer::getAttribute(attribute, value);
     }
     IOReturn setAttributeForConnection(IOIndex idx, IOSelect attribute, uintptr_t value) override {
+        if (fHdr && attribute == 'dsdp') return kIOReturnSuccess;   // HDR: Apple's SDP packet, taken and never read as 'hdrm'
         switch (attribute) {
         case kConnectionPower: case kConnectionColorModesSupported: case kConnectionColorDepthsSupported:
         case kConnectionControllerColorDepth: case kConnectionControllerDepthsSupported: case kConnectionColorMode:
@@ -988,8 +1103,9 @@ public:
         // nullarc's eDP panel) made macOS label it "Built-in Display" (M6 step 3).
         case kConnectionFlags: *value = 0; return kIOReturnSuccess;
         case kConnectionColorModesSupported: case kConnectionColorMode: *value = 0x00000001; return kIOReturnSuccess;
-        case kConnectionColorDepthsSupported: case kConnectionControllerColorDepth: case kConnectionControllerDepthsSupported:
-            *value = 0x00000002; return kIOReturnSuccess;
+        case kConnectionColorDepthsSupported: case kConnectionControllerDepthsSupported:
+            *value = fHdr ? 0x00000006 : 0x00000002; return kIOReturnSuccess;   // HDR: 8 | 10 bpc
+        case kConnectionControllerColorDepth: *value = 0x00000002; return kIOReturnSuccess;
         default: return IOFramebuffer::getAttributeForConnection(idx, attr, value);
         }
     }
@@ -1316,6 +1432,7 @@ bool PhxAMDFB::start(IOService *provider)
         return false;
     }
     fWidth = (uint32_t)v.v_width; fHeight = (uint32_t)v.v_height; fRowBytes = (uint32_t)v.v_rowBytes;
+    fBootW = fWidth; fBootH = fHeight; fBootRowBytes = fRowBytes;   // b138
     // once the video console is up, the platform expert hands out the console's kernel mapping, not the physical
     // address. The GOP surface sits in one of the GPU's BARs (VRAM aperture): find the BAR whose start holds the same
     // pixels as the console mapping. (A descriptor over the mapping would need prepare(): getPhysicalSegment on an
@@ -1359,13 +1476,41 @@ bool PhxAMDFB::start(IOService *provider)
     setProperty("IOFBDependentIndex", 0ull, 32);
     loadEdid();   // before IOFramebuffer::start, so the first getDDCBlock already serves the chosen EDID
     fNModes = 0; gHead0NModes = 0; gHead0Mode = 0;
+    bool hdrFn = false;   // PhxBringup's replay set has the HDR modes (b145+, read below)
     if (IOService *b = copyBringup("phx-pipe0-mode-fn")) {   // AOC at 144: the list must be complete before IOFramebuffer::start's first query (R0 D1)
         const bool armed = b->getProperty("phx-pipe0-modes") == kOSBooleanTrue;
+        fAnySize = b->getProperty("phx-p0-keys") == kOSBooleanTrue;   // b138: PhxBringup b138+ resizes the scan-out
+        const bool vrrFn = b->getProperty("phx-vrr-fn") == kOSBooleanTrue;   // b144: PhxBringup switches the VRR range
+        const OSNumber *bn = OSDynamicCast(OSNumber, b->getProperty("phx-build"));
+        hdrFn = bn && bn->unsigned32BitValue() >= 145;
+        fVrrFloorFn = bn && bn->unsigned32BitValue() >= 146;   // b146: "phxVrrSet" takes the floor (io bits 8-15)
         b->release();
         if (armed) {
             measureRefresh();
             uint32_t ids[phxhead::kNMaxModes];
-            const unsigned n = phxhead::modeList(0, fEdid, fEdidLen, fWidth, fHeight, ids);
+            // b134: the whole EDID (PhxBringup b134+ "phxEdidReadFull") for the offer only: the LG's 240 Hz timing is in
+            // block 2; what getDDCBlock serves stays fEdid. Used only when its base block equals fEdid's.
+            static uint8_t full[512];
+            uint32_t flen = 0, fsrc = 0;
+            int32_t frc = -1;
+            const uint8_t *oe = fEdid;
+            uint32_t olen = fEdidLen;
+            if (IOService *fb = copyBringup("phx-edid-full-fn")) {
+                if (fb->callPlatformFunction("phxEdidReadFull", false, full, &flen, &frc, &fsrc) == kIOReturnSuccess && !frc &&
+                    flen > fEdidLen && flen <= sizeof full && fEdidLen >= 128 && !memcmp(full, fEdid, 128)) { oe = full; olen = flen; }
+                fb->release();
+            }
+            PFBLOG("head 0 offer EDID: %u bytes (full read rc %d, %u bytes)", olen, (int)frc, flen);
+            // Adaptive Sync: decided here, before the list (the twin is offered only with the range published)
+            phxhead::EdidRange vr{};
+            // the floor: the owner's (debug.phxfb0_vrrmin) only when PhxBringup sets OTG0 to it (b146+), else the EDID's
+            fVrrMinHz = gPhxVrr && vrrFn && phxhead::edidRange(fEdid, fEdidLen, &vr)
+                            ? phxhead::vrrFloor(vr.minVHz, vr.maxVHz, fVrrFloorFn && gPhxVrrMin > 0 ? (uint32_t)gPhxVrrMin : 0u) : 0;
+            PFBLOG("vrr: floor %u Hz (EDID %u-%u Hz, debug.phxfb0_vrrmin %d, PhxBringup %s)", fVrrMinHz, vr.minVHz, vr.maxVHz,
+                   gPhxVrrMin, fVrrFloorFn ? "takes it" : "before b146: the EDID's");
+            // HDR rides on Adaptive Sync's timing range, so it needs the floor too (fHdrOk is set here, in the call)
+            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0,
+                                                 fHdrOk = fVrrMinHz != 0 && gPhxHdr && hdrFn);
             const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
             PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");
@@ -1376,6 +1521,33 @@ bool PhxAMDFB::start(IOService *provider)
         gHead0OfferOpen = phxoffer::closedAtStart(fNModes, PE_parse_boot_argn("-phxfb0open", a, sizeof a)) ? 0 : 1;
         if (fNModes) PFBLOG("head 0 offer gate %s: %s", gHead0OfferOpen ? "open" : "CLOSED",
                             gHead0OfferOpen ? "every listed mode offered (-phxfb0open)" : "only the lit mode until debug.phxfb0_offer=1 (the daemon, before its restart)");
+    }
+    if (!fHead && fVrrMinHz) {   // Adaptive Sync (the twin listed, above): the timing range Apple's AMD driver publishes (reportCapabilities)
+        phxhead::EdidRange er{};
+        if (phxhead::edidRange(fEdid, fEdidLen, &er)) {
+            IODisplayTimingRangeV2 tr;
+            bzero(&tr, sizeof tr);
+            tr.version = kIOTimingRangeV2;
+            tr.minPixelClock = 25000000ull; tr.maxPixelClock = (uint64_t)er.maxPclkMHz * 1000000ull;
+            tr.supportedSyncFlags = kIORangeSupportsSeparateSyncs | 0x10;   // 0x10: Apple's AMD driver's VRR bit (no SDK name)
+            tr.minFrameRate = fVrrMinHz; tr.maxFrameRate = er.maxVHz;   // the floor, not the EDID's minimum (System Settings' menu)
+            tr.minLineRate = er.minHKHz * 1000; tr.maxLineRate = er.maxHKHz * 1000;
+            tr.maxHorizontalTotal = 8192; tr.maxVerticalTotal = 8192;
+            tr.charSizeHorizontalActive = tr.charSizeHorizontalBlanking = tr.charSizeHorizontalSyncOffset = tr.charSizeHorizontalSyncPulse = 1;
+            tr.charSizeVerticalActive = tr.charSizeVerticalBlanking = tr.charSizeVerticalSyncOffset = tr.charSizeVerticalSyncPulse = 1;
+            tr.charSizeHorizontalTotal = tr.charSizeVerticalTotal = 1;
+            tr.maxNumLinks = 1;
+            if (fHdrOk) {   // HDR: what this pipe carries (capture v3: 10 bpc RGB with BT.2020 / PQ at every rate)
+                tr.supportedPixelEncoding = kIOPixelEncodingRGB444;
+                tr.supportedBitsPerColorComponent = kIOBitsPerColorComponent8 | kIOBitsPerColorComponent10;
+                tr.supportedColorimetryModes = kIOColorimetryNativeRGB | kIOColorimetrysRGB | kIOColorimetryBT709 | kIOColorimetryBT2020;
+                tr.supportedDynamicRangeModes = kIODynamicRangeSDR | kIODynamicRangeHDR10;
+                fHdr = true;
+            }
+            if (OSData *dd = OSData::withBytes(&tr, sizeof tr)) { setProperty(kIOFBTimingRangeKey, dd); dd->release(); }
+            PFBLOG("vrr: IOFBTimingRange published: %u-%u Hz, %u-%u kHz, pixel clock to %u MHz, sync flags 0x%x", fVrrMinHz, er.maxVHz,
+                   er.minHKHz, er.maxHKHz, er.maxPclkMHz, tr.supportedSyncFlags);
+        } else PFBLOG("vrr: the EDID has no range limits descriptor: nothing published");
     }
     if (!IOFramebuffer::start(provider)) { OSSafeReleaseNULL(fSurfMap); return false; }
     fVa = IORangeAllocator::withRange(kVaSize - 1, PAGE_SIZE, 0, IORangeAllocator::kLocking);
@@ -1668,7 +1840,11 @@ IOReturn PhxAMDFB::switchHead1Mode(IODisplayModeID id)
 void PhxAMDFB::head0ModeRate()
 {
     if (fHead != 0 || !fNModes || !fHTotal) return;
-    const uint32_t id = phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes);
+    // b138: the lit id when its totals are OTG0's (1080p 60 / 120 share theirs), else the listed mode of those totals nearest
+    // the measured rate
+    const phxhead::HeadMode *lit = phxhead::headMode(0, fModeId);
+    const uint32_t id = lit && lit->hTotal == fHTotal && lit->vTotal == fVTotal ? fModeId
+                      : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes);
     const phxhead::HeadMode *m = id ? phxhead::headMode(0, id) : nullptr;
     if (!m) return;
     fRefreshMilliHz = m->milliHz;
@@ -1687,7 +1863,8 @@ int PhxAMDFB::head0Resync()
     const uint64_t oldNs = fFrameNs;
     fHTotal = fVTotal = 0;
     measureRefresh();
-    const uint32_t now = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes) : 0;
+    uint32_t now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
+    if (now && (phxhead::headMode(0, now)->w != fWidth || phxhead::headMode(0, now)->h != fHeight)) now = 0;   // b138: no resize here
     if (!now) {
         PFBLOG("head 0 resync: OTG0 %ux%u totals are no listed mode: id %u kept", fHTotal, fVTotal, fModeId);
         fHTotal = oldH; fVTotal = oldV; fRefreshMilliHz = oldMhz; fFrameNs = oldNs;
@@ -1723,7 +1900,9 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     const bool flips = gFlipOn[0] != 0;
     if (flips) flipEnable(0);   // HUBP0 back on A while pipe 0 is re-timed (the engine blanks HUBP0, never moves its address)
     phx_pipe0_setmode req = {};
-    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = hm->milliHz / 1000; req.result = -1;
+    // b128: rounded (the LG 59.951 Hz = 60); b138: another size = PhxBringup b137's key (height * 1000 + Hz)
+    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = fAnySize ? phxhead::switchKey(*hm, fBootW, fBootH) : phxhead::switchHz(*hm);
+    req.result = -1;
     const IOReturn r = bringup->callPlatformFunction("phxPipe0SetMode", false, &req, nullptr, nullptr, nullptr);
     bringup->release();
     gHead0Switches++;
@@ -1735,8 +1914,20 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     if (act != phxhead::kActRefused) {
         fHTotal = fVTotal = 0;
         measureRefresh();   // OTG0's totals now (OTG0 not running after a dark: the old rate stays)
-        now = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, fModeIds, fNModes) : 0;
-        if (now) { fModeId = now; head0ModeRate(); }
+        now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
+        if (now == (uint32_t)id || (now && phxhead::headMode(0, now)->hTotal == hm->hTotal && phxhead::headMode(0, now)->vTotal == hm->vTotal &&
+                                    act == phxhead::kActDone))
+            now = (uint32_t)id;   // b138: PhxBringup lit the asked mode (totals shared by two rates: its answer decides)
+        if (now) {
+            fModeId = now;
+            head0ModeRate();
+            if (fAnySize) {   // b138: the scan-out's geometry follows the lit mode (flipping is off until the end of this switch)
+                const phxhead::HeadMode *lm = phxhead::headMode(0, now);
+                fWidth = lm->w; fHeight = lm->h; fRowBytes = phxhead::modeRowBytes(*lm, fBootW, fBootH, fBootRowBytes);
+                fFlipOk = false;   // flipSetupLocked checks HUBP0's pitch against the new rows and refills B at the next enable
+                setProperty("PhxFBWidth", fWidth, 32); setProperty("PhxFBHeight", fHeight, 32);
+            }
+        }
         nanoseconds_to_absolutetime(fFrameNs, &gPhxFrameAbs);   // the VBL tick's new period is read at its next fire
         setProperty("PhxFBRefreshMilliHz", fRefreshMilliHz, 32);
         if (fHTotal) { setProperty("PhxFBHTotal", fHTotal, 32); setProperty("PhxFBVTotal", fVTotal, 32); }
@@ -1744,9 +1935,30 @@ IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
     }
     gHead0Mode = (int)fModeId; gHead0Refresh = (int)fRefreshMilliHz;
     if (ret != kIOReturnSuccess) gHead0SwitchFails++;
+    // Adaptive Sync: System Settings' Variable (a VRR twin) wants the range on, any other landed mode off (PhxBringup
+    // b144+ "phxVrrSet"; it keeps the range on only while GPU present scans)
+    if (fVrrMinHz && ret == kIOReturnSuccess)
+        if (IOService *vb = copyBringup("phx-vrr-fn")) {
+            const phxhead::HeadMode *lm = phxhead::headMode(0, fModeId);
+            const uint32_t want = lm && phxhead::isVrrTwin(*lm) ? 1u : 0u;
+            uint32_t io = want | (fVrrFloorFn ? fVrrMinHz << 8 : 0u);   // b146+: the floor in bits 8-15
+            const IOReturn vr = vb->callPlatformFunction("phxVrrSet", false, &io, nullptr, nullptr, nullptr);
+            vb->release();
+            PFBLOG("head 0 VRR %s: rc 0x%x, range %s", want ? "wanted (Variable)" : "off (a fixed rate)", vr, io ? "on" : "off");
+        }
+    // 10-bit HDR: the scan-out format the switch left (the HDR plans: ARGB2101010), for the CPU copy
+    if (IOService *sf = copyBringup("phx-scanfmt-fn")) {
+        uint32_t fmt = 0;
+        if (sf->callPlatformFunction("phxScanFmt", false, &fmt, nullptr, nullptr, nullptr) == kIOReturnSuccess) {
+            const int was = gPhxScan10;
+            gPhxScan10 = fmt == 10u ? 1 : 0;
+            if (was != gPhxScan10) PFBLOG("head 0 scan-out format now %u (%s)", fmt, gPhxScan10 ? "ARGB2101010, 10-bit HDR" : "ARGB8888");
+        }
+        sf->release();
+    }
     if (flips && act != phxhead::kActDark) flipEnable(1);
-    PFBLOG("head 0 switch to id %d (%u Hz): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz",
-           (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz);
+    PFBLOG("head 0 switch to id %d (target %u): rc 0x%x result %d stage %d flags 0x%x: %s -> 0x%x, now id %u %u mHz %ux%u row %u",
+           (int)id, req.target_hz, r, req.result, req.stage, req.flags, req.why, ret, fModeId, fRefreshMilliHz, fWidth, fHeight, fRowBytes);
     return ret;
 }
 

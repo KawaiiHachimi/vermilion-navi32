@@ -303,6 +303,30 @@ static int phxDalStat SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxdal_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxDalStat, "A", "b76 DAL mailbox counters");
 // b74: the scanout latch race (UI shake)
 static int gScanLatchFix = 0;
+// b131: 1 = pipe 0 runs ODM 2:1 (debug.phxp0odm at 240 Hz): every flip goes to HUBP1 too (the right half of the same surface)
+static volatile int gP0OdmActive = 0;
+// Adaptive Sync state shared by phx_scan.cpp (the flip path) and phx_p0odm.cpp (the range), which are included after
+// this file; all of it is read and written with scanLock held.
+// gVrrOn: 1 while OTG0's V_TOTAL range is on (phx_p0odm.cpp); the scan-out's flip then fires Linux's per-flip manual
+// trigger (OTG_TRIGA_MANUAL_TRIG), which ends the stretched frame.
+static volatile int gVrrOn = 0;
+static volatile SInt64 gVrrTrigs = 0;
+// gVrrWant: System Settings' Variable (PhxAccel "phxVrrSet") wants the range. It is on only while GPU present scans:
+// without the per-flip trigger every frame would run to the floor.
+static volatile int gVrrWant = 0;
+static void phxVrrDropLocked();     // GPU present stopped (scanRestoreLocked): range off, the want kept
+static void phxVrrResumeLocked();   // GPU present (re)acquired (scanAcquire): range on again if wanted
+// The ramp (PhxVrrRamp.h): at each flip the next frames may be at most debug.phxvrr_ramp % shorter or longer than the
+// frames since the previous flip. Set by vrrOnLocked / vrrOffLocked (phx_p0odm.cpp), used by scanPresent (phx_scan.cpp).
+#include "PhxVrrRamp.h"
+// 5 %: on the XTX machine's LG OLED it flickered least and felt smoothest; 10 and 20 flickered more (CHANGELOG 148)
+static int gVrrRampPct = 5;
+static uint32_t gVrrRampVMin = 0, gVrrRampVMax = 0, gVrrRampHz = 0;   // the lit mode's range while VRR is on (0 = off)
+static uint32_t gVrrRampLo = 0, gVrrRampHi = 0, gVrrRampLines = 0;     // the window now, the last measured frame length
+static uint64_t gVrrRampFrame = 0, gVrrRampNs = 0;                     // OTG0's frame count and the time at the last flip
+static bool gVrrRampPrimed = false;
+static SInt64 gVrrRampWrites = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxp0odm_active, CTLFLAG_RD | CTLFLAG_LOCKED, const_cast<int *>(&gP0OdmActive), 0, "b131 1 = flips go to HUBP0 and HUBP1 (pipe 0 on ODM 2:1)");
 static SInt64 gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost;
 static uint32_t gScanGhost = 0xffffffffu;   // slot of the last accepted-but-forgotten flip (on screen until a later latch)
 SYSCTL_INT(_debug, OID_AUTO, phxscan_latchfix, CTLFLAG_RW | CTLFLAG_LOCKED, &gScanLatchFix, 0, "1 = latch a flip on FLIP_PENDING clear alone; the front slot is never reusable (b74)");
@@ -312,6 +336,15 @@ static int phxScanRaceStat SYSCTL_HANDLER_ARGS {
              gScanEarliestLag, gScanAcceptedForgotten, gScanReusableGhost, gScanLatchFix);
     return sysctl_handle_string(oidp, b, 0, req);
 }
+// b126: the GPU-present slot layout the live plane would get (PhxScanLayout.h) and the one in use; register reads only
+static int phxScanLayoutSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    char b[512];
+    if (gPhx) gPhx->scanLayoutStat(b, sizeof b); else snprintf(b, sizeof b, "no PhxBringup");
+    return sysctl_handle_string(oidp, b, 0, req);
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxscan_layout, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxScanLayoutSysctl, "A",
+            "b126: GPU-present slot layout for the live plane (small 24/32/40 MiB, large 256/288/320 MiB, or why refused)");
 SYSCTL_PROC(_debug, OID_AUTO, phxscan_race_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxScanRaceStat, "A", "b74 scanout latch race counters");
 SYSCTL_PROC(_debug, OID_AUTO, phxwait_scoped_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxWaitScopedStat, "A", "b72 scoped WAITSEQ counters");
 SYSCTL_INT(_debug, OID_AUTO, phxwait_spin_us, CTLFLAG_RW | CTLFLAG_LOCKED, &gWaitSpinUs, 0, "WAITSEQ: microseconds spun before sleeping");
@@ -399,4 +432,12 @@ static int phxedid_sysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxedid, CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxedid_sysctl, "S",
             "live EDID read: 'PEDI', source, rc, length, SW_STATUS, ARB, HPD_Y, HPD sense, then 256 bytes");
+static int phxedid_full_sysctl SYSCTL_HANDLER_ARGS {   // b127
+    (void)oidp; (void)arg1; (void)arg2;
+    if (proc_suser(req->p)) return EPERM;                                  // it drives the I2C/AUX engine: root only
+    return gPhx ? gPhx->edidRead(req, static_cast<unsigned>(gEdidSrc), true) : ENXIO;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxedid_full, CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxedid_full_sysctl, "S",
+            "b127 whole EDID: 'PEDF', source, rc, length | blocks announced << 16, SW_STATUS, ARB, HPD_Y, HPD sense, then 512 "
+            "bytes (AUX: blocks 2-3 via the E-DDC segment pointer)");
 
