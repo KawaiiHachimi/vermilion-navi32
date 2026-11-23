@@ -41,7 +41,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
    - Check: 2-3 restarts at 1440p60 HDR; every `train_w3` of the daemon log's `engine run` lines `tries=1`, with
      `since_prev_us` about 225000.
    - Rollback: `EFI/OC` and `EFI/OC.prev` swapped.
-2. **EFI change 12: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). Built on b153; owner's OK 2026-11-23 ~04:00; `~/gpu/phxboot-auto` created 04:00. First
+2. **EFI change 12: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). Built on b153; owner's OK 2026-11-23 ~04:00; `~/gpu/phxboot-auto` created 04:00. For a hang: `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` tells Claude on Linux the swap (owner's wish; delete it once the change is verified). First
    `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
    the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
    - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
