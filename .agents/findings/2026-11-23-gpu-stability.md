@@ -182,3 +182,18 @@ as tearing (2026-11-19) needs the phone video (OWNER-TESTS 01).
 - Display sleep (`pmset displaysleepnow`): PhxAMDFB `CurrentPowerState` 0, but OTG0 enabled and counting frames, HUBP0
   scanning, DPCD lanes `77 77` aligned: the stream never stops. Owner: the LG stayed on showing black (no standby, no
   "no signal"). `caffeinate -u` woke it: power state 1, picture back, OTG0 still at 60 Hz, no engine run needed.
+
+## 11. The DPMS capture (Linux, 05:05) and the boot after it
+
+- Capture v5 (`--dpms`, Linux 7.2.15, Hyprland through `hyprctl eval`), every 1440p rate SDR and HDR. DPMS off: 549
+  (60 Hz) to 2409 (240 Hz) register writes; while off `OTG0_CONTROL` = 0x00001200 (master enable off) and no frames:
+  Linux stops the timing generator and the stream, which is what lets the LG go to standby. DPMS on: 3778-10310 writes
+  and 502-2127 DMUB commands (a full stream enable with link training). Kept at
+  `~/vermilion-captures/dpms/display-20261123-050500` (no serials; not for git).
+- The first power-on after Linux did not reach macOS's userspace: OpenCore's log of that boot
+  (`opencore-2026-11-23-040938.txt`, UTC) ends at ExitBootServices as a good boot does; no unified log, no daemon log,
+  no panic report (NVRAM writes blocked). The next power-on booted normally (b155). Cause unknown; seen once.
+- That boot's login switch: `dpcd_aux: retried=2 gave_up=2 nacks=74 max_tries=32`: twice the sink NACKed all 32 tries of
+  drm's rule (the first access after D3), so the training attempt still failed and b154's redo ran (`redone=1`). drm's
+  rule does not cover this sink's miss; b154 does.
+- OpenCore names its logs by the firmware clock in UTC: the "no logs since 03:15" of earlier was the 04:15 CET boot.

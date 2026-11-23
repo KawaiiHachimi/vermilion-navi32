@@ -143,9 +143,9 @@ add each change here with the thread's number.
   "Deploying a plugin, translator or RADV build".
 - **ESP staging area** `<ESP>/vermilion/`: only `flags/` (empty); no `run-once.sh`. The daemon's pre-hook
   (`esp_flags.sh`) reads nothing else there. Thread 00 deleted the old `handoff/`, `payload/`, `capture/`, `daemon*/`,
-  `perf/`, `wifi/` and all but the newest 5 OpenCore logs on 2026-11-23. OpenCore logs are written
-  irregularly with `Misc > Debug > Target` 67: on 2026-11-23 the newest is 03:15, none for the boots after it (cause
-  unknown).
+  `perf/`, `wifi/` and all but the newest 5 OpenCore logs on 2026-11-23. OpenCore writes a log at every boot
+  (`Misc > Debug > Target` 67); the file name is the firmware clock in **UTC** (`opencore-2026-11-23-041020.txt` = the
+  05:10 CET boot), which made it look as if logging had stopped.
 - **Rollback copies:** `~/vermilion-rollback/` (pruned 2026-11-23 to: the 3 EFIs above, `plugin-20261123`,
   `NVMTLDriver.b139`, `VermilionBoot.kext.b149`, `VermilionAccel.kext.pre-hdrvrr`, `AuxiliaryKernelExtensions.kc.0222`,
   `phxboot-navi31.sh.pre-vrrmin`, `netcfg-20261122`), `EFI/OC.prev`, `~/gpu/*.prev`.

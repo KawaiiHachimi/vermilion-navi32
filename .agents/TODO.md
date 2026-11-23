@@ -115,7 +115,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 - [x] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
       floor label is patched into the EDID PhxAccel serves. **Owner's decision 2026-11-23:** keep the patch (label
       60-240); documented in [XTX.md](../docs/XTX.md) ("A floor change resets the display's settings")
-- [x] OpenCore logs: written irregularly (newest 2026-11-23 03:15, none for the later boots); PROJECT_KNOWLEDGE fixed
+- [x] OpenCore logs: written at every boot, named in UTC (one hour behind CET); PROJECT_KNOWLEDGE fixed
 - [~] Tearing at 1440p60 with GPU present; input lag at 60 Hz. **Input lag measured 2026-11-23** (finding section 9):
       posted mouse event -> OTG0 frame start median 27-30 ms at 60 Hz, 8.3 ms at 240 Hz; WindowServer composites at
       vsync and flips ~3 ms later, the flip waits for the next vblank (14 ms at 60 Hz): the normal one-frame compositor
@@ -133,7 +133,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       standby (owner). Wake (`caffeinate -u`) works, the picture comes back at once. A real Mac stops the signal; for
       the OLED that also means no standby-time panel care. Next: a Linux capture of DPMS off / on on this card (the
       sequence Linux sends: stream off, blank, `dp_disable_link_phy`; then link up and unblank), turned into two replay
-      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off). **Capture staged 05:00:** `tools/capture/linux_display_capture.py --dpms` (v5) and `<ESP>/vermilion/DPMS-CAPTURE-FOR-LINUX-CLAUDE.md`; result lands in `<ESP>/vermilion/capture/` (copy off, then delete both from the ESP)
+      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off). **Capture staged 05:00:** `tools/capture/linux_display_capture.py --dpms` (v5) and `<ESP>/vermilion/DPMS-CAPTURE-FOR-LINUX-CLAUDE.md`; result lands in `<ESP>/vermilion/capture/` (copy off, then delete both from the ESP). **Captured 05:05** (Linux 7.2.15, all 8 steps): `~/vermilion-captures/dpms/display-20261123-050500`; ESP cleaned. DPMS off: 549-2409 writes, OTG0 master enable off (`OTG0_CONTROL 0x00001200`, no frames); on: a full enable (3778-10310 writes, 502-2127 DMUB commands). p0odm_from_trace.py needs a DPMS mode (its burst detection refuses both traces)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
