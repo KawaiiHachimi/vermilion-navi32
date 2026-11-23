@@ -83,7 +83,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
-      trainer stopped after 4 timeouts or 1 NACK. **b155** (built `e13e19b8`, host-tested, not installed): drm's rule
+      trainer stopped after 4 timeouts or 1 NACK. **b155** (built `f95b4baf` with `debug.phxp0odm_dbuf`, host-tested, not installed): drm's rule
       for the trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Goes in with the next boot that is
       needed anyway; check: `train_w` attempts `tries=1` where b154 had `rc=aux,ok`, `dpcd_aux: retried=` > 0
 - [~] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
@@ -112,8 +112,10 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       pipeline, no extra driver frame. Idea, not planned: start the composite later in the frame (late latch).
       **Tearing:** every flip is a vsync flip (FLIP_TYPE 0 in 40000 samples, never immediate), so a tear cannot come
       from the flip; still needs the owner's phone video (OWNER-TESTS 01) to say what is seen
-- [ ] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
-      "Revisit"), then re-verify every plan
+- [~] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
+      "Revisit"), then re-verify every plan. **b155** adds `debug.phxp0odm_dbuf` (live, 0 at boot): after the b155
+      boot, set 1 and run session switches through every 1440p rate (SDR / HDR), post checks and the owner's eye; if
+      all land, make 1 the default in a later build
 - [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from the old thread 07's
       inventory. Rollback: Apple menu > Restart
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
