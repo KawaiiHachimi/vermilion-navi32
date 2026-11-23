@@ -225,6 +225,16 @@ disp_state(){ local st p0
   if printf '%s\n' "$st" | grep -q '^result=FELL-BACK-TO-144 '; then echo "fell back: $(printf '%s\n' "$st" | head -1)"; return 0; fi
   return 1; }
 DISPNOTE=""
+# The replay engine's last run into this log, once per new run (the run counter in line 2): its result, the recoveries,
+# each link window's training and timing (b152). The kernel's own lines don't reach the unified log, and the sysctl
+# keeps only the last run of the current boot. Reads only.
+DISPRUNS=""
+disp_log(){ local st a
+  st=$(sysctl -n debug.phxp0odm_stat 2>/dev/null) || return 0
+  a=$(printf '%s\n' "$st" | sed -n 's/^state: .* attempts=\([0-9]*\) .*/\1/p')
+  [ -n "$a" ] && [ "$a" != "$DISPRUNS" ] || return 0
+  DISPRUNS=$a; echo "engine run $a at $(date '+%T'):"
+  printf '%s\n' "$st" | grep -E '^(result=|recovery:|train_w[0-9]+:|last_fail:|last_fail_train:)' | grep -v '^last_fail: target=0 ' | sed 's/^/  /'; }
 disp_check(){ local d
   d=$(disp_state) || return 0
   case "$d" in
@@ -547,7 +557,7 @@ if [ $DESK = 1 ]; then
   touch "$MARK"; sync         # in-progress: a hang before we finish -> next boot reverts
   # a clean restart or shutdown (launchd sends TERM; a hang never does) is not a failed attempt: clear the mark and
   # re-arm the next boot as SUCCESS would, so a restart from the login window during the watch keeps acceleration
-  trap 'echo "clean shutdown (TERM) at $(date "+%T") during the desktop attempt: in-progress mark cleared"; rm -f "$MARK"
+  trap 'echo "clean shutdown (TERM) at $(date "+%T") during the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; disp_log
         [ -e "$AUTO" ] && nvram phxfb-squat=1 && echo "phxfb-squat re-armed for the next boot (phxboot-auto present)"; sync
         b21_on "shutdown (TERM) during the desktop attempt"; exit 0' TERM
   # 1) PhxAMDFB should already be on the panel (took it at claim via nmxgpu-claimed match).
@@ -636,9 +646,9 @@ if [ $DESK = 1 ]; then
     p=$(wspid); if [ -n "$p" ] && [ "$p" != "$wsr" ]; then died=$((died+1)); echo "watch: WindowServer pid ${wsr:-none} -> $p at $(date '+%T') (a silent crash counts too)"; wsr=$p; fi
     [ $died -gt $n ] && n=$died
     [ $n -ge 3 ] && { gpu_dump "WindowServer crashed/hung $n times"; m2_fail "WindowServer crashed/hung $n times after the clean restart"; }
-    [ $DARK = 1 ] || disp_check; done
+    disp_log; [ $DARK = 1 ] || disp_check; done
   pgrep -qx WindowServer || m2_fail "no WindowServer after the restart"
-  [ $DARK = 1 ] || disp_check
+  disp_log; [ $DARK = 1 ] || disp_check
   if [ $DARK = 1 ]; then echo "DARK at $(date '+%T'): the accelerated desktop survived, the display engine did not (above)"
   else rm -f "$DARKF"; fi
   [ $DARK = 1 ] || echo "SUCCESS at $(date '+%T'): WindowServer pid $(pgrep -x WindowServer), frames=$(sysctl -n debug.nvaccel_iop_ok 2>/dev/null) -- accelerated desktop survived"
