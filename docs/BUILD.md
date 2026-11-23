@@ -14,7 +14,8 @@ Dependencies may sit in `deps/`, which git ignores: `deps/MacKernelSDK` (pass it
 | `accel.sh` | `VermilionAccel.kext` (ad-hoc signed) | `MKSDK`; optional link gate with export lists from `linkgate_exports.sh` (needs `ipsw` and the target's KernelCollections) |
 | `plugin.sh` | `NVMTLDriver` (Metal plugin, ad-hoc signed) | `VULKAN_HEADERS` (Vulkan-Headers include dir) |
 | `translator.sh` | `libnvmtl_translate.dylib` (shader translator, x86_64, ad-hoc signed) | Rust 1.87+ (`cargo`) with the `x86_64-apple-darwin` target; network for the first crate fetch (or `CARGO_NET_OFFLINE=true` with a filled cache); `TRANSLATOR_TEST=1` runs the wrapper tests ([`../src/translator/README.md`](../src/translator/README.md)) |
-| `radv.sh apply` / `radv.sh` | `libvulkan_radeon.dylib` | `MESA_DIR` = Mesa checkout at f5cb8ee0; meson, ninja, glslangValidator, python3 with mako, pyyaml, markupsafe, packaging |
+| `radv.sh apply` / `radv.sh` | `libvulkan_radeon.dylib` (`RADV_PLATFORMS=macos`: the app-facing build with the Metal window surface, patch 0020, in its own build dir) | `MESA_DIR` = Mesa checkout at f5cb8ee0; meson, ninja, glslangValidator, python3 with mako, pyyaml, markupsafe, packaging |
+| `ffmpeg.sh` | `libavcodec_phx.61.dylib`, `libavutil_phx.59.dylib` into `FFMPEG_PREFIX` (default `deps/ffmpeg-lib/prefix`) | network for the first clone (FFmpeg n7.1), `VULKAN_HEADERS` |
 | `phxdec.sh` | `libphxdec_hevc.dylib` | `FFMPEG_PREFIX` = FFmpeg n7.1 + `patches/ffmpeg` built as shared `libavcodec_phx` / `libavutil_phx` (LGPL, no GPL parts); `VULKAN_HEADERS` |
 | `tools.sh` | `phxctl`, `mesboot`, `vcn_write_test`, `submit_test` | - |
 | `metaltest.sh` | `metaltest` (the boot daemon's Metal-device probe, `tools/metaltest/metaltest.m`) | - |

@@ -22,7 +22,9 @@ changed on a running system. A new plugin, translator or RADV build has a new cd
 (`scripts/build/trust.sh`) and the EFI with every install of those. With `PHXTRUST_KEEP=1` the cdhashes already in
 the list are kept (as `<name>-previous`), so one kext trusts the installed build and the next one: give the new file
 as an argument, install the kext, and the plugin can be swapped before or after that boot. Without it the list is
-exactly the files given.
+exactly the files given. With no arguments the list is the installed plugin, translator, AIR runtime and RADV, plus
+the optional video decoder when it is installed (its three dylibs next to the plugin and the VideoToolbox bundle's
+executable in `/System/Library/Video/Plug-Ins`). `PHXTRUST_ADD="file ..."` adds files that are not installed yet.
 
 Layouts come from XNU `xnu-12377.121.6`. On the XTX machine's kernel (26.7.1 25G241, `xnu-12377.161.15`) the vector
 offsets `0x120` (mmap) and `0x200` (library validation), and `mpc_ops` at `0x20`, were read from the kernel's own
@@ -69,3 +71,6 @@ PATH=$HOME/.local/bin:$PATH python3 efi/build.py build --stage vermilion-trustlo
   processes, RADV with the XTX profile (patches 0018-0019), and the installed plugin and RADV as `-previous`
   (`PHXTRUST_KEEP=1` with the new files given as arguments, so the order of the EFI and the file install doesn't
   matter).
+- 1.0.4 (2026-11-23, thread 03, EFI change 23): same code; 14 entries: the video decoder's three dylibs and the
+  VideoToolbox bundle's executable added. XTX machine: `list=14 denied_unlisted=0`, decode runs in
+  `VTDecoderXPCService` and the WebKit GPU process.

@@ -286,8 +286,10 @@ VermilionTrust. **A new NVMTLDriver, `libnvmtl_translate.dylib`, `libvulkan_rade
 decoder) has a new cdhash, so every install of one is also a VermilionTrust and EFI change:**
 
 1. Build the new binary and keep the old one: `~/vermilion-rollback/<name>-<date>/`.
-2. Install it into `/Library/GPUBundles/...` (as before).
-3. `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`: the new list holds the installed files **and** the cdhashes of the
+2. Install it into `/Library/GPUBundles/...` (as before; on the reference machine those paths are symlinks into
+   `CoreTypes.bundle/Contents/Library/PhxGPU` since 2026-11-23, and the install lands there).
+3. `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`: the new list holds the installed files (the video decoder's dylibs
+   and bundle included, when installed; `PHXTRUST_ADD` for files not installed yet) **and** the cdhashes of the
    current list (marked `-previous`), so the kext accepts the old and the new build and the plugin install and the
    EFI don't have to land in the same boot.
 4. Rebuild and install the EFI ("Building and installing the EFI on the Mac itself"): `diff -rq` must show only

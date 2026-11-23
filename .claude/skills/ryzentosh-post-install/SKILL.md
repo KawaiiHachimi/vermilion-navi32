@@ -98,6 +98,32 @@ sudo python3 efi/build.py install --esp "/Volumes/<ESP>"    # guardrail 2 and 3:
 - CPU: `python3 tools/sensors/cpusensors.py`; ~40 W idle package and a 5.1-5.2 GHz single-thread ceiling are what
   Linux shows too on this board with the BIOS at Auto. No CPU power-management kext.
 
+## 5c. Graphics APIs and video — thread 03, verified on the reference machine (2026-11-23)
+
+Each step is a tested script or a flag; ask the user before each one that needs a restart or touches the system
+volume. Evidence: `.agents/findings/2026-11-23-apis-video.md`.
+
+1. **Safari's GPU process** (WebGL / WebGPU): `sudo bash tools/phxctl/relocate_gpubundle.sh` (no restart; the
+   Data volume only). Check with `tools/metaltest/webprobe.m` (build line in its header): WebGL `lost:false`, a WebGPU
+   adapter. WindowServer reads the moved plugin from the next boot.
+2. **VCN** (video engine): `python3 tools/phxctl/vcn_m1_gen.py`, copy `vcn_up.sh` and `vcn/` to `~/gpu/vcnup/`, then
+   `sudo env PHXCTL=$HOME/gpu/phxctl.bin FW=$HOME/gpu/fw/navi31/vcn_4_0_0.bin bash ~/gpu/vcnup/vcn_up.sh --check`
+   (read-only; must pass). The first `--run` is a GPU risk (a hang needs a full power-off): ask, and the user stays at
+   the machine. Then `touch ~/gpu/phxboot-vcn` (VCN at every boot, after `done`).
+3. **Decoder:** `scripts/build/ffmpeg.sh`, `scripts/build/phxdec.sh` (or `src/video-decoder/build.sh`),
+   `src/video-decoder/vtbundle/build.sh`; dylibs next to the plugin with `phxdec-off` set first; VermilionTrust with
+   `PHXTRUST_ADD=<bundle executable>` and the EFI change (section 4); restart; remove `phxdec-off`; then the bundle
+   with `sysvol_install.sh` (**breaks the system volume's seal: the user decides**), `touch
+   /Library/GPUBundles/nvmtl/phxdec-av1`, restart. Check: `vtdec_test <movie> 30` (no dylib argument) grows `vcn
+   submits` in `sysctl debug.phxmmvm_stat` and its frames equal Apple's.
+4. **Vulkan for apps (opt-in):** Vulkan-Loader v1.3.296 and `RADV_PLATFORMS=macos sh scripts/build/radv.sh` into
+   `/usr/local/lib/vermilion`, the manifest into `/usr/local/share/vermilion/vulkan/icd.d/`. Check:
+   `VK_DRIVER_FILES=<manifest> vkwindow 240 <png>` (`tools/metaltest/vkwindow.m`).
+5. **OpenGL and OpenCL on the GPU:** needs a VermilionAccel with `debug.phxgl` (section 3). `touch ~/gpu/phxboot-gl`
+   (the daemon sets `debug.phxgl=1` after `done` on a desktop boot), or `sudo sysctl -w debug.phxgl=1` for this boot.
+   Only apps started afterwards use it. Check: `apiprobe` (`tools/metaltest/apiprobe.m`) names the Radeon as the
+   OpenGL renderer ("4.1 Metal") and as an OpenCL GPU device. Off: `rm ~/gpu/phxboot-gl`, `debug.phxgl=0`.
+
 ## 6. System settings — to be filled by threads 05 and 09
 
 Today, on the reference machine:

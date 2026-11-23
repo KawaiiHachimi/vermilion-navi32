@@ -320,7 +320,17 @@ of an install: every first use then recompiles and clients can time out.
    replaces the system volume and removes the bundle. `sudo sh tools/phxctl/sysvol_install.sh --remove /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle`
    removes it (again live after a reboot).
 4. Decode also needs the VCN engine up: the `phxboot-vcn` flag of section 7. `touch /Library/GPUBundles/nvmtl/phxdec-off`
-   turns the decoder off without uninstalling it.
+   turns the decoder off without uninstalling it. AV1 needs `touch /Library/GPUBundles/nvmtl/phxdec-av1`: with the
+   bundle installed, an AV1 session the decoder refuses fails instead of falling back to another decoder, so set it
+   whenever the bundle is installed (RX 7900 XTX, 2026-11-23). HEVC falls back to Apple's decoder.
+5. The decoder's dylibs and the bundle executable load into platform processes (`VTDecoderXPCService`), so they need
+   VermilionTrust's cdhash list: `PHXTRUST_KEEP=1 sh scripts/build/trust.sh` after step 1 picks up the dylibs next to
+   the plugin and an installed bundle; add the bundle before it is installed (it appears only after the reboot) with
+   `PHXTRUST_ADD=<path to PhxVideoDecoder.bundle/Contents/MacOS/PhxVideoDecoder>`. Then the EFI change of the runbook.
+
+The FFmpeg libraries come from `scripts/build/ffmpeg.sh` (FFmpeg n7.1 + `patches/ffmpeg`, only the HEVC / AV1
+decoders and their Vulkan hwaccels). Verified on the RX 7900 XTX (2026-11-23): HEVC 8 / 10-bit frames identical to
+Apple's decoder, AV1 identical to the AOM conformance MD5s ([finding](../.agents/findings/2026-11-23-apis-video.md)).
 
 ### 5.6 Optional: relocating the bundles for sandboxed GPU processes
 
@@ -329,9 +339,11 @@ to `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU` and l
 sandboxed GPU processes (WebKit's `com.apple.WebKit.GPU`, Chromium and Electron helpers) may map executables only from
 system paths, and `/Library/GPUBundles` is readable but not executable for them. That `CoreTypes.bundle` directory is a
 firmlink into the writable Data volume, so the sealed system volume is not touched and no `csr` bit is needed. The
-originals are kept in `/Library/GPUBundles-backup`; the script is idempotent and checks the plugin's signature at the
-end. Run it as root after the plugin is installed. The reference machine's documented install paths are the
-`/Library/GPUBundles` ones; whether it runs relocated, and whether Navi 31 needs this, is not recorded (unverified).
+originals are kept in `/Library/GPUBundles-backup`; the script is idempotent and ends by checking that the moved
+executables keep their cdhashes. Run it as root after the plugin is installed. The reference machine runs relocated
+since 2026-11-23: before, Safari's GPU process was refused (`file system sandbox blocked mmap()`) and WebGL contexts
+were lost at creation; after, WebGL 1 / 2 and WebGPU work in it (RX 7900 XTX). Later installs into
+`/Library/GPUBundles/...` land in the relocated copy through the symlinks.
 
 ## 6. The tools directory `~/gpu`
 
@@ -506,6 +518,7 @@ stated.
 | `phxboot-b15` | after `done`, desktop boot | `b15_boot.sh`: the display power recipe (watermarks, DET, DAL watermark table, HUBP rate group, then memory self-refresh) with an underflow watchdog for the whole boot |
 | `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> 20-24 W at idle |
 | `phxboot-bovram` (value: comma-separated process names) | after `done`, desktop boot | VermilionBoot b156's VRAM-backed buffers for those processes: the kext's self-test, then `debug.phxbo_vram_proc` and `debug.phxbo_vram=1`. Names as the kernel keeps them (`ps -o comm` without the path, cut at 16 characters); `WindowServer` is refused. On the XTX machine: buffer bandwidth 42.9 -> 840.9 GB/s |
+| `phxboot-gl` | after `done`, desktop boot | OpenGL over Metal: `debug.phxgl=1` (VermilionAccel publishes `IOGLBundleName=AppleMetalOpenGLRenderer`), read back. OpenGL apps started afterwards get the GPU instead of the Apple Software Renderer; `sudo sysctl -w debug.phxgl=0` turns it off for new apps without a restart. Verified on the XTX machine 2026-11-23 |
 | `phxboot-wsprefs` | before the restart | no longer used; the daemon only logs that it can be removed |
 
 Flags read by the helper scripts, not by the daemon itself:
@@ -529,8 +542,8 @@ A reasonable first set on one monitor is `sdma`, `cg` and `uclk` (`456`); add `a
 (section 8).
 
 The LaunchDaemon can also pass `PHXBOOT_NO_SDMA=1`, `PHXBOOT_NO_CG=1`, `PHXBOOT_NO_UCLK=1`, `PHXBOOT_NO_AOC=1`,
-`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1`, `PHXBOOT_NO_BOVRAM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
-skip a step regardless of the flags.
+`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1`, `PHXBOOT_NO_BOVRAM=1`, `PHXBOOT_NO_GL=1` or
+`PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to skip a step regardless of the flags.
 
 ### 7.4 The login-window guard
 

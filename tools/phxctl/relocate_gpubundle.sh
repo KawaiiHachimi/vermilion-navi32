@@ -6,6 +6,7 @@
 # (com.apple.WebKit.GPUProcess.sb allows file-map-executable in /System/Library/CoreServices, but /Library/GPUBundles
 # only for reading); that CoreTypes directory is a firmlink into the writable Data volume, so it passes the check.
 # The originals stay in /Library/GPUBundles-backup (running processes keep their mapped copies). Idempotent.
+# Ends with a check that the moved executables kept their cdhashes; exit 1 if one changed or has none.
 set -eu
 H=/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU; G=/Library/GPUBundles; B=/Library/GPUBundles-backup
 mkdir -p "$H" "$B"
@@ -16,4 +17,15 @@ for n in NVMTLDriver.bundle nvmtl; do
     ln -s "$H/$n" "$G/$n"
     echo "$n -> $H/$n"
 done
-codesign --verify --strict "$H/NVMTLDriver.bundle" && echo "plugin signature ok"
+# The plugin is ad-hoc signed as a binary (no sealed bundle resources), so `codesign --verify --strict` on the bundle
+# fails for the original as well (2026-11-23, XTX machine). What AMFI and VermilionTrust check is each Mach-O's cdhash:
+# the moved copies must keep the ones of the originals.
+cdh(){ codesign -dvvv "$1" 2>&1 | sed -n 's/^CDHash=//p'; }
+bad=0
+for f in NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver nvmtl/libvulkan_radeon.dylib; do
+    [ -f "$B/$f" ] || continue
+    moved=$(cdh "$H/$f")
+    if [ -z "$moved" ]; then echo "$f: no cdhash (unsigned or unreadable)"; bad=1
+    elif [ "$moved" = "$(cdh "$B/$f")" ]; then echo "$f: cdhash $moved kept"; else echo "$f: cdhash changed"; bad=1; fi
+done
+exit $bad

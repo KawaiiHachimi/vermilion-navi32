@@ -779,6 +779,18 @@ bovram_boot(){
     echo "bovram: on for $v (self-test 1)"
   else echo "bovram: debug.phxbo_vram=1 refused: off"; fi; }
 [ "${PHXBOOT_NO_BOVRAM:-0}" = 1 ] || [ $SAFE = 1 ] || bovram_boot
+# 2026-11-23 (thread 03): with $G/phxboot-gl, on a desktop boot: OpenGL over Metal (VermilionAccel's debug.phxgl=1, which
+# publishes IOGLBundleName=AppleMetalOpenGLRenderer on NMXAccel), read back. Only OpenGL processes started afterwards use
+# it; `sysctl -w debug.phxgl=0` turns it off for new processes without a restart. Seen on the XTX machine: the renderer
+# "AMD Radeon RX 7900 XTX (RADV NAVI31) ... 4.1 Metal" instead of the Apple Software Renderer, Minecraft 26.3 on it.
+gl_boot(){
+  [ -e "$G/phxboot-gl" ] || return 0
+  [ $DESK = 1 ] || { echo "gl: not a desktop boot: skip"; return 0; }
+  sysctl -n debug.phxgl >/dev/null 2>&1 || { echo "gl: VermilionAccel without debug.phxgl: off"; return 0; }
+  if sysctl -w debug.phxgl=1 >/dev/null 2>&1 && [ "$(sysctl -n debug.phxgl 2>/dev/null)" = 1 ]; then
+    echo "gl: OpenGL over Metal on"
+  else echo "gl: debug.phxgl=1 refused: off"; fi; }
+[ "${PHXBOOT_NO_GL:-0}" = 1 ] || [ $SAFE = 1 ] || gl_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes
