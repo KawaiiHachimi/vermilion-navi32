@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # radv.sh [apply]: RADV (Mesa Vulkan driver) with the Darwin backend -> $VERMILION_OUT/libvulkan_radeon.dylib.
-#   radv.sh apply   apply patches/mesa (0001..0018, git am) to MESA_DIR, a clean Mesa checkout at f5cb8ee0
+#   radv.sh apply   apply patches/mesa (0001..0019, git am) to MESA_DIR, a clean Mesa checkout at f5cb8ee0
 #                   (https://gitlab.freedesktop.org/mesa/mesa, f5cb8ee032adabef599ae892ec4e42d796b84da9)
 #   radv.sh         configure once (meson, x86_64 cross file below) and build
 # Needs meson, ninja, glslangValidator and python3 with mako, pyyaml, markupsafe, packaging.
