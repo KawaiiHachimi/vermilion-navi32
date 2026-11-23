@@ -35,7 +35,13 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
    - Check: `train_w` lines in the stat, `engine run` lines in the daemon log; 2-3 restarts at 1440p60 HDR.
    - Rollback: `EFI/OC` and `EFI/OC.prev` swapped; the daemon: `~/gpu/phxboot-navi31.sh` from git `47c4543`
      (`git show 47c4543:tools/phxctl/phxboot-navi31.sh`).
-2. **EFI change 11: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). First
+1c. **EFI change 11: VermilionBoot b153** (the eight HDR plans wait Linux's 100-180 ms before their second link
+   window; [finding](findings/2026-11-23-gpu-stability.md) section 6). Owner's OK 2026-11-23 ~03:55. **Installed:** `EFI/OC` = change 11 (`bd3f72fa`), `EFI/OC.prev` = change 10 (b152 `9ca53007`).
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b152`; `EFI/OC.prev` becomes change 10.
+   - Check: 2-3 restarts at 1440p60 HDR; every `train_w3` of the daemon log's `engine run` lines `tries=1`, with
+     `since_prev_us` about 225000.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped.
+2. **EFI change 12: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). First
    `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
    the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
    - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
