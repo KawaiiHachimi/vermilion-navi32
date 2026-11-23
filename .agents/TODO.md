@@ -28,7 +28,14 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      `DARK`; then OWNER-TESTS 01 "Login at 60 Hz HDR" (3 restarts).
    - Rollback: boot trouble: `EFI/OC` and `EFI/OC.prev` swapped (PROJECT_KNOWLEDGE "Rollback of the EFI"); a daemon
      problem: `sudo cp ~/vermilion-rollback/phxboot-navi31.sh.pre-thread01 ~/gpu/phxboot-navi31.sh`, restart.
-2. **EFI change 10: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). First
+1b. **EFI change 10: VermilionBoot b152** (diagnostics only: every link window's attempts and timing, `train_wN` in
+   `debug.phxp0odm_stat`) **+ the daemon's per-boot engine record** (`engine run N` lines in `/var/log/phxboot.log`).
+   Why: the 03:28 boot's last link window trained at its 4th attempt. Owner's OK 2026-11-23 ~03:45. **Installed:** `EFI/OC` = change 10 (VermilionBoot `9ca53007`), `EFI/OC.prev` = change 9 (b151 `a23a2766`); daemon deployed.
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b151`; `EFI/OC.prev` becomes change 9.
+   - Check: `train_w` lines in the stat, `engine run` lines in the daemon log; 2-3 restarts at 1440p60 HDR.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped; the daemon: `~/gpu/phxboot-navi31.sh` from git `47c4543`
+     (`git show 47c4543:tools/phxctl/phxboot-navi31.sh`).
+2. **EFI change 11: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). First
    `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
    the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
    - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
