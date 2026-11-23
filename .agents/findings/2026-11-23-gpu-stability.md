@@ -95,3 +95,18 @@ FEC-on write to window 2's DISABLE: Linux's commit sleeps there, the replay runs
 
 At 03:43:19 a shutdown during the daemon's watch caught a run in flight (`target=60 phase=leg1`, the `60hdr-from`
 window trained): macOS asked for SDR 60 Hz as the session ended (seen once; whether every logout does is unknown).
+
+## 7. On the box: b153 (Linux's pause before the second window), 03:51-03:57
+
+Three restarts with 1440p60 HDR saved; every login switch landed, daemon fine.
+
+| Boot | HDR to plan, window 2 | since previous window | link off -> up |
+|---|---|---|---|
+| 03:51 | **2 attempts**: the first got no AUX answer (`rc=aux`, status all 00, CR loop never reached), the second trained 100 ms later | 227.9 ms | 20.4 ms |
+| 03:53 | 1 attempt | 227.6 ms | 3.9 ms |
+| 03:55 | 1 attempt | 226.8 ms | 4.8 ms |
+
+With Linux's pause the clock-recovery failures of b151 / b152 did not come back (0 of 3; they were 2 of 3 recorded
+boots before), but the sink once did not answer AUX at the first access after its D3 (a different failure). Three boots
+are too few to call either rate. The retry (b151) is what keeps the screen on; the pause stays because it is Linux's
+timing. Again a run at the shutdown: macOS asked for SDR 60 Hz as the session ended (03:53:59, second sighting).

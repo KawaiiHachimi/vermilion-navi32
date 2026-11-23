@@ -115,6 +115,7 @@ add each change here with the thread's number.
   | 8 | 2026-11-23 00:20 | 05 | VermilionTrust 1.0.3 (trusts the Music-fix plugin and the previous one) |
   | 9 | 2026-11-23 03:11 | 01 | VermilionBoot b151 (`a23a2766`): Linux's link-training retries, a failed from plan runs once more. Same boot, outside the EFI: the daemon's display check |
   | 10 | 2026-11-23 03:42 | 01 | VermilionBoot b152 (`9ca53007`): each link window's attempts and timing in `debug.phxp0odm_stat`. Same boot: the daemon logs each engine run |
+  | 11 | 2026-11-23 03:51 | 01 | VermilionBoot b153 (`bd3f72fa`): the HDR plans wait Linux's 100-180 ms before their second link window |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).

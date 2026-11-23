@@ -36,7 +36,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
    - Rollback: `EFI/OC` and `EFI/OC.prev` swapped; the daemon: `~/gpu/phxboot-navi31.sh` from git `47c4543`
      (`git show 47c4543:tools/phxctl/phxboot-navi31.sh`).
 1c. **EFI change 11: VermilionBoot b153** (the eight HDR plans wait Linux's 100-180 ms before their second link
-   window; [finding](findings/2026-11-23-gpu-stability.md) section 6). Owner's OK 2026-11-23 ~03:55. **Installed:** `EFI/OC` = change 11 (`bd3f72fa`), `EFI/OC.prev` = change 10 (b152 `9ca53007`).
+   window; [finding](findings/2026-11-23-gpu-stability.md) section 6). Owner's OK 2026-11-23 ~03:55. **Installed:** `EFI/OC` = change 11 (`bd3f72fa`), `EFI/OC.prev` = change 10 (b152 `9ca53007`). **Booted 03:51-03:57:** 3 restarts landed; window 2 `since_prev` ~227 ms; tries 2 / 1 / 1 (the 2: no AUX answer at the first attempt) ([finding](findings/2026-11-23-gpu-stability.md) section 7).
    - Before: `~/vermilion-rollback/VermilionBoot.kext.b152`; `EFI/OC.prev` becomes change 10.
    - Check: 2-3 restarts at 1440p60 HDR; every `train_w3` of the daemon log's `engine run` lines `tries=1`, with
      `since_prev_us` about 225000.
@@ -59,6 +59,8 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 01 GPU stability
 
+- [ ] The sink once did not answer AUX at the first access after D3 (b153, 03:51; the retry trained). Compare with
+      Linux's AUX handling after SET_POWER D0 (any wait or retry Linux does there that the trainer doesn't)
 - [~] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
       every later switch refused until reboot. **b151** (built, host-tested, staged 1): Linux's 4 training attempts
       per link window, a failed from plan runs once more (2 per boot), `last_fail_train` keeps the CR / EQ report.
