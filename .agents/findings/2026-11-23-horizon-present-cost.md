@@ -90,3 +90,20 @@ What is still slow, and why (candidates, in order of size):
 
 These are not Horizon-specific: (1) hits every app that streams data through CPU-visible buffers (wgpu, MoltenVK and
 most games), (2) every app that presents frames, at a cost that grows with resolution.
+
+## b159: CPU-visible buffers in VRAM (2026-11-23 15:52, XTX, EFI change 20)
+
+Horizon fullscreen 2560x1440, same world and view (`drawn_sections` 392-394), VRAM BOs on for `horizon-client`,
+15 s bench each (`~/src/bench/results/hzdiag-20261123-155251`, `-155317`):
+
+| run | avg fps | p50 ms | p99 ms | 1 % low fps | GPU (SMU) |
+|---|---|---|---|---|---|
+| b159, Shared in system memory (default) | 168.1 | 5.86 | 10.44 | 89.7 | gfx 94 %, 2.96 GHz, board 225 W |
+| b159, `NVMTL_SHARED_VRAM=1` (Shared buffers in BAR0 VRAM) | 167.6 | 5.93 | 6.66 | 136.9 | gfx 95 %, 2.96 GHz, board 199 W |
+
+The CPU-visible pool was used (311 BOs, peak 207 MiB) and nothing fell back. The average does not move, but the
+stutter does: p99 10.4 -> 6.7 ms, 1 % low 90 -> 137 fps, and 26 W less board power. The GPU is busy 94-95 % at full
+clock in both runs, so the GPU itself is the limit: it does far more work per frame than on Linux (0.22 ms p50 for
+the whole frame there; main pass alone 2.35 ms here, b158 trace). Where the main pass spends that time (shader code
+from the AIR -> SPIR-V translator, descriptor / buffer access patterns, render target formats) is the next question.
+The `win720` run in that directory ran fullscreen too (`options.txt` has `fullscreen:true`): ignore it.

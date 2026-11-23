@@ -47,6 +47,11 @@ Check after the boot: accelerated desktop 1440p240 HDR + VRR; `ioreg -l | grep p
 `~/vermilion-rollback/EFI-OC.change19-20261123`); if macOS does not reach the desktop, boot Linux and
 `mv /boot/EFI/OC /boot/EFI/OC.b159-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`.
 
+Thread 02 part C, follow-ups to b159: (1) a process that exits with its CPU-visible BOs still mapped parks each one
+(Horizon: 80 per run; reaped on the next allocation); past 256 parked BOs the rest leak until reboot: raise
+`kVisZombies` or reap when the client closes. (2) The first boot after the 15:45 restart failed without a log: watch
+the next restarts. (3) Horizon is GPU-bound at 94 % (finding horizon-present-cost, "b159"): profile the main pass.
+
 Thread 02 part C: **EFI change 19** (stage `vermilion-trust-bar1g`: OpenCore `ResizeAppleGpuBars` 0 -> 10, BAR0 1 GiB
 for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, **booted 11:09 and verified**: `phx-bar0-len`
 1073741824, `phx-fb-aper-len` 536870912, desktop 1440p240 HDR + VRR, VRAM self-test 1. New on this boot (owner): an
