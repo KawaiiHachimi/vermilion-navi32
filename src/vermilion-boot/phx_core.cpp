@@ -182,6 +182,11 @@ void PhxBringup::stop(IOService *provider) {
     if (vramLock) { IOLockFree(vramLock); vramLock = nullptr; }   // b156
     if (clearLock) { IOLockFree(clearLock); clearLock = nullptr; }
     if (vpool) { IOFree(vpool, sizeof(phxvram::Pool)); vpool = nullptr; }
+    if (visZ) {   // b159/b160: parked CPU-visible BOs, then the pool
+        for (uint32_t i = 0; i < visZn; i++) visZ[i].md->release();
+        IOFree(visZ, visZCap * sizeof(VisZombie)); visZ = nullptr; visZCap = visZn = 0;
+    }
+    if (vispool) { IOFree(vispool, sizeof(phxvram::Pool)); vispool = nullptr; }
     if (doorbellMap) {
         doorbellMap->release();
         doorbellMap = nullptr;

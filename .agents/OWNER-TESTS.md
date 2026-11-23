@@ -35,9 +35,17 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 - [x] **Allow click** (PhxAccel with the physical size): done 2026-11-23; size now 591 x 332 mm.
 - [x] **Display sleep:** 2026-11-23, the picture comes back; the LG stays on showing black instead of standby (owner).
       The fix moved to thread 05.
-- [ ] **Watch: a power-on after Linux that does not reach macOS** (seen once, 2026-11-23 05:09, the first power-on
-      after a Linux session; the second power-on booted). This is the cold-boot hazard: keep watching, it is not
-      closed as a one-off. If it happens again, before powering off:
+- [ ] **Watch: a boot that does not reach macOS and leaves no macOS log** (twice so far, see the counter). The first
+      was the cold-boot hazard after Linux; keep watching, it is not closed as a one-off. **On the next restarts,
+      glance at the screen while it boots** (OpenCore picker, Apple logo, black) even when nothing goes wrong.
+      **Rule (coordination thread, 2026-11-23): a third such boot on b159 -> revert to EFI change 19 before going on.**
+
+      | # | date, time (CET) | build / EFI change | cold or warm | screen | what the logs show |
+      |---|---|---|---|---|---|
+      | 1 | 2026-11-23 05:09 | b155 / change 14 | cold: first power-on after a Linux session | not seen | OpenCore log ends at ExitBootServices as a good boot's does; no unified log, no daemon log, no panic report ([finding](findings/2026-11-23-gpu-stability.md), section 11) |
+      | 2 | 2026-11-23 15:45 | b159 / change 20 (BAR0 1 GiB, first boot) | warm: `shutdown -r` from macOS | not seen (owner: "one restart didn't work, the second one did") | shutdown clean (logs to 15:45:02); OpenCore log `opencore-2026-11-23-144551.txt` has 3 lines and stops: `OCC: Missing compatible GOP - Not Found`, `Missing GOP on ConOut`, `Changed resolution to 0x0@0 ... Unsupported`; no boot.efi line, so macOS's kernel and b159 never ran. The good boot after it (14:49 UTC) has no such lines. Cause unknown (unverified: the firmware's GPU GOP did not come up after a warm restart) |
+
+      If it happens again, before powering off:
       1. Photograph the screen (verbose text: the last 10 lines; or the Apple logo / black, and whether the progress
          bar moved).
       2. Note: how long since Linux was powered off, whether the power-off was full (not a restart), and the time.

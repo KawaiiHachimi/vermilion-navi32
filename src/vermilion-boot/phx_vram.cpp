@@ -50,7 +50,11 @@ bool PhxBringup::vramPoolUpLocked() {
     const uint64_t win = fbBarLen < fbAperLen ? fbBarLen : fbAperLen;   // the part of BAR0 this kext reaches
     if (!vispool && win >= kVisPoolBase + kVisPoolMin && win <= end) {   // b159
         vispool = static_cast<phxvram::Pool *>(IOMallocZero(sizeof(phxvram::Pool)));
-        if (vispool && !phxvram::init(*vispool, kVisPoolBase, win)) { IOFree(vispool, sizeof(phxvram::Pool)); vispool = nullptr; }
+        if (vispool && phxvram::init(*vispool, kVisPoolBase, win)) {
+            visZCap = static_cast<uint32_t>((vispool->end - vispool->base) / phxvram::kGranule);
+            visZ = static_cast<VisZombie *>(IOMallocZero(visZCap * sizeof(VisZombie)));
+        }
+        if (vispool && !visZ) { IOFree(vispool, sizeof(phxvram::Pool)); vispool = nullptr; visZCap = 0; }   // no pool without its parking
     }
     const uint64_t base = vispool && vispool->end > PHX_VRAM_POOL_BASE ? vispool->end : PHX_VRAM_POOL_BASE;
     if (!vpool)
@@ -60,14 +64,15 @@ bool PhxBringup::vramPoolUpLocked() {
 
 // b159: a freed CPU-visible BO whose BAR pages a CPU map still holds (its md is retained by the map) keeps its range
 // until the map goes: the range would otherwise go to another BO while the old process can still write it.
+// Called on every CPU-visible allocation and stat read: a process's maps go when it exits, after its client's BOs.
 void PhxBringup::visReapLocked() {
-    for (uint32_t i = 0; i < kVisZombies; i++) {
+    for (uint32_t i = 0; i < visZn;) {
         VisZombie &z = visZ[i];
-        if (z.md && z.md->getRetainCount() <= 1) {
-            z.md->release();
-            if (vispool) phxvram::release(*vispool, z.off, z.size);
-            z = VisZombie{};
-        }
+        if (z.md->getRetainCount() > 1) { i++; continue; }
+        z.md->release();
+        if (vispool) phxvram::release(*vispool, z.off, z.size);
+        z = visZ[--visZn];   // the last one moves into this slot (checked next)
+        visZ[visZn] = VisZombie{};
     }
 }
 
@@ -91,10 +96,8 @@ void PhxBringup::vramVisRelease(IOMemoryDescriptor *md, uint64_t off, uint64_t b
         return;
     IOLockLock(vramLock);
     if (md && md->getRetainCount() > 1) {   // the BO's own reference plus a CPU map's: park it
-        uint32_t i = 0;
-        while (i < kVisZombies && visZ[i].md) i++;
-        if (i < kVisZombies) { md->retain(); visZ[i] = VisZombie{md, off, phxvram::sizeFor(bytes)}; }
-        else OSIncrementAtomic64(&gVramLeaked);   // no slot: the range is never handed out again in this boot
+        if (visZn < visZCap) { md->retain(); visZ[visZn++] = VisZombie{md, off, phxvram::sizeFor(bytes)}; }
+        else OSIncrementAtomic64(&gVramLeaked);   // cannot happen (one slot per possible BO); never handed out again
     } else {
         phxvram::release(*vispool, off, bytes);
     }
@@ -321,9 +324,9 @@ int PhxBringup::vramStat(char *b, size_t cap) {
             lost = vpool->lost; ext = vpool->n;
         }
         if (vispool && vispool->end) {   // b159
+            visReapLocked();   // b160: the stat shows what is still held, not what went at the last exit
             vb = vispool->base; ve = vispool->end; vu = vispool->used; vp = vispool->peak; va = vispool->allocs;
-            vf = vispool->frees; vfl = vispool->fails;
-            for (uint32_t i = 0; i < kVisZombies; i++) if (visZ[i].md) vz++;
+            vf = vispool->frees; vfl = vispool->fails; vz = visZn;
         }
         IOLockUnlock(vramLock);
     }

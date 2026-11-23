@@ -160,8 +160,10 @@ private:
     phxvram::Pool *vispool{nullptr};   // b159: CPU-visible VRAM BOs inside BAR0
     uint64_t fbBarLen{0};              // b159: BAR0's length as macOS assigned it (fbAperLen: the part mapped)
     struct VisZombie { IOMemoryDescriptor *md; uint64_t off, size; };   // b159: freed while a CPU map still holds it
-    static constexpr uint32_t kVisZombies = 256;
-    VisZombie visZ[kVisZombies]{};
+    // b160: one slot per BO the pool can hold (its size / the 64 KiB granule), allocated with the pool: parking never
+    // runs out (b159 had 256 slots and leaked past them; Horizon parks ~80 BOs at every exit)
+    VisZombie *visZ{nullptr};
+    uint32_t visZCap{0}, visZn{0};
     void visReapLocked();
     IOLock *vramLock{nullptr}, *clearLock{nullptr};
     bool vramPoolUpLocked();
