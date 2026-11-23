@@ -34,6 +34,19 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
+Thread 02 part C: **EFI change 21** (stage `vermilion-trust-bar1g`): VermilionBoot **b160** (the parking of mapped
+CPU-visible BOs can't run out) and **VermilionTrust rebuilt for a new NVMTLDriver** (app CAMetalLayer drawables drawn
+TILED, copied to their pages at present: `NVMTL_DRAWABLE_TILED`, on by default outside WindowServer). Installed
+2026-11-23, not booted yet. Check after the boot: accelerated desktop 1440p240 HDR + VRR; `sysctl debug.phxtrust_stat`
+`mode=enforce`, `denied_unlisted=0`; `debug.phxbo_vram_selftest` 1; `/tmp/nvmtl.log` has "CAMetalLayer drawable drawn
+TILED" for a Metal app and its window looks right (Horizon; a Chromium/Electron app). Rollbacks, smallest first:
+(1) a broken app window: `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off` and relaunch the app (no restart);
+(2) the old plugin: `~/vermilion-rollback/NVMTLDriver.pre-drawtiled-20261123` back into
+`/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/` (.new + mv; the new trust list keeps it as `-previous`);
+(3) EFI: `EFI/OC.prev` = change 20 (copy in `~/vermilion-rollback/EFI-OC.change20-20261123`); restore the old plugin
+first (change 20's trust list doesn't know the new one). No desktop at all: boot Linux, `mv /boot/EFI/OC
+/boot/EFI/OC.b160-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`, then the old plugin from macOS.
+
 Thread 02 part C: **EFI change 20** (stage `vermilion-trust-bar1g` with VermilionBoot b159: CPU-visible VRAM BOs in
 [352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, **booted 15:49 and verified**: desktop
 1440p240 HDR, `phx-fb-aper-len` 1073741824, self-test 1 (step 3's BAR0 read-back at 352 and 1023 MiB passed), hi pool

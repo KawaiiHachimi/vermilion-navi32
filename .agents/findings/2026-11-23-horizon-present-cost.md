@@ -107,3 +107,34 @@ clock in both runs, so the GPU itself is the limit: it does far more work per fr
 the whole frame there; main pass alone 2.35 ms here, b158 trace). Where the main pass spends that time (shader code
 from the AIR -> SPIR-V translator, descriptor / buffer access patterns, render target formats) is the next question.
 The `win720` run in that directory ran fullscreen too (`options.txt` has `fullscreen:true`): ignore it.
+
+## Where the main pass goes: the frame is drawn into linear system memory (2026-11-23 16:22-16:29, XTX, b159)
+
+Shader statistics (`NVMTL_PSTAT=1` plus the plugin trace; raw: `~/src/bench/results/hzdiag-20261123-162249`) and the
+plugin's per-pass GPU timer (`/tmp/nvmtl-passtime-request`; `hzdiag-20261123-162830`, `-162856`, `-162922`):
+
+- The terrain fragment shaders are large (`fs_opaque` 3469 ACO instructions, `fs_solid` 3537, no spills, 32 waves
+  per SIMD). That is static size: Horizon's WGSL (`sprite_grad` / `sprite_level`) switches over 8 sprite arrays
+  (`SPRITE_ARRAYS` > 1, `SPRITE_SPLIT` folded to 512 on macOS), and a face takes one case. Not the cause.
+- The main pass is 2 indexed terrain draws (531k and 540k indices) plus sky, entities, water and clouds.
+
+| run (median of 134 frames) | main pass | vignette pass | fps |
+|---|---|---|---|
+| normal | 2.42 ms | 0.74 ms | 167 |
+| `NVMTL_SKIP_FS=fs_opaque,fs_solid` (the terrain draws skipped) | 1.59 ms | 0.77 ms | 183 |
+| `RADV_DEBUG=nohiz` | 2.50 ms | 0.73 ms | 166 |
+
+The terrain is only 0.83 ms; the rest of the pass (sky, entities, water, clouds) costs 1.6 ms, and a 74-instruction
+full-screen vignette pass 0.74 ms. Hi-Z barely matters. The trace's `PASS` lines show why: **every pass renders
+straight into the CAMetalLayer drawable** (IOSurfaces 73/84/85, rotating), and the plugin draws an IOSurface as a
+LINEAR image on its own system-memory pages (host import). So the clear, the sky, every terrain layer, the blending
+and the vignette are linear writes across PCIe. On Linux the swapchain image is VRAM, tiled and compressed. This hits
+every app that draws into its drawable (most Metal games, wgpu, MoltenVK).
+
+Fix (plugin, `NVMTL_DRAWABLE_TILED`, on by default outside WindowServer): an IOSurface named `CAMetalLayer...` at
+least 256x256 is drawn into a tiled image, and copied to its pages once, in the command buffer that presents it. This
+is upstream's `NVMTL_WS_SCANOUT_TILED` for WindowServer's display surface (probe there: 1.77 ms linear, 88 us tiled,
+491 us with the copy), applied to app drawables. Expected (unverified): main pass and vignette near their VRAM/tiled
+cost, plus one 14.7 MB copy (~0.6 ms at PCIe write speed). Off switch without a restart: the file
+`/Library/GPUBundles/nvmtl/drawable-tiled-off` (read for each new drawable). Next after it: WindowServer's
+composite, ~2.1 ms per frame (`NVMTL_WS_SCANOUT_TILED` is off on this machine; to test in a later boot).

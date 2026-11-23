@@ -50,6 +50,7 @@ static inline void *nvmtl_buf_cpu(NVMTLBuffer *b) { nvmtl_buf_settle(b); return 
   nvk_buffer _scanVram; BOOL _scanOn;   // WindowServer's display surface drawn in VRAM, written back to _hostBuf at each seal
   nvk_buffer _planeHost; BOOL _planeHostOn; size_t _planeOff, _planeRow;   // a plane the GPU cannot sample in place: its pages, GPU-copied into _i
   BOOL _scanTiled;   // NVMTL_WS_SCANOUT_TILED: the display surface drawn into a tiled image _i, copied to _hostBuf at each seal
+  BOOL _drawTiled;   // NVMTL_DRAWABLE_TILED: an app's CAMetalLayer drawable drawn into a tiled image _i, copied to _hostBuf when presented
   BOOL _stex;
   uint64_t _resid;
   NSUInteger _usage;
