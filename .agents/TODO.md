@@ -24,7 +24,7 @@ Thread 02 (2026-11-23):
 1. **ESP:** `<ESP>/vermilion/LINUX-THREAD02.md` for the Linux session. Afterwards copy `<ESP>/vermilion/results-02/`
    off and delete both.
 2. **EFI change 15: VermilionTrust 1.0.4** (`63481dc4`, 8 cdhashes) on stage `vermilion-trust`, VermilionBoot b155
-   unchanged, `config.plist` identical (built and diffed 06:55: only `VermilionTrust.kext` differs, plus the FSCK
+   unchanged, `config.plist` identical (built and diffed 06:24: only `VermilionTrust.kext` differs, plus the FSCK
    artefact in MtkWirelessBT). **Plus, outside the EFI:** RADV with patches 0018-0019 (`801ae178`, cdhash `d5251b0b`)
    in `/Library/GPUBundles/nvmtl/`, the plugin without the environment leak (`3be1ec3c`, cdhash `e162a385`) in
    `NVMTLDriver.bundle/Contents/MacOS/`. Built in `~/src/vermilion/build-02/` (contains `efi/` with serials: delete it

@@ -94,7 +94,7 @@ re-sleeps for the full deadline?), and a daemon flag to set it at boot.
 
 `patches/mesa/0018` makes revision 0xc8 take Mesa's own `navi31` entry. That entry differs from the fork's
 `navi31_xt` only in the harvest fields (pci_rev, 96 CUs, full CU bitmap, 384-bit, `tcc_disabled_mask` 0): checked
-with a field diff of the two entries at Mesa `f5cb8ee0`. A/B interleaved (XT, XTX, XT, XTX), 06:22-06:30, one other
+with a field diff of the two entries at Mesa `f5cb8ee0`. A/B interleaved (XT, XTX, XT, XTX), 06:10-06:14, one other
 GPU client open (VacuumTube, 19 % CPU, idle-ish), GPU time per frame, median of two rounds:
 
 | Load | XT profile (installed) | XTX profile (0018) |
@@ -121,7 +121,7 @@ glslang 16.5) in ~3 minutes: **the same code as the installed `8054fbe4`**. Of 2
 the Mach-O UUID and the two copies of the git id in the version string (`git am` gives other commit ids). Set-up in
 runbooks ("Building on the Mac itself"). The Mesa checkout is ~560 MB, the build ~1 GB.
 
-## 7. Disk full (06:00)
+## 7. Disk full (~06:00)
 
 The Data volume had 125 MB left (83.8 GB container) when the Mesa fetch filled it. The owner had the installer
 partition `disk0s4` deleted and the container grown to 107.4 GB (22 GiB free).
