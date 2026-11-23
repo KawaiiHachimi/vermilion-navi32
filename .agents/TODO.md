@@ -124,6 +124,17 @@ pending (2026-11-23, thread 00).
 
 - [ ] Router 5 GHz on channel 44 (not DFS 52) + MtkWireless 1.1.2 (claims the AirDrop `missingEndpoint` fix); then
       AirDrop both ways with `amtk_awdl_offchan=0` ([finding](findings/2026-11-22-audio-connectivity-inventory.md))
+- [ ] Study [ForbiddenItlwm](https://github.com/retropineaple/ForbiddenItlwm) (fork of AirportItlwm, GPL-2.0; AWDL for
+      Intel AX200/201/210/211) as the reference design for the MtkWireless fork: its AWDL, the separate `llw0`
+      interface (Continuity Camera) and `BTLEAdvFixup.kext`; read its `docs/HOW-IT-WORKS.md` and `DEBUGGING.md`, and
+      its credits (FranciumOS-org/AirPort_RTW89, DrogaBox/RTL8814Native for the Continuity Camera peer-cache records,
+      seemoo-lab/owl). It claims, on 26.7.1-26.7.3: AirDrop both ways at ~20 MB/s, Universal Clipboard, Handoff,
+      Continuity Camera; AirDrop prefers channel 149 / 80 MHz, iPhones use 44 where 149 isn't allowed. Public beta
+      (0.6.0-beta.4, 2026-11-22), written with AI help. MtkWireless shares its zxystd driver layer and licence, so
+      ideas and code can be ported *(unverified, owner's find 2026-11-23)*
+- [ ] **Owner decides:** an Intel AX210 M.2 card (~20 EUR) with ForbiddenItlwm + IntelBluetoothFirmware instead of the
+      MT7922. Community-maintained, not ours; the profile's `wifi:` field must then support both cards. One EFI change
+      per boot as always *(unverified, owner's find 2026-11-23)*
 - [ ] Universal Clipboard (probably the same AWDL link *(unverified)*), Continuity Camera wired (no frames,
       `EADDRNOTAVAIL` on the USB link) and wireless, Sidecar / Universal Control, Auto Unlock
 - [ ] Fork MtkWireless only for what's left: adaptive AWDL off-channel, shorter windows, the per-second
