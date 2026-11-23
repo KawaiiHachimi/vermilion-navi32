@@ -97,6 +97,11 @@ struct Hw {
     uint32_t phyRate = 54000;
     bool failHbr3 = false;
     uint32_t failRate = 0;          // link training at this symbol clock fails
+    // b151: training fails after the TRANSMITTER_CONTROL ENABLEs counted here (1 = the first ENABLE of the test, ...)
+    std::set<unsigned> failEnables;
+    unsigned enables = 0;
+    bool failThis = false;
+    std::vector<uint64_t> enableAt;  // the model time of every ENABLE (the waits between Linux's attempts)
     unsigned dalNak = 0;            // the next n DAL messages answer 0xfe
     uint32_t touchOutsideAt = 0;   // after this many writes, OTG2 turns on by itself (a foreign change)
     // b150: HUBPn underflow status (bits 30:28) is sticky: only HUBP_UNDERFLOW_CLEAR (bit 31) clears it (XTX machine 2026-11-22)
@@ -146,7 +151,7 @@ struct Hw {
         if (whole >= 1 && drrPending) { drrLatched[0] = r[0x04FF0]; drrLatched[1] = r[0x04FF1]; drrLatched[2] = r[0x04FF3]; drrPending = false; }
     }
     bool linkUp() {
-        return phyRate && phyRate == dpcd[0x100] * 2700u && ((dpcd[0x101] & 0x1f) == 4 || (dpcd[0x101] & 0x1f) == 2 || (dpcd[0x101] & 0x1f) == 1) && !(failHbr3 && phyRate == 81000) && phyRate != failRate;
+        return phyRate && phyRate == dpcd[0x100] * 2700u && ((dpcd[0x101] & 0x1f) == 4 || (dpcd[0x101] & 0x1f) == 2 || (dpcd[0x101] & 0x1f) == 1) && !(failHbr3 && phyRate == 81000) && phyRate != failRate && !failThis;
     }
     uint32_t rd(uint32_t a) {
         const uint32_t v = r[a];
@@ -193,7 +198,7 @@ struct Hw {
             if (c[0] == phxdpl::kTxHdr) {
                 const uint32_t act = (c[1] >> 8) & 0xff;
                 if (act == phxdpl::kTxDisable) { phyRate = 0; r[0x05672] &= ~1u; }
-                if (act == phxdpl::kTxEnable) { phyRate = c[2]; r[0x05672] |= 1u; }
+                if (act == phxdpl::kTxEnable) { phyRate = c[2]; r[0x05672] |= 1u; failThis = failEnables.count(++enables) != 0; enableAt.push_back(t); }
             }
             r[phxdmub::kInbox1Rptr] = v;
         }
@@ -519,8 +524,72 @@ int main() {
         Hw h; gop(h); State st{}; Run r{}; Env e = env(h);
         CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone);
         h.ufAtWrite = static_cast<unsigned>(h.writes.size()) + 40; h.ufLive = true;
-        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kFailed && r.postRetries == 1 && r.failed && (r.last.hubp0 & 0x70000000u));
+        // b151: the 240 -> 144 from plan fails its post check, runs once more (a recovery), fails again: latched
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kFailed && r.postRetries == 2 && r.failed && (r.last.hubp0 & 0x70000000u));
+        CHECK(r.recoveries == 1 && r.recovered == 0 && r.retryWhy && std::strstr(r.retryWhy, "post check"));
         CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kRefused);
+    }
+    // ---- b151: Linux's training retries: two failed attempts, the third trains; link off and the wait between ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        h.failEnables = {1, 2};
+        CHECK(run(e, st, r, kSel240, 0, aux(h), kSet) == kDone && !r.failed && curHz(r, kSet) == 240 && h.phyRate == 81000);
+        CHECK(r.train.tries == 3 && r.train.rc[0] == phxdpl::kErrCr && r.train.rc[1] == phxdpl::kErrCr && r.train.rc[2] == phxdpl::kOk);
+        CHECK(r.train.failedOnce && r.train.first.crLoops >= 1 && r.trainRetried == 1 && !r.last.why);
+        // the attempts' ENABLEs: a DISABLE before each retry, then Linux's 100 / 150 ms
+        CHECK(h.enableAt.size() == 3 && h.enableAt[1] - h.enableAt[0] >= 100000 && h.enableAt[2] - h.enableAt[1] >= 150000);
+        unsigned dis = 0;
+        for (auto &c : h.cmds) if (c[0] == phxdpl::kTxHdr && ((c[1] >> 8) & 0xff) == phxdpl::kTxDisable) dis++;
+        CHECK(dis >= 3);   // the plan's own link off + one per retry
+        char b[3072];
+        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "tries=3") && std::strstr(b, "train_retried=1"));
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.train.tries == 1 && r.trainRetried == 1);
+    }
+    // ---- b151: every attempt fails: the four attempts are kept with the first one's report; the entry falls back ----
+    {
+        Hw h; gop(h); h.failHbr3 = true; State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, kSel240, 0, aux(h), kSet) == kFellBack && !r.failed && curHz(r, kSet) == 144);
+        CHECK(r.last.train.tries == 4 && r.last.train.rate == 0x1e && r.last.train.lanes == 4);
+        for (unsigned a = 0; a < 4; a++) CHECK(r.last.train.rc[a] == phxdpl::kErrCr);
+        CHECK(r.last.train.first.crLoops >= 1 && r.last.why && std::strstr(r.last.why, "every attempt"));
+        CHECK(r.recoveries == 0);   // the fall-back landed the first time: no recovery used
+        char b[3072];
+        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "last_fail_train: link 0x1e x4 tries=4 rc=clock-recovery,clock-recovery,clock-recovery,clock-recovery"));
+    }
+    // ---- b151: a from plan fails (every attempt of its link window), runs again and lands on 144: not latched ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 60, 0, aux(h), kSet) == kDone);
+        const unsigned n0 = h.enables;
+        h.failEnables = {n0 + 1, n0 + 2, n0 + 3, n0 + 4};   // the 60 -> 144 plan's window, all four attempts
+        CHECK(run(e, st, r, 120, 0, aux(h), kSet) == kFellBack && !r.failed && r.where == kLinux && curHz(r, kSet) == 144);
+        CHECK(r.recoveries == 1 && r.recovered == 1 && r.retryWhy && r.last.plan == k60From.name && r.last.train.tries == 4);
+        CHECK(r.fbCount[1] == 1 && h.r[0x04FEF] == 0x5eb && h.phyRate == 54000);
+        CHECK(run(e, st, r, 120, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 120);   // and the target runs next time
+        // the second recovery of the boot: 120 -> 144 fails, runs again, lands
+        const unsigned n1 = h.enables;
+        h.failEnables = {n1 + 1, n1 + 2, n1 + 3, n1 + 4};
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kFellBack && r.recoveries == 2 && r.recovered == 2 && !r.failed);
+        // no recovery left: the next failed from plan latches, as before b151
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone);
+        const unsigned n2 = h.enables;
+        h.failEnables = {n2 + 1, n2 + 2, n2 + 3, n2 + 4};
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kFailed && r.failed && r.recoveries == 2);
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kRefused);
+    }
+    // ---- b151: a to plan fails, its fall-back fails too, the fall-back runs again and lands ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        const unsigned n0 = h.enables;
+        h.failEnables = {n0 + 1, n0 + 2, n0 + 3, n0 + 4, n0 + 5, n0 + 6, n0 + 7, n0 + 8};   // 144 -> 60, then 60 -> 144
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kFellBack && !r.failed && curHz(r, kSet) == 144 && r.backRes == 1);
+        CHECK(r.recoveries == 1 && r.recovered == 1 && r.last.plan == k60To.name && r.fbPlan == k60From.name);
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 60);
     }
     std::printf("p0odm_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;

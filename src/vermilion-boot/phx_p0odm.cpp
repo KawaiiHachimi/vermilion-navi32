@@ -272,7 +272,7 @@ SYSCTL_PROC(_debug, OID_AUTO, phxp0odm, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKE
 static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
-    static constexpr int kN = 2048;
+    static constexpr int kN = 3072;
     char *b = static_cast<char *>(IOMalloc(kN));
     if (!b) return ENOMEM;
     int len = gOdm.attempts ? phxodm::stat(gOdm, kOdmSet, b, kN)

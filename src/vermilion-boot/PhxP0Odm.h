@@ -18,7 +18,12 @@
 // target (to plan); 144 itself is the hub (no plan). A to plan that fails (a step or the post check) runs the target's
 // from plan, which lands on 144 (fell back, not latched; a target that fell back twice is refused for the boot). A
 // failure before anything was written or sent is a plain refusal (b135: b134 latched a DAL refusal at the first step).
-// Only a failed from plan, a failed fall-back, a halt or a DMUB timeout latch `failed` (no more writes until reboot).
+// b151: a from plan that fails (a fall-back, or leg 1 from linux) runs once more, as long as the boot has a recovery left
+// (kMaxRecoveries); landing on 144 then counts as a fall-back. Only a from plan that fails again (or with no recovery
+// left), a halt or a DMUB timeout latch `failed` (no more writes until reboot).
+// b151: every link window trains the way Linux's perform_link_training_with_retries does on a PHY endpoint: up to
+// kTrainAttempts at the plan's rate and lanes, link off between (dp_disable_link_phy: D3, TRANSMITTER_CONTROL DISABLE),
+// then 100, 150, 200 ms; the first failed attempt's CR / EQ report is kept (Run.trainFail, Fail.train*).
 //
 // Selector (root writes debug.phxp0odm): 1 = survey (reads + DPCD reads only), 2 = 240 (b131 alias), 3 = 144 (alias),
 // or the target in Hz: 60, 120, 144, 240. System Settings reaches it through phxPipe0SetMode (phx_p0odm.cpp p0OdmRoute).
@@ -92,10 +97,26 @@ constexpr uint32_t kDphyCntl = 0x056D7, kHubp1Clk = 0x03B90, kDom1Status = 0x035
 constexpr uint32_t kDet0 = 0x0397B, kDet1 = 0x0397C, kCompbuf = 0x0397A, kCompbufErr = 0x80000000u;
 inline bool detApplied(uint32_t v) { return (v & 0x1fu) == ((v >> 8) & 0x1fu); }
 
+// b151: Linux's link-training retries (drivers/gpu/drm/amd/display/dc/link/link_dpms.c LINK_TRAINING_ATTEMPTS 4;
+// link/protocols/link_dp_training.c LINK_TRAINING_RETRY_DELAY 50 ms, the delay grows by 50 before each wait)
+constexpr unsigned kTrainAttempts = 4;
+constexpr uint32_t kTrainRetryDelayUs[kTrainAttempts - 1] = {100000, 150000, 200000};
+// b151: from plans run again after a failure at most this often per boot (then a failure latches, as before b151)
+constexpr uint32_t kMaxRecoveries = 2;
+
+// One link window's training: attempts made, each attempt's result, the first failed attempt's report.
+struct Train {
+    uint8_t tries, rate, lanes;
+    int rc[kTrainAttempts];
+    phxdpl::Report first;   // the first failed attempt (CR / EQ loops, last lane status, drive, the status after)
+    bool failedOnce;
+};
+
 struct Fail {
     const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target;
     // the failed run's post check, kept here because a later refused run clears the run's own copy
     uint32_t hz, v, h, odm, stream, stream2, hubp0, hubp1, det0, det1, compbuf;
+    Train train;            // b151: the failed run's last link window (tries = 0: the run never trained)
 };
 
 struct Run {
@@ -104,12 +125,15 @@ struct Run {
     int where, cur;                 // kMac, or kLinux at mode m[cur]
     uint32_t attempts, refusals, dones, fellBacks, sames;
     uint32_t fbCount[kMaxModes];    // fall-backs per target mode (2 = refused for the boot)
+    uint32_t recoveries, recovered; // b151: from plans run again after a failure / of those, landed on 144
+    uint32_t trainRetried;          // b151: link windows that needed more than one attempt and trained
     const char *lastRefusal;
     Fail last;                      // the last failure, kept across runs
     // this run
     int sel, res, phase;            // phase: 0 gates, 1 leg 1, 2 leg 2, 3 fall-back, 4 post
     uint32_t target;
     const char *why, *pipeWhy, *plan1, *plan2, *fbPlan;
+    const char *retryWhy;           // b151: why the first try of the from plan that ran again failed
     phxdpb::Run g;                  // the gates' reads (DP B, mode, DMCUB, DPCD)
     uint8_t fecCap, dscCap;
     uint32_t hubp1Clk, dom1;
@@ -118,6 +142,7 @@ struct Run {
     uint32_t writes, copies, waits, waitMaxUs, dals, dpcd, dalResp, strayWr, swaits, swaitTimeouts, swaitMaxUs;
     phxdpl::Report rep;
     int trc;
+    Train train;                    // b151: this run's last link window
     uint32_t fp[kNFp];
     uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
     uint32_t postDet0, postDet1, postCompbuf, postH;
@@ -231,9 +256,31 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
         phxdpl::Opts o; o.onePpc = false; o.fec = (s.mask & 1) != 0; o.panelModeRead = true; o.attempts = 1;
         phxdpl::Ctx lx{io, kConnDpB, o, &r.rep};
         const phxdpl::Link l{static_cast<uint8_t>(s.val), static_cast<uint8_t>(s.arg)};
-        r.trc = phxdpb::linkUp(lx, sk, l);
-        if (x.st->dmub.dead || x.st->halted) { r.why = "link up: TRANSMITTER_CONTROL timed out / guard"; return 1; }
-        if (r.trc != phxdpl::kOk) { r.why = "link training failed"; return 1; }
+        // b151: Linux's retries on a PHY endpoint (perform_link_training_with_retries, no fallback to a lower rate):
+        // after a failed attempt dp_disable_link_phy (phxdpl::linkOff: D3, TRANSMITTER_CONTROL DISABLE, pattern / link /
+        // internal 0), then the wait, then the next attempt at the same link (link setup, ENABLE, training: SET_POWER D0,
+        // FEC_READY again as dp_perform_link_training's dp_set_fec_ready, the patterns). After the last failure Linux keeps
+        // the PHY on; so does this. A DMUB or argument failure is not retried (nothing more may be sent / the plan is wrong).
+        Train &t = r.train;
+        t = Train{};
+        t.rate = l.rate; t.lanes = l.lanes;
+        for (unsigned a = 0; a < kTrainAttempts; a++) {
+            if (a) {
+                const int off = phxdpl::linkOff(lx);
+                if (x.st->dmub.dead || x.st->halted || off == phxdpl::kErrDmub) { r.why = "link training retry: link off failed (DMUB / guard)"; return 1; }
+                e.io.delayUs(e.io.c, kTrainRetryDelayUs[a - 1]);
+            }
+            r.rep = phxdpl::Report{};
+            r.trc = phxdpb::linkUp(lx, sk, l);
+            t.rc[a] = r.trc;
+            t.tries = static_cast<uint8_t>(a + 1);
+            if (x.st->dmub.dead || x.st->halted) { r.why = "link up: TRANSMITTER_CONTROL timed out / guard"; return 1; }
+            if (r.trc == phxdpl::kOk) break;
+            if (!t.failedOnce) { t.first = r.rep; t.failedOnce = true; }
+            if (r.trc == phxdpl::kErrDmub || r.trc == phxdpl::kErrArg) break;
+        }
+        if (r.trc != phxdpl::kOk) { r.why = t.tries > 1 ? "link training failed (every attempt)" : "link training failed"; return 1; }
+        if (t.tries > 1) r.trainRetried++;
         if (o.fec) phxdpl::W(lx, kDphyCntl, phxdpl::kDphyFecReady | phxdpl::kDphyFecEn);   // Linux: FEC on after training
         return x.st->halted ? 1 : 0;
     }
@@ -455,7 +502,7 @@ inline bool post(const Env &e, Run &r, const Mode &m, bool *onlyUnderflow = null
 inline void keepFail(Run &r, const char *plan) {
     r.last = Fail{r.why, plan, r.step, r.line, r.op, r.reg, r.val, r.got, r.dalResp, r.target,
                   r.postHz, r.postV, r.postH, r.postOdm, r.postStream, r.postStream2, r.postHubp0, r.postHubp1,
-                  r.postDet0, r.postDet1, r.postCompbuf};
+                  r.postDet0, r.postDet1, r.postCompbuf, r.train};
 }
 
 // One leg: the plan, then the post check on mode m. 0 = landed, 1 = failed (r.why set), -1 = halted / DMUB dead.
@@ -492,6 +539,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         r = Run{};
         r.failed = k.failed; r.where = k.where; r.cur = k.cur; r.attempts = k.attempts + 1; r.refusals = k.refusals; r.dones = k.dones;
         r.fellBacks = k.fellBacks; r.sames = k.sames; r.lastRefusal = k.lastRefusal; r.last = k.last;
+        r.recoveries = k.recoveries; r.recovered = k.recovered; r.trainRetried = k.trainRetried;
         for (unsigned i = 0; i < kMaxModes; i++) r.fbCount[i] = k.fbCount[i];
     }
     r.sel = sel;
@@ -521,6 +569,17 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
     }
     r.plan1 = p1 ? p1->name : nullptr;
     r.plan2 = p2 ? p2->name : nullptr;
+    // b151: a from plan (to the hub) that failed (not halted, not a DMUB timeout) runs once more while the boot has a
+    // recovery left: the same Linux sequence again from where the failure left pipe 0. 0 = landed, else leg()'s result.
+    auto again = [&](int b, const Plan &p) -> int {
+        if (b != 1 || r.recoveries >= kMaxRecoveries) return b;
+        r.recoveries++;
+        r.retryWhy = r.why;
+        r.why = nullptr;
+        const int b2 = leg(x, p, s.m[s.hub]);
+        if (!b2) r.recovered++;
+        return b2;
+    };
     // a to-leg (the entry or hub -> target) that fails runs the target's from plan back to the hub
     auto fallBack = [&](const char *plan) -> int {
         keepFail(r, plan);
@@ -528,7 +587,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         const char *why = r.why;
         const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
         r.phase = 3; r.why = nullptr; r.fbPlan = tm.from->name;
-        const int b = leg(x, *tm.from, s.m[s.hub]);
+        const int b = again(leg(x, *tm.from, s.m[s.hub]), *tm.from);
         r.backRes = b ? 2 : 1;
         r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
         if (b < 0) return stop(r, st);
@@ -545,9 +604,18 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         if (b) {
             if (!r.effects) { keepFail(r, p1->name); return refuse(r, r.why); }   // nothing written or sent: a plain refusal
             if (r.where == kMac) return fallBack(p1->name);
-            keepFail(r, p1->name);   // a from plan failed: no plan knows this state
-            r.failed = 1; r.res = kFailed;
-            return kFailed;
+            keepFail(r, p1->name);   // a from plan failed: no plan knows this state, unless the plan lands when run again
+            const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
+            const char *why = r.why;
+            const int b2 = again(b, *p1);
+            r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
+            if (b2 < 0) return stop(r, st);
+            if (b2) { r.failed = 1; r.res = kFailed; return kFailed; }
+            // landed on the hub: the target was not tried; this run counts as a fall-back for it
+            r.where = kLinux; r.cur = static_cast<int>(s.hub);
+            r.fbCount[ti]++; r.fellBacks++;
+            r.res = kFellBack;
+            return kFellBack;
         }
         r.where = kLinux; r.cur = m1;
     }
@@ -569,6 +637,8 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
     return kDone;
 }
 
+inline const char *trainRc(const Train &t, unsigned a) { return a < t.tries ? phxdpl::rcName(t.rc[a]) : "-"; }
+
 inline int stat(const Run &r, const Set &s, char *b, int n) {
     int o = 0;
 #define PHXODM_OUT(...) do { if (o < n - 1) { const int k_ = snprintf(b + o, static_cast<size_t>(n - o), __VA_ARGS__); o += k_ > 0 ? k_ : 0; if (o > n - 1) o = n - 1; } } while (0)
@@ -587,12 +657,22 @@ inline int stat(const Run &r, const Set &s, char *b, int n) {
         PHXODM_OUT("last_fail_post: hz=%u v_total=0x%x h_total=0x%x odm=0x%08x stream=0x%x stream_0.5s=0x%x hubp0=0x%08x hubp1=0x%08x "
                    "det0=0x%x det1=0x%x compbuf=0x%08x\n", r.last.hz, r.last.v, r.last.h, r.last.odm, r.last.stream, r.last.stream2,
                    r.last.hubp0, r.last.hubp1, r.last.det0, r.last.det1, r.last.compbuf);
+    if (r.last.why && r.last.train.tries)
+        PHXODM_OUT("last_fail_train: link 0x%02x x%u tries=%u rc=%s,%s,%s,%s first: cr=%u eq=%u vs=%u pe=%u status=%02x %02x %02x %02x %02x %02x "
+                   "after=%02x %02x %02x %02x %02x %02x\n", r.last.train.rate, r.last.train.lanes, r.last.train.tries,
+                   trainRc(r.last.train, 0), trainRc(r.last.train, 1), trainRc(r.last.train, 2), trainRc(r.last.train, 3),
+                   r.last.train.first.crLoops, r.last.train.first.eqLoops, r.last.train.first.vs, r.last.train.first.pe,
+                   r.last.train.first.status[0], r.last.train.first.status[1], r.last.train.first.status[2], r.last.train.first.status[3],
+                   r.last.train.first.status[4], r.last.train.first.status[5], r.last.train.first.after[0], r.last.train.first.after[1],
+                   r.last.train.first.after[2], r.last.train.first.after[3], r.last.train.first.after[4], r.last.train.first.after[5]);
+    PHXODM_OUT("recovery: recoveries=%u/%u recovered=%u train_retried=%u retry_why=%s\n", r.recoveries, kMaxRecoveries, r.recovered,
+               r.trainRetried, r.retryWhy ? r.retryWhy : "-");
     PHXODM_OUT("gates: otg0 %u Hz pclk=%u kHz scratch1=0x%08x link_now 0x%02x fec_cap=0x%02x dsc_cap=0x%02x hubp1_clk=0x%x dom1=0x%08x\n",
                r.g.hz, r.g.pclkKhz, r.g.scr1, r.g.link0[0], r.fecCap, r.dscCap, r.hubp1Clk, r.dom1);
     PHXODM_OUT("stop: step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x back=%u\n", r.step, r.line, r.op, r.reg, r.val, r.got, r.backRes);
-    PHXODM_OUT("io: effects=%u writes=%u copies=%u waits=%u wait_max_us=%u dal=%u dal_resp=%u dpcd=%u stray=%u train=%s cr=%u eq=%u\n",
+    PHXODM_OUT("io: effects=%u writes=%u copies=%u waits=%u wait_max_us=%u dal=%u dal_resp=%u dpcd=%u stray=%u train=%s cr=%u eq=%u tries=%u\n",
                r.effects, r.writes, r.copies, r.waits, r.waitMaxUs, r.dals, r.dalResp, r.dpcd, r.strayWr, phxdpl::rcName(r.trc),
-               r.rep.crLoops, r.rep.eqLoops);
+               r.rep.crLoops, r.rep.eqLoops, r.train.tries);
     PHXODM_OUT("det: swaits=%u swait_timeouts=%u swait_max_us=%u det0=0x%x det1=0x%x compbuf=0x%08x\n", r.swaits, r.swaitTimeouts,
                r.swaitMaxUs, r.postDet0, r.postDet1, r.postCompbuf);
     PHXODM_OUT("post: hz=%u odm=0x%08x v_total=0x%x hubp0=0x%08x hubp1=0x%08x stream=0x%x stream_0.5s=0x%x pixfmt=0x%08x pixdiv=0x%x "
