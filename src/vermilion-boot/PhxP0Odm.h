@@ -105,12 +105,18 @@ constexpr uint32_t kTrainRetryDelayUs[kTrainAttempts - 1] = {100000, 150000, 200
 constexpr uint32_t kMaxRecoveries = 2;
 
 // One link window's training: attempts made, each attempt's result, the first failed attempt's report.
+// b152: the plan it belongs to and its timing (us, from Env::nowUs; 0 without a clock): offToUp = from the plan's
+// LINKOFF to this LINKUP (Linux's capture v4: 12-28 ms), train = the LINKUP with every attempt, sincePrev = from the
+// previous window's end in this run to this window's LINKOFF (~0.2 s between the two windows of an HDR switch).
 struct Train {
     uint8_t tries, rate, lanes;
     int rc[kTrainAttempts];
     phxdpl::Report first;   // the first failed attempt (CR / EQ loops, last lane status, drive, the status after)
     bool failedOnce;
+    const char *plan;
+    uint32_t offToUpUs, trainUs, sincePrevUs;
 };
+constexpr unsigned kMaxWins = 4;   // link windows kept per run (leg 1 + an HDR to plan's two + a fall-back's)
 
 struct Fail {
     const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target;
@@ -143,6 +149,9 @@ struct Run {
     phxdpl::Report rep;
     int trc;
     Train train;                    // b151: this run's last link window
+    Train wins[kMaxWins];           // b152: this run's link windows in order (the first kMaxWins)
+    uint32_t nWins;
+    uint64_t tOff, tUpEnd;          // b152: the clock at the last LINKOFF / at the end of the last LINKUP (0 = none yet)
     uint32_t fp[kNFp];
     uint32_t postHz, postOdm, postV, postHubp0, postHubp1, postStream, postDphy, backRes, postStream2, postPixFmt, postPixDiv;
     uint32_t postDet0, postDet1, postCompbuf, postH;
@@ -189,6 +198,8 @@ inline int cAuxWr(void *c, uint32_t a, const uint8_t *b, unsigned n) {
     return x.aux.wr(x.aux.c, kConnDpB.aux, a, b, n);
 }
 inline void cDelay(void *c, uint32_t us) { Ctx &x = *static_cast<Ctx *>(c); x.e->io.delayUs(x.e->io.c, us); }
+
+inline uint64_t now(const Env &e) { return e.nowUs ? e.nowUs(e.io.c) : 0; }
 
 // One plan step. 0 = ok, else a failure (r.why set).
 inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
@@ -238,6 +249,7 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
     }
     case kLinkOff: {   // Linux: D3, DISABLE, pattern / link / internal 0, FEC_READY shadow, DPCD 0x120 = 0, shadow off
         r.effects++;
+        r.tOff = now(e);
         phxdpl::Opts o; o.onePpc = false; o.fec = true;
         phxdpl::Ctx lx{io, kConnDpB, o, &r.rep};
         int rc = phxdpl::linkOff(lx);
@@ -263,22 +275,33 @@ inline int step(Ctx &x, const phxdpl::Io &io, const Plan &p, unsigned i) {
         // the PHY on; so does this. A DMUB or argument failure is not retried (nothing more may be sent / the plan is wrong).
         Train &t = r.train;
         t = Train{};
-        t.rate = l.rate; t.lanes = l.lanes;
+        t.rate = l.rate; t.lanes = l.lanes; t.plan = p.name;
+        const uint64_t t0 = now(e);
+        if (t0 && r.tOff) t.offToUpUs = static_cast<uint32_t>(t0 - r.tOff);
+        if (r.tOff && r.tUpEnd && r.tOff > r.tUpEnd) t.sincePrevUs = static_cast<uint32_t>(r.tOff - r.tUpEnd);
+        auto keepWin = [&]() {
+            const uint64_t t1 = now(e);
+            if (t0 && t1) t.trainUs = static_cast<uint32_t>(t1 - t0);
+            r.tUpEnd = t1;
+            if (r.nWins < kMaxWins) r.wins[r.nWins] = t;
+            r.nWins++;
+        };
         for (unsigned a = 0; a < kTrainAttempts; a++) {
             if (a) {
                 const int off = phxdpl::linkOff(lx);
-                if (x.st->dmub.dead || x.st->halted || off == phxdpl::kErrDmub) { r.why = "link training retry: link off failed (DMUB / guard)"; return 1; }
+                if (x.st->dmub.dead || x.st->halted || off == phxdpl::kErrDmub) { r.why = "link training retry: link off failed (DMUB / guard)"; keepWin(); return 1; }
                 e.io.delayUs(e.io.c, kTrainRetryDelayUs[a - 1]);
             }
             r.rep = phxdpl::Report{};
             r.trc = phxdpb::linkUp(lx, sk, l);
             t.rc[a] = r.trc;
             t.tries = static_cast<uint8_t>(a + 1);
-            if (x.st->dmub.dead || x.st->halted) { r.why = "link up: TRANSMITTER_CONTROL timed out / guard"; return 1; }
+            if (x.st->dmub.dead || x.st->halted) { r.why = "link up: TRANSMITTER_CONTROL timed out / guard"; keepWin(); return 1; }
             if (r.trc == phxdpl::kOk) break;
             if (!t.failedOnce) { t.first = r.rep; t.failedOnce = true; }
             if (r.trc == phxdpl::kErrDmub || r.trc == phxdpl::kErrArg) break;
         }
+        keepWin();
         if (r.trc != phxdpl::kOk) { r.why = t.tries > 1 ? "link training failed (every attempt)" : "link training failed"; return 1; }
         if (t.tries > 1) r.trainRetried++;
         if (o.fec) phxdpl::W(lx, kDphyCntl, phxdpl::kDphyFecReady | phxdpl::kDphyFecEn);   // Linux: FEC on after training
@@ -665,6 +688,17 @@ inline int stat(const Run &r, const Set &s, char *b, int n) {
                    r.last.train.first.status[0], r.last.train.first.status[1], r.last.train.first.status[2], r.last.train.first.status[3],
                    r.last.train.first.status[4], r.last.train.first.status[5], r.last.train.first.after[0], r.last.train.first.after[1],
                    r.last.train.first.after[2], r.last.train.first.after[3], r.last.train.first.after[4], r.last.train.first.after[5]);
+    for (unsigned w = 0; w < r.nWins && w < kMaxWins; w++) {
+        const Train &t = r.wins[w];
+        PHXODM_OUT("train_w%u: plan=%s link 0x%02x x%u tries=%u rc=%s,%s,%s,%s off_to_up_us=%u train_us=%u since_prev_us=%u", w + 1,
+                   t.plan ? t.plan : "-", t.rate, t.lanes, t.tries, trainRc(t, 0), trainRc(t, 1), trainRc(t, 2), trainRc(t, 3),
+                   t.offToUpUs, t.trainUs, t.sincePrevUs);
+        if (t.failedOnce)
+            PHXODM_OUT(" first: cr=%u eq=%u vs=%u pe=%u status=%02x %02x %02x %02x %02x %02x", t.first.crLoops, t.first.eqLoops, t.first.vs,
+                       t.first.pe, t.first.status[0], t.first.status[1], t.first.status[2], t.first.status[3], t.first.status[4],
+                       t.first.status[5]);
+        PHXODM_OUT("\n");
+    }
     PHXODM_OUT("recovery: recoveries=%u/%u recovered=%u train_retried=%u retry_why=%s\n", r.recoveries, kMaxRecoveries, r.recovered,
                r.trainRetried, r.retryWhy ? r.retryWhy : "-");
     PHXODM_OUT("gates: otg0 %u Hz pclk=%u kHz scratch1=0x%08x link_now 0x%02x fec_cap=0x%02x dsc_cap=0x%02x hubp1_clk=0x%x dom1=0x%08x\n",

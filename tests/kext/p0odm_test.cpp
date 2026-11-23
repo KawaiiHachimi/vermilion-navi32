@@ -261,6 +261,7 @@ static Env env(Hw &h) {
         return 1u;
     };
     e.pmfwIdle = [](void *) { return 1; };
+    e.nowUs = [](void *c) { return static_cast<Hw *>(c)->t + 1; };   // b152: the model's time (+1: 0 means no clock)
     return e;
 }
 static phxdpb::Aux aux(Hw &h) {
@@ -358,8 +359,12 @@ int main() {
         CHECK(run(e, st, r, 1440240, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x42000000u && h.r[0x04D01] == 0xd100u && (h.r[0x056EB] & 0x800000u));
         CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x41000000u && h.r[0x04D01] == 0xc900u);
         CHECK(run(e, st, r, 1440060, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x42000000u && h.phyRate == 0x0a * 2700u);
+        // b152: an HDR switch from the hub: the to plan's two windows (Linux's two mode sets), the second after the first
+        CHECK(r.nWins == 2 && r.wins[0].plan == kH60.name && r.wins[1].plan == kH60.name && r.wins[1].sincePrevUs > 0 && r.wins[1].tries == 1);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 1440060, 0, aux(h), kSet) == kDone);
+        CHECK(r.nWins == 3 && r.wins[0].plan == k240From.name && r.wins[2].plan == kH60.name);   // from 240: leg 1 first
         CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x41000000u);
-        pairs += 4;
+        pairs += 6;   // the four HDR runs above + b152's 240 and 1440060
         for (auto &wr : h.writes) CHECK(!denied(wr.first) || wr.first == phxdmub::kInbox1Wptr);
         CHECK(!r.failed && r.fellBacks == 0 && r.dones == 1 + pairs);
         char b[2048];
@@ -542,8 +547,12 @@ int main() {
         unsigned dis = 0;
         for (auto &c : h.cmds) if (c[0] == phxdpl::kTxHdr && ((c[1] >> 8) & 0xff) == phxdpl::kTxDisable) dis++;
         CHECK(dis >= 3);   // the plan's own link off + one per retry
-        char b[3072];
+        char b[4096];
         CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "tries=3") && std::strstr(b, "train_retried=1"));
+        // b152: the entry's one window, its plan, the three attempts, the first failure's report and the timing
+        CHECK(r.nWins == 1 && r.wins[0].tries == 3 && r.wins[0].plan == kEntry.name && r.wins[0].failedOnce);
+        CHECK(r.wins[0].trainUs >= 250000 && r.wins[0].sincePrevUs == 0);   // the retries' 100 + 150 ms are in it
+        CHECK(std::strstr(b, "train_w1: plan=kPhxP0odm_1440p240 link 0x1e x4 tries=3 rc=clock-recovery,clock-recovery,ok,-") && std::strstr(b, " first: cr="));
         CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.train.tries == 1 && r.trainRetried == 1);
     }
     // ---- b151: every attempt fails: the four attempts are kept with the first one's report; the entry falls back ----
@@ -555,7 +564,7 @@ int main() {
         for (unsigned a = 0; a < 4; a++) CHECK(r.last.train.rc[a] == phxdpl::kErrCr);
         CHECK(r.last.train.first.crLoops >= 1 && r.last.why && std::strstr(r.last.why, "every attempt"));
         CHECK(r.recoveries == 0);   // the fall-back landed the first time: no recovery used
-        char b[3072];
+        char b[4096];
         CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "last_fail_train: link 0x1e x4 tries=4 rc=clock-recovery,clock-recovery,clock-recovery,clock-recovery"));
     }
     // ---- b151: a from plan fails (every attempt of its link window), runs again and lands on 144: not latched ----

@@ -154,6 +154,9 @@ struct Env {
     // SCDC1: the DC_I2C engine's owner lock (the kext's edidBusy, shared with the EDID reads): take = 1 tries to take it
     // (1 = taken), take = 0 releases it. Null = every I2C step refused.
     int (*i2cLock)(void *c, int take);
+    // b152: a monotonic clock in microseconds (the kernel's mach_absolute_time; reads no register), for the replay
+    // engine's link-window timing. Null = no timing (0 everywhere).
+    uint64_t (*nowUs)(void *c);
 };
 
 struct State {
