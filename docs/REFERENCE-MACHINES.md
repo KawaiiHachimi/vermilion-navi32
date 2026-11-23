@@ -17,7 +17,7 @@ From upstream's [README](../README.md) and [INSTALL.md](INSTALL.md):
 
 ## This fork's target: the XTX machine
 
-The machine [ownback/vermilion](https://github.com/ownback/vermilion) is being made to work on. Measured from Linux
+The machine [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx) is being made to work on. Measured from Linux
 (amdgpu, libdrm, sysfs) on 2026-11-18. The "macOS" column says which driver handles each part; whether it works,
 and how well, is in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) "Machine state" (the one place for that).
 

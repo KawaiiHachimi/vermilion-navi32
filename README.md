@@ -12,7 +12,7 @@ Vermilion is a display and acceleration driver for macOS Tahoe 26.7.1: two kerne
 running on Mesa RADV, and the boot-time bring-up that powers the GPU up before WindowServer opens the displays.
 
 > [!NOTE]
-> **This fork ([ownback/vermilion](https://github.com/ownback/vermilion)) adds RX 7900 XTX support** (revision `0xC8`,
+> **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,
 > one 2560x1440 DisplayPort monitor). **The RX 7900 XT keeps working:** XTX values are added next to the XT's and
 > chosen by what the hardware reports, never in place of them. On the XTX machine
 > ([REFERENCE-MACHINES.md](docs/REFERENCE-MACHINES.md)): an accelerated desktop at 2560x1440 up to 240 Hz, Variable

@@ -9,7 +9,8 @@ Vermilion is a macOS Tahoe 26.7.1 display and acceleration driver for AMD Navi 3
 Metal plugin that runs on Mesa RADV, and a boot daemon that powers the GPU up from userspace.
 
 Upstream is [leolivm/vermilion](https://github.com/leolivm/vermilion), built for one RX 7900 XT (PCI `1002:744c`,
-rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion](https://github.com/ownback/vermilion), has these goals:
+rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx) (renamed from `ownback/vermilion` on
+2026-11-23; it still supports the XT), has these goals:
 
 1. **A fully working, stable macOS on one machine:** RX 7900 XTX (rev `0xC8`), one 2560x1440 DisplayPort monitor at
    up to 240 Hz, an ASUS B650E-I board and a Ryzen 9 7900X3D. That means the GPU driver plus a complete OpenCore EFI
@@ -103,7 +104,7 @@ only the owner can do: [`.agents/OWNER-TESTS.md`](.agents/OWNER-TESTS.md).
 
 ## How we work
 
-- Branches are `ownback/<topic>`. Remotes: `origin` = leolivm upstream (read-only for us), `fork` = ownback/vermilion.
+- Branches are `ownback/<topic>`. Remotes: `origin` = leolivm upstream (read-only for us), `fork` = ownback/vermilion-xtx.
   PRs go to `fork/main`. Changes useful to the XT go upstream later as separate PRs.
 - Commit or push only when the user asks.
 - When you finish or discover something:

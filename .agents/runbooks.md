@@ -119,7 +119,7 @@ The macbox VM runs macOS 26.7.3 (x86_64) with Xcode. Set up once (everything in 
 
 ```sh
 macbox up && ssh macbox
-git clone -b ownback/explore-7900xtx-efi-passthrough https://github.com/ownback/vermilion.git ~/src/vermilion
+git clone https://github.com/ownback/vermilion-xtx.git ~/src/vermilion
 cd ~/src/vermilion/deps && git clone --depth 1 https://github.com/acidanthera/MacKernelSDK.git \
   && git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git
 curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-host x86_64-apple-darwin
