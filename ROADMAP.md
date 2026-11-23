@@ -82,7 +82,7 @@ The T3 projects follow the repos:
 11. **Performance:** measure before and after, under the same conditions. Record baselines in PROJECT_KNOWLEDGE.
 12. **No macOS update** (not even 26.7.x) until thread 09 has the VermilionTrust layout check: today an update can make
     it hook the wrong functions and panic. Thread 07 has a stake too: MtkWirelessBT's bluetoothd patches exist only
-    for 25G241 (26.7.1) and 25G332 (26.7.2), so a later build loses them, and Instant Hotspot needs 25G332 (unverified,
+    for 25G241 (26.7.1) and 25G332 (26.7.2), and Instant Hotspot needs 25G332 (unverified,
     web research 2026-11-23). An update is decided by 07 and 09 together.
 
 ## Known limits: the only accepted differences from a real Mac

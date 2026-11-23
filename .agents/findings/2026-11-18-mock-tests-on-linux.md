@@ -73,6 +73,7 @@ Still open:
   Linux-like run (`TMPDIR=/tmp`, no `MOCKTMP`) kept `/private/tmp` for the suites that use `MOCKTMP`: the
   `${TMPDIR:-/tmp}` default hasn't run either.
 - The daemon's `/usr/bin/stat -f %Su "$0"` (`PHX_USER`, `phxboot-navi31.sh`) has no override. GNU stat reads `-f` as
-  "file system", so on Linux `PHX_USER` gets other text. What run.sh then does is (unverified).
+  "file system", so on Linux `PHX_USER` gets other text. run.sh never uses it (it sets `PHXBOOT_G`, `PHXBOOT_HOME`
+  and `PHXBOOT_RUNAS=""`), so no suite result depends on it; the daemon itself only runs on macOS.
 - The five failing results above are older than this change and are not investigated yet. They are in
   [TODO.md](../TODO.md), thread 12.

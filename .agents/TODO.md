@@ -157,7 +157,8 @@ pending (2026-11-23, thread 00).
       *(unverified, web research 2026-11-23)*
 - [ ] MtkWirelessBT's bluetoothd patches (BLE advertising for AirDrop / Handoff) exist only for 25G241 (26.7.1) and
       25G332 (26.7.2), and Instant Hotspot needs 25G332. So any macOS update (ROADMAP rule 12) is decided together
-      with 09 *(unverified, web research 2026-11-23)*
+      with 09 *(unverified, web research 2026-11-23)*. Open: issue #10's machine ran 26.7.3 with AirDrop working,
+      so find out which features really need the build-specific patches.
 - [ ] Study [ForbiddenItlwm](https://github.com/retropineaple/ForbiddenItlwm) (fork of AirportItlwm, GPL-2.0; AWDL for
       Intel AX200/201/210/211) as the reference design for the MtkWireless fork: its AWDL, the separate `llw0`
       interface (Continuity Camera) and `BTLEAdvFixup.kext`; read its `docs/HOW-IT-WORKS.md` and `DEBUGGING.md`, and

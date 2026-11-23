@@ -89,7 +89,8 @@ already failed before it (`phxctl_serve_test.sh` 1 failed; "bad" or "missed" mut
 A run on a real Linux machine is still **(unverified)**. On a Mac, a script that calls `/usr/bin/<tool>` by full
 path still gets the BSD tool, and `MOCK_DARWIN` stays 1, so the `phxctl_serve_test.sh` SKIP path and the
 `${TMPDIR:-/tmp}` work-dir default have not run. One full-path call has no override: the daemon's
-`/usr/bin/stat -f %Su "$0"` (`PHX_USER`), which GNU stat answers differently (unverified what the suites then do).
+`/usr/bin/stat -f %Su "$0"` (`PHX_USER`), which GNU stat answers differently. In `run.sh` that value is never used:
+`PHXBOOT_G` / `PHXBOOT_HOME` skip the `dscl` lookup and `PHXBOOT_RUNAS=""` replaces `sudo -u $PHX_USER`.
 
 ## Cost knobs (11-04: the suites ran the MacBook fan at max)
 - `PAR=<n>`: how many run at once. **run.sh and b15test.sh**: a full run splits its scenarios round-robin over n shards
