@@ -99,7 +99,8 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       step 6); raising it while buffers are system memory would let apps wire 24 GiB of RAM
 - [~] **VRAM-backed BOs** (b156, opt-in per process, [design + M1 / M2](findings/2026-11-23-vram-bo-design.md)):
       840.9 GB/s (Linux 837), `zerocheck` clean. Daemon flag `phxboot-bovram` (names; mock-tested, installed
-      2026-11-23 without the flag). Left: the real-app set before / after (OWNER-TESTS 02); days of use (OWNER-TESTS 02), then M3 (all processes, the default;
+      2026-11-23 without the flag). Benchmark set 09:45 (PROJECT_KNOWLEDGE): compute 2.9x, Metal render 1.9x, both
+      bandwidths ~840 GB/s, zerocheck clean, no leak. Left: the real-app set before / after (OWNER-TESTS 02); days of use (OWNER-TESTS 02), then M3 (all processes, the default;
       final call in thread 11 if open); a faster clear before M3 (~8 GB/s now); the GFXHUB aperture to 24 GiB
       (XTX.md row 3, Linux's value) to open the pool's last 4 GiB
 - [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no

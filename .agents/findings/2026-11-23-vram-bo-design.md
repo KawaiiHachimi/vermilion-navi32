@@ -123,4 +123,13 @@ interrupt waits on. `vramtest.sh` (scratchpad): baseline with the switch off, th
 - No display underflow (OPTC0 / HUBP0 stickies 0 after the run), every submission retired, no map failure.
 - RADV's memory type 0 (DEVICE_LOCAL only, the 6 GiB "hi" heap) is the one placed in the pool.
 
+## Benchmark set (2026-11-23 09:45-09:47, after a restart)
+
+Same machine and build, 13 min after boot; `~/src/bench/benchset.sh`, 10 s per test, off then on. Compute and render
+gain as well as bandwidth: `vkbench compute` 0.404 -> 0.140 ms (Linux 0.134), `metalbench render` 0.262 -> 0.137 ms,
+`metalbench compute` 0.192 -> 0.144 ms; bandwidth 43.7 -> 841.9 (vk) and 44.0 -> 836.9 GB/s (Metal); submit
+unchanged (32 us). `zerocheck` PASS in both passes. 48 allocs / 48 frees, 0 leaks, clears avg 6.1 ms, max 29.8 ms.
+The table is in PROJECT_KNOWLEDGE ("Benchmark set"). clpeak is out: it hung the GPU in its MPS pass with the switch
+**off** ([clpeak hang](2026-11-23-clpeak-hang.md)), so that hang is not this code (one sample).
+
 Not yet measured: real apps (a Metal game, WebGL, Minecraft) with the switch on; days of use (M3).

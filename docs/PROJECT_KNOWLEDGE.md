@@ -315,6 +315,32 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
+### Benchmark set: VRAM BOs off vs on (2026-11-23)
+
+XTX machine, b156, 1440p240 HDR, idle desktop, 13 min after boot, thread 02 daemon (idle DPM, interrupt waits);
+`~/src/bench/benchset.sh` (not in git): each test 10 s, VRAM off, then on (`debug.phxbo_vram=1` for `vkbench,metalbench`
+after the self-test), in one run at 09:45-09:47. GPU time per frame, median. Linux: the Omarchy run of 2026-11-23
+(240 SDR, [linux-reference](../.agents/findings/2026-11-23-linux-reference.md)) and the second reading
+([linux-02b](../.agents/findings/2026-11-23-linux-02b.md)).
+
+| Benchmark | API | VRAM off | VRAM on | Linux |
+|---|---|---|---|---|
+| `vkbench compute 10` (Mandelbrot, 64 iterations, 2560x1440) | Vulkan (RADV) | 0.404 ms | **0.140 ms** (2.9x) | 0.134 ms |
+| `vkbench bandwidth 10` (2 x 256 MiB copy) | Vulkan | 43.7 GB/s | **841.9 GB/s** | 823 / 837 GB/s |
+| `vkbench submit 10` (16x16, waited) | Vulkan | 25.0 k/s, wall median 32 us | 24.9 k/s, 32 us | 37 us |
+| `vkbench zerocheck 8 64` (new buffers are zero) | Vulkan | PASS (0 of 268 M dwords) | PASS (0 of 268 M) | - |
+| `metalbench render 10` (64 iterations, 2560x1440) | Metal | 0.262 ms | **0.137 ms** (1.9x) | no twin |
+| `metalbench compute 10` | Metal | 0.192 ms | **0.144 ms** (1.3x) | no twin |
+| `metalbench bandwidth 10` | Metal | 44.0 GB/s | **836.9 GB/s** | no twin (Vulkan 823 / 837) |
+| clpeak (`metal:0`, `coreml:0`) | Metal, MPS | **hung the GPU** in its MPS pass (VRAM off; [finding](../.agents/findings/2026-11-23-clpeak-hang.md)): out of the set | not run | - |
+| OpenGL (any app, Minecraft Java) | OpenGL | CPU fallback: Apple Software Renderer, not measured | same (VRAM BOs don't apply) | - |
+| OpenCL, Blender Cycles | OpenCL / Metal | CPU fallback (Cycles lists only the CPU), not measured | same | - |
+
+VRAM pass: 48 BOs allocated and freed, peak 565 MiB, 48 clears (2287 MiB, avg 6.1 ms, max 29.8 ms), no fallback,
+no leak, no failed clear. No error in either pass; WindowServer stayed up. Real apps (games, Unigine) are not measured:
+"close to Linux in a real game" is (unverified). OpenGL: the owner saw the GPU warm up during an OpenGL app; with GL on
+the CPU renderer, the likely load is WindowServer compositing its frames (unverified).
+
 ### Known bottlenecks and limits
 
 - CPU: no clock above 5.15 GHz, idle package ~40 W. Linux does the same (5.16 GHz, 37.8 W) with the BIOS at Auto: not a
@@ -365,3 +391,4 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
   TODO.md), and renumbered the owners to the series.
 - 2026-11-23: thread 01 (GPU stability): EFI changes 9-14 (VermilionBoot b151-b155), PhxAccel with the physical
   size, the daemon's display check; the display rows of the machine state.
+- 2026-11-23: thread 02 part B: the benchmark table, VRAM BOs off vs on.
