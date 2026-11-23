@@ -39,7 +39,7 @@ for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-2
 Check after the boot: the machine boots to the accelerated desktop 1440p240 HDR; `ioreg -l | grep phx-bar0-len` reads
 1073741824 (or the largest size the card supports up to 1 GiB); `phx-fb-aper-len` 536870912 (kFbAperMapMax); the
 VRAM self-test 1. Rollback: `EFI/OC.prev` = change 18 (copy in `~/vermilion-rollback/EFI-OC.change18-20261123`); if
-macOS does not reach the desktop at all, boot Linux and `mv /boot/EFI/OC /boot/EFI/OC.bad && mv /boot/EFI/OC.prev /boot/EFI/OC` (as [runbooks](runbooks.md) line ~204).
+macOS does not reach the desktop at all, boot Linux and `mv /boot/EFI/OC /boot/EFI/OC.bar1g-bad && mv /boot/EFI/OC.prev /boot/EFI/OC` (`OC.bad` is taken by change 12) (as [runbooks](runbooks.md) line ~204).
 
 Thread 02 part C: **EFI change 18** (VermilionBoot b158: per-submission GPU trace, off by default), installed
 2026-11-23 ~10:55, **booted 10:57 and verified** (desktop, trace works, pool [512, 24464) MiB). Check after the boot was: accelerated desktop 1440p240 HDR; `sysctl
