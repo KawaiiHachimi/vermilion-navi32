@@ -141,3 +141,7 @@ noted (`redone=-1`), not run. Same Linux sequences as any switch away and back; 
 Also found: `EFI/OC` was already change 11 and change 12 sat in `EFI/OC.bad` (the Linux rollback of the NVRAM test had
 been carried out; when is not known yet), so the NVRAM test result of 04:06-04:15 is unsure. A FAT repair had turned one
 licence text in each tree into `FSCK0000.000` (same bytes).
+
+**b154 on the box, 04:36:** the 1440p60 HDR login switch's last window again needed a second attempt (`rc=aux,ok`); the
+redo ran (`redone=1 redos=1/4`): `60hdr-from` (its first window `rc=aux,ok` as well), then `60hdr-to`, both windows
+first time. Picture on (owner). 7 link windows, `train_retried=2`.
