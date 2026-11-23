@@ -38,6 +38,7 @@ IOReturn IOAccelPhxNativeClient::doScan(uint32_t selector, IOExternalMethodArgum
         phxn_scan_reg reg;
         bcopy(a->structureInput, &reg, sizeof(reg));
         Bo *b = findBo(reg.handle);
+        if (b && b->vram) { OSIncrementAtomic64(&gVramScanRefused); return kIOReturnBadArgument; }   // b156
         if (!b || b->host || b->scanSlot || reg.offset + static_cast<uint64_t>(reg.pitch_bytes) * reg.height > b->size)
             return kIOReturnBadArgument;
         uint32_t slot = 0; uint64_t mc = 0, vramOff = 0;

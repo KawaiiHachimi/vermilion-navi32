@@ -43,7 +43,9 @@ clear, and the life cycle.
 | 256 - 352 MiB | large scan slots (1440p GPU present) | `PhxScanLayout.h` |
 | top of VRAM | firmware: PSP TMR, **19 MiB at MC 0x85_fc00_0000** (Linux dmesg 2026-11-23), DMUB regions, "firmware above 24560 MiB" | XTX.md, linux-reference; `amdgpu_vram_mm` prints no per-range reserved list, so the DMUB ranges stay to be read from dmesg / debugfs |
 
-The pool for client BOs: **[512 MiB, top - Linux's reserved regions - a margin)**, about 23 GiB. 352-512 MiB stays
+The pool for client BOs: **[512 MiB, top - Linux's reserved regions - a margin)**, about 23 GiB. Linux (2026-11-23,
+[linux-02b](2026-11-23-linux-02b.md)): VRAM MC 0x80_0000_0000 - 0x85_FEFF_FFFF (24560 MiB), the PSP TMR at offsets
+24512-24531 MiB, DMUB in ordinary buffers; on Linux UCLK rises to 1249 MHz within 0.5 s of a VRAM load (837 GB/s). 352-512 MiB stays
 free as headroom for the fixed regions.
 
 ## Design
@@ -96,3 +98,44 @@ already does.
 
 Estimated: M1 a few days of code and host tests, M2-M3 a week of use. Not started in thread 02 beyond this note and
 M0: M1 is its own kext build and boot (TODO 02).
+
+## M1 / M2 on the box (2026-11-23 09:00-09:02, VermilionBoot b156, EFI change 16)
+
+XTX machine, 1440p240 HDR, idle desktop (owner away from the keyboard), free idle clocks (`phxboot-idledpm`) and
+interrupt waits on. `vramtest.sh` (scratchpad): baseline with the switch off, the self-test, then
+`debug.phxbo_vram_proc=vkbench,metalbench` and `debug.phxbo_vram=1`, the switch off again at the end.
+
+| | switch off (system memory) | VRAM BOs | Linux |
+|---|---|---|---|
+| `vkbench bandwidth 5`, median / best | 42.9 / 43.7 GB/s | **840.9 / 859.4 GB/s** | 837.3 / 851.1 |
+| `metalbench bandwidth 5` | 42.9 / 43.7 GB/s | **836.1 / 858.9 GB/s** | n/a |
+| UCLK during the run (SMU metrics, 0.5 s) | 96 MHz throughout | **1249 MHz** from the second sample | 1249 MHz |
+| GPU socket power during the run | 136 W | 261 W | n/a |
+| `vkbench zerocheck` (64 MiB buffers: fill A with a pattern, free it, read a new B) | 4 rounds, 0 of 134 M dwords non-zero | **8 rounds, 0 of 268 M dwords non-zero** | n/a |
+
+- Self-test: 1 (CPU-checked clear inside BAR0; GPU pattern fill and clear at the pool's first and last MiB read back
+  through MM_INDEX).
+- Pool: [512, 20464) MiB, 19952 MiB free; the GFXHUB system aperture ends at 20464 MiB (XT value, XTX.md row 3), so
+  that is the pool's end today. Peak use 565 MiB; 28 allocs, 28 frees, 0 fails, 0 lost, 0 fallbacks, 0 leaked.
+- Clears: 28, 2118 MiB, **avg 9.3 ms, max 30.8 ms** (a 256 MiB buffer): ~8 GB/s, the CP DMA's 32 KiB packets.
+  Fine for an opt-in; for all processes a faster clear (bigger CP DMA ops are not allowed on GFX11; a compute
+  shader or SDMA as Linux) is worth measuring first *(unverified)*.
+- No display underflow (OPTC0 / HUBP0 stickies 0 after the run), every submission retired, no map failure.
+- RADV's memory type 0 (DEVICE_LOCAL only, the 6 GiB "hi" heap) is the one placed in the pool.
+
+## Benchmark set (2026-11-23 09:45-09:47, after a restart)
+
+Same machine and build, 13 min after boot; `~/src/bench/benchset.sh`, 10 s per test, off then on. Compute and render
+gain as well as bandwidth: `vkbench compute` 0.404 -> 0.140 ms (Linux 0.134), `metalbench render` 0.262 -> 0.137 ms,
+`metalbench compute` 0.192 -> 0.144 ms; bandwidth 43.7 -> 841.9 (vk) and 44.0 -> 836.9 GB/s (Metal); submit
+unchanged (32 us). `zerocheck` PASS in both passes. 48 allocs / 48 frees, 0 leaks, clears avg 6.1 ms, max 29.8 ms.
+The table is in PROJECT_KNOWLEDGE ("Benchmark set"). clpeak is out: it hung the GPU in its MPS pass with the switch
+**off** ([clpeak hang](2026-11-23-clpeak-hang.md)), so that hang is not this code (one sample).
+
+First real app (10:04-10:06): **Horizon** (the owner's Rust Minecraft client, Metal through wgpu), fullscreen
+1440p, render distance 12, uncapped: 93 / 83 fps with the switch off (before / after), **158 fps** with
+`debug.phxbo_vram_proc=horizon-client` (1.7-1.9x; 1 % low 61 / 53 -> 118 fps). 395 BOs, peak 675 MiB, no leak, no
+fallback; the frame renders correctly. The view drifted (survival, water), sections drawn comparable. Details in
+PROJECT_KNOWLEDGE ("Benchmark set").
+
+Not yet measured: a Linux twin for Horizon; days of use (M3).

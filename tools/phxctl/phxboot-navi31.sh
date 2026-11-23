@@ -745,6 +745,28 @@ idledpm_boot(){
   [ -e "$G/idle_dpm.sh" ] || { echo "idledpm: $G/idle_dpm.sh missing"; return 0; }
   PHXBOOT_G=$G sh "$G/idle_dpm.sh" & echo "idledpm: started (pid $!)"; }
 [ "${PHXBOOT_NO_IDLEDPM:-0}" = 1 ] || [ $SAFE = 1 ] || idledpm_boot
+# 2026-11-23 (thread 02 part B): with $G/phxboot-bovram (comma-separated process names, e.g. "vkbench,metalbench"), on a
+# desktop boot: VermilionBoot b156's VRAM-backed BOs for those processes. The kext's self-test first
+# (debug.phxbo_vram_selftest=1 must read 1), then debug.phxbo_vram_proc and debug.phxbo_vram=1, each read back. Names:
+# letters, digits, . _ - and space, at most 127 characters; WindowServer is refused (it stays on the proven path until
+# M3). Measured on the XTX machine: 42.9 -> 840.9 GB/s buffer bandwidth, new buffers zero (VRAM BO design note).
+bovram_boot(){
+  [ -e "$G/phxboot-bovram" ] || return 0
+  [ $DESK = 1 ] || { echo "bovram: not a desktop boot: skip"; return 0; }
+  local v st
+  v=$(head -c 200 "$G/phxboot-bovram" 2>/dev/null | tr -d '\r\n' | sed 's/^ *//; s/ *$//')
+  case "$v" in ''|*[!A-Za-z0-9._,\ -]*) echo "bovram: ~/gpu/phxboot-bovram holds '$(echo "$v" | cut -c1-40)': not a list of process names: off"; return 0;; esac
+  [ ${#v} -le 127 ] || { echo "bovram: the name list is over 127 characters: off"; return 0; }
+  case ",$v," in *,WindowServer,*) echo "bovram: WindowServer stays on system memory (M3): off"; return 0;; esac
+  sysctl -n debug.phxbo_vram_selftest >/dev/null 2>&1 || { echo "bovram: VermilionBoot before b156: off"; return 0; }
+  sysctl -w debug.phxbo_vram_selftest=1 >/dev/null 2>&1; st=$(sysctl -n debug.phxbo_vram_selftest 2>/dev/null)
+  [ "$st" = 1 ] || { echo "bovram: self-test reads '$st', not 1: VRAM BOs stay off"; return 0; }
+  sysctl -w debug.phxbo_vram_proc="$v" >/dev/null 2>&1 && [ "$(sysctl -n debug.phxbo_vram_proc 2>/dev/null)" = "$v" ] \
+    || { echo "bovram: debug.phxbo_vram_proc not set: off"; return 0; }
+  if sysctl -w debug.phxbo_vram=1 >/dev/null 2>&1 && [ "$(sysctl -n debug.phxbo_vram 2>/dev/null)" = 1 ]; then
+    echo "bovram: on for $v (self-test 1)"
+  else echo "bovram: debug.phxbo_vram=1 refused: off"; fi; }
+[ "${PHXBOOT_NO_BOVRAM:-0}" = 1 ] || [ $SAFE = 1 ] || bovram_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes

@@ -17,7 +17,7 @@
 // The driver: on Linux the system loader (libvulkan.so.1); on macOS RADV directly
 // (/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib, its vk_icdGetInstanceProcAddr, as the Metal plugin does).
 // VKBENCH_DRIVER=<path> picks another library (a loader or an ICD; both entry points are tried).
-// Exit codes: 0 ok, 1 no Vulkan driver or device, 3 pipeline failed, 5 a Vulkan call or entry point failed, 64 usage
+// Exit codes: 0 ok, 1 no Vulkan driver or device, 2 zerocheck found non-zero memory, 3 pipeline failed, 5 a Vulkan call or entry point failed, 64 usage
 // (metalbench's numbers; its 4, a GPU error, has no counterpart here: a failed call exits 5).
 // Build: scripts/build/vkbench.sh (macOS) or, on Linux,
 //   cc -O2 -I<Vulkan-Headers>/include -o vkbench tools/vkbench/vkbench.c -ldl -lm
@@ -48,7 +48,7 @@ F(vkUpdateDescriptorSets) F(vkCreateCommandPool) F(vkAllocateCommandBuffers) F(v
 F(vkBeginCommandBuffer) F(vkEndCommandBuffer) F(vkCmdBindPipeline) F(vkCmdBindDescriptorSets) F(vkCmdPushConstants)
 F(vkCmdDispatch) F(vkCmdPipelineBarrier) F(vkCmdResetQueryPool) F(vkCmdWriteTimestamp) F(vkQueueSubmit)
 F(vkWaitForFences) F(vkResetFences) F(vkGetQueryPoolResults) F(vkResetCommandBuffer) F(vkDeviceWaitIdle)
-F(vkGetFenceStatus)
+F(vkGetFenceStatus) F(vkFreeMemory) F(vkMapMemory) F(vkCmdCopyBuffer) F(vkCmdFillBuffer) F(vkDestroyBuffer)
 #undef F
 
 static double now_s(void) {
@@ -77,11 +77,78 @@ static uint32_t mem_type(const VkPhysicalDeviceMemoryProperties *mp, uint32_t bi
   return 0;
 }
 
+// zerocheck [rounds=8] [MiB=64]: is new device-local memory zero, also after another buffer of the same size held a
+// pattern and was freed (kext b156's VRAM BOs: a fresh range must never show what the last owner wrote)? Each round:
+// buffer A (device-local), vkCmdFillBuffer 0xDEADBEEF, wait, free A; buffer B (same type, same size), copy B into a
+// host-visible buffer, wait, count the dwords that are not 0. Reads only memory this process allocated.
+static int zerocheck(VkDevice dev, VkQueue q, uint32_t qfi, const VkPhysicalDeviceMemoryProperties *mp, int rounds,
+                     uint64_t bytes) {
+  VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, NULL,
+                                 VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, qfi};
+  VkCommandPool pool; CK(vkCreateCommandPool(dev, &cpi, NULL, &pool));
+  VkCommandBuffer cb;
+  VkCommandBufferAllocateInfo cbai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1};
+  CK(vkAllocateCommandBuffers(dev, &cbai, &cb));
+  VkFence f; VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, NULL, 0};
+  CK(vkCreateFence(dev, &fci, NULL, &f));
+  // the host-visible read-back buffer
+  VkBufferCreateInfo hbi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                            VK_SHARING_MODE_EXCLUSIVE, 0, NULL};
+  VkBuffer hb; CK(vkCreateBuffer(dev, &hbi, NULL, &hb));
+  VkMemoryRequirements hmr; vkGetBufferMemoryRequirements(dev, hb, &hmr);
+  VkMemoryAllocateInfo hma = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, NULL, hmr.size,
+      mem_type(mp, hmr.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)};
+  VkDeviceMemory hm; CK(vkAllocateMemory(dev, &hma, NULL, &hm));
+  CK(vkBindBufferMemory(dev, hb, hm, 0));
+  volatile uint32_t *hp; CK(vkMapMemory(dev, hm, 0, bytes, 0, (void **)&hp));
+  long bad = 0, checked = 0;
+  uint32_t t = 0;
+  for (int r = 0; r < rounds; r++) {
+    VkBuffer b[2]; VkDeviceMemory m[2];
+    for (int k = 0; k < 2; k++) {
+      VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, bytes,
+                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL};
+      CK(vkCreateBuffer(dev, &bi, NULL, &b[k]));
+      VkMemoryRequirements mr; vkGetBufferMemoryRequirements(dev, b[k], &mr);
+      t = mem_type(mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      VkMemoryAllocateInfo ma = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, NULL, mr.size, t};
+      CK(vkAllocateMemory(dev, &ma, NULL, &m[k]));
+      CK(vkBindBufferMemory(dev, b[k], m[k], 0));
+      for (uint64_t i = 0; i < bytes / 4; i++) hp[i] = 0x11111111u;   // so a copy that never ran can't pass
+      CK(vkResetCommandBuffer(cb, 0));
+      VkCommandBufferBeginInfo cbi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, NULL};
+      CK(vkBeginCommandBuffer(cb, &cbi));
+      VkBufferCopy c = {0, 0, bytes};
+      vkCmdCopyBuffer(cb, b[k], hb, 1, &c);   // what the new buffer holds, before anything writes it
+      VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT};
+      vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
+      if (k == 0) vkCmdFillBuffer(cb, b[0], 0, bytes, 0xDEADBEEFu);   // A leaves a pattern behind
+      VkMemoryBarrier hb2 = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT};
+      vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &hb2, 0, NULL, 0, NULL);
+      CK(vkEndCommandBuffer(cb));
+      VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &cb, 0, NULL};
+      CK(vkQueueSubmit(q, 1, &si, f));
+      CK(vkWaitForFences(dev, 1, &f, VK_TRUE, UINT64_MAX));
+      CK(vkResetFences(dev, 1, &f));
+      long nz = 0;
+      for (uint64_t i = 0; i < bytes / 4; i++) nz += hp[i] != 0;
+      bad += nz; checked += (long)(bytes / 4);
+      if (nz) printf("round %d buffer %c: %ld of %llu dwords not zero (first 0x%08x)\n", r, k ? 'B' : 'A', nz,
+                     (unsigned long long)(bytes / 4), hp[0]);
+      if (k == 0) { vkDestroyBuffer(dev, b[0], NULL); vkFreeMemory(dev, m[0], NULL); }
+    }
+    vkDestroyBuffer(dev, b[1], NULL); vkFreeMemory(dev, m[1], NULL);
+  }
+  printf("zerocheck: memory type %u (flags 0x%x), %d rounds x 2 buffers x %llu MiB: %ld of %ld dwords not zero: %s\n", t,
+         mp->memoryTypes[t].propertyFlags, rounds, (unsigned long long)(bytes >> 20), bad, checked, bad ? "FAIL" : "PASS");
+  return bad ? 2 : 0;
+}
+
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "compute";
-  int isSubmit = !strcmp(mode, "submit"), isBw = !strcmp(mode, "bandwidth");
-  if (!isSubmit && !isBw && strcmp(mode, "compute")) {
-    fprintf(stderr, "usage: vkbench compute [seconds] [iterations] [width] [height] | submit [seconds] [iterations] [width] [height] | bandwidth [seconds] [MiB]\n");
+  int isSubmit = !strcmp(mode, "submit"), isBw = !strcmp(mode, "bandwidth"), isZero = !strcmp(mode, "zerocheck");
+  if (!isSubmit && !isBw && !isZero && strcmp(mode, "compute")) {
+    fprintf(stderr, "usage: vkbench compute [seconds] [iterations] [width] [height] | submit [seconds] [iterations] [width] [height] | bandwidth [seconds] [MiB] | zerocheck [rounds] [MiB]\n");
     return 64;
   }
   double secs = argc > 2 ? atof(argv[2]) : (isSubmit || isBw ? 10 : 20);
@@ -148,10 +215,12 @@ int main(int argc, char **argv) {
   D(vkCreateFence) D(vkCreateQueryPool) D(vkBeginCommandBuffer) D(vkEndCommandBuffer) D(vkCmdBindPipeline)
   D(vkCmdBindDescriptorSets) D(vkCmdPushConstants) D(vkCmdDispatch) D(vkCmdPipelineBarrier) D(vkCmdResetQueryPool)
   D(vkCmdWriteTimestamp) D(vkQueueSubmit) D(vkWaitForFences) D(vkResetFences) D(vkGetQueryPoolResults)
-  D(vkResetCommandBuffer) D(vkDeviceWaitIdle) D(vkGetFenceStatus)
+  D(vkResetCommandBuffer) D(vkDeviceWaitIdle) D(vkGetFenceStatus) D(vkFreeMemory) D(vkMapMemory) D(vkCmdCopyBuffer)
+  D(vkCmdFillBuffer) D(vkDestroyBuffer)
 #undef D
   VkQueue q;
   vkGetDeviceQueue(dev, qfi, 0, &q);
+  if (isZero) return zerocheck(dev, q, qfi, &mp, argc > 2 ? atoi(argv[2]) : 8, (uint64_t)(argc > 3 ? atoi(argv[3]) : 64) << 20);
 
   enum { SLOTS = 3 };
   // the storage images (one per slot, like metalbench's 3 targets) or the two buffers

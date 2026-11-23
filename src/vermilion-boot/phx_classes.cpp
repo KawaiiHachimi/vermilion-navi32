@@ -48,6 +48,13 @@ public:
     uint32_t submitQueueBit(bool gfx, bool vcn) const;
     // scanout (selectors 9..14): one client at a time flips VRAM slots it fills on the GPU onto HUBP0
     IOReturn vmMapVram(uint32_t vmid, uint64_t va, uint64_t vramOff, uint64_t size);
+    // b156 (phx_vram.cpp): VRAM-backed client BOs
+    uint64_t vramPoolAlloc(uint64_t bytes);                     // a VRAM offset, 0 = none
+    void vramPoolFree(uint64_t off, uint64_t bytes);
+    IOReturn vramFill(uint64_t off, uint64_t bytes, uint32_t value, uint64_t *ns);
+    IOReturn vramClear(uint64_t off, uint64_t bytes);           // zeros, counted in debug.phxbo_vram_stat
+    int vramSelftest();
+    int vramStat(char *b, size_t cap);
     void scanQuery(phxn_scan_query *q);
     IOReturn scanAcquire(const void *who, uint64_t out[2]);
     IOReturn scanAllocSlot(const void *who, const phxn_scan_reg *r, uint32_t *slot, uint64_t *mc, uint64_t *vramOff);
@@ -135,6 +142,11 @@ private:
     uint64_t gSeq{0};
     uint64_t queueFence(const GpuQueue &q) const;
     IOLock *gpuLock{nullptr};
+    // b156: VRAM-backed BOs (phx_vram.cpp): the pool (vramLock) and the kext's own clear IB (clearLock)
+    phxvram::Pool *vpool{nullptr};
+    IOLock *vramLock{nullptr}, *clearLock{nullptr};
+    bool vramPoolUpLocked();
+    IOReturn gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw, uint64_t *seqOut);
     // One GPUVM context (page tables) per client, and the eight hardware VMIDs lent to contexts at submission time,
     // as amdgpu does: a fixed VMID per client capped Metal at eight processes, and with every app allowed Metal the
     // ninth got no device (2026-10-20). A context's handle is its index + 1.
@@ -422,6 +434,7 @@ private:
         uint32_t scanSlot{0};     // scanout: slot k + 1 this BO is rebound onto (its GPU maps point at that VRAM), 0 = none
         uint64_t scanVram{0};
         uint64_t freeSeq{0};      // freed by the client, released once the GPU retires this seqno (b52); 0 = live
+        uint64_t vram{0};         // b156: a VRAM-backed BO's pool offset (md is a 4 KiB anchor, kva NULL); 0 = system pages
     };
     struct Map {
         bool used;

@@ -125,6 +125,7 @@ add each change here with the thread's number.
   | 13 | 2026-11-23 04:36 | 01 | VermilionBoot b154 (`78f560cc`) on change 11's config: a switch whose last link window needed a retry runs once more (the LG stayed black after such a retry at 04:15) |
   | 14 | 2026-11-23 04:52 | 01 | VermilionBoot b155 (`f95b4baf`): drm's 32-try rule for the trainers' DPCD accesses; the live switch `debug.phxp0odm_dbuf` (0 at boot) |
   | 15 | 2026-11-23 06:31 (first boot 07:10, after the Linux run; verified: `list=8 denied_unlisted=0`, `profile navi31`, Metal "AMD Radeon RX 7900 XTX", no leaked environment) | 02 | VermilionTrust 1.0.4 (`63481dc4`) for RADV with the XTX profile (patches 0018-0019, `801ae178`) and the plugin without the environment leak (`3be1ec3c`), both installed outside the EFI the same minute |
+  | 16 | 2026-11-23 08:51 (booted 08:54, verified: desktop, self-test 1) | 02 B | VermilionBoot b156 (`d8f5948a`): VRAM-backed BOs, opt-in per process, off at boot |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
@@ -310,8 +311,41 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 | 2026-11-23 | GPU idle, Linux's PMFW messages (live) | b155, 1440p240 HDR, light desktop use; `idletest.sh` | socket / board 53.5 / 67.1 W pinned -> 30.2 / 39.9 W (UCLK unpinned, FCLK switch) -> **23.5 / 31.8 W** (+ DCFCLK messages); UCLK 96, FCLK 1000, DCEFCLK 200; 0 underflows in 20 min | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
 | 2026-11-23 | Same, under load | `vkbench bandwidth / compute`, `metalbench bandwidth`, 5 s each, pinned vs free | 44.1 / 43.7 GB/s, 0.407 / 0.405 ms, 44.2 / 43.8 GB/s; board at 100 % 206-304 / 172-270 W; UCLK stays 96 (buffers are system memory) | same |
 | 2026-11-23 | After the restart with the thread 02 daemon | 07:55, 4 min after boot, idle desktop | socket / board 23 / 31 W (UCLK 96, FCLK 1000, DCEFCLK 200), no underflow; `vkbench submit 5 200 512 512` median 124 us, p99 0.46 ms; `metalbench` same 207 us, p99 0.66 ms; IH 89 k IVs, 0 overflow | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
+| 2026-11-23 | **VRAM-backed BOs** (b156, opt-in) | 1440p240 HDR, idle; `vkbench` / `metalbench bandwidth 5`, switch off vs `debug.phxbo_vram=1` for those two | 42.9 -> **840.9** GB/s (vk), 42.9 -> **836.1** GB/s (Metal), Linux 837; UCLK 96 -> 1249 under load; `zerocheck` 0 non-zero of 268 M dwords; clear ~8 GB/s (256 MiB in 31 ms) | [VRAM BO design, M1 / M2](../.agents/findings/2026-11-23-vram-bo-design.md) |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
+
+### Benchmark set: VRAM BOs off vs on (2026-11-23)
+
+XTX machine, b156, 1440p240 HDR, idle desktop, 13 min after boot, thread 02 daemon (idle DPM, interrupt waits);
+`~/src/bench/benchset.sh` (not in git): each test 10 s, VRAM off, then on (`debug.phxbo_vram=1` for `vkbench,metalbench`
+after the self-test), in one run at 09:45-09:47. GPU time per frame, median. Linux: the Omarchy run of 2026-11-23
+(240 SDR, [linux-reference](../.agents/findings/2026-11-23-linux-reference.md)) and the second reading
+([linux-02b](../.agents/findings/2026-11-23-linux-02b.md)).
+
+| Benchmark | API | VRAM off | VRAM on | Linux |
+|---|---|---|---|---|
+| `vkbench compute 10` (Mandelbrot, 64 iterations, 2560x1440) | Vulkan (RADV) | 0.404 ms | **0.140 ms** (2.9x) | 0.134 ms |
+| `vkbench bandwidth 10` (2 x 256 MiB copy) | Vulkan | 43.7 GB/s | **841.9 GB/s** | 823 / 837 GB/s |
+| `vkbench submit 10` (16x16, waited) | Vulkan | 25.0 k/s, wall median 32 us | 24.9 k/s, 32 us | 37 us |
+| `vkbench zerocheck 8 64` (new buffers are zero) | Vulkan | PASS (0 of 268 M dwords) | PASS (0 of 268 M) | - |
+| `metalbench render 10` (64 iterations, 2560x1440) | Metal | 0.262 ms | **0.137 ms** (1.9x) | no twin |
+| `metalbench compute 10` | Metal | 0.192 ms | **0.144 ms** (1.3x) | no twin |
+| `metalbench bandwidth 10` | Metal | 44.0 GB/s | **836.9 GB/s** | no twin (Vulkan 823 / 837) |
+| **Horizon** (Minecraft Java 26.3 in Rust, nightly 2026-11-13; fullscreen 2560x1440, render distance 12, Immediate present; `horizon-ctl bench 20`) | Metal (wgpu) | 93.1 / 83.3 fps avg (off before / after); p50 10.8 / 11.5 ms; 1 % low 61 / 53 fps | **158.0 fps** (1.7-1.9x); p50 6.3 ms; 1 % low 118 fps | not measured |
+| clpeak (`metal:0`, `coreml:0`) | Metal, MPS | **hung the GPU** in its MPS pass (VRAM off; [finding](../.agents/findings/2026-11-23-clpeak-hang.md)): out of the set | not run | - |
+| OpenGL (any app, Minecraft Java) | OpenGL | CPU fallback: Apple Software Renderer, not measured | same (VRAM BOs don't apply) | - |
+| OpenCL, Blender Cycles | OpenCL / Metal | CPU fallback (Cycles lists only the CPU), not measured | same | - |
+
+VRAM pass: 48 BOs allocated and freed, peak 565 MiB, 48 clears (2287 MiB, avg 6.1 ms, max 29.8 ms), no fallback,
+no leak, no failed clear. No error in either pass; WindowServer stayed up.
+Horizon (10:04-10:06, `~/src/bench/hzbench.sh`, off / on / off, same world and start point): the player drifted in
+survival (water), so the view was not fixed; sections drawn during the runs were comparable (on 459-498, off 276-536)
+and the VRAM screenshot renders correctly. 395 VRAM BOs allocated and freed in the on pass, peak 675 MiB, no fallback,
+no leak. A first run at 10:02 gave the same picture (92 / 96 off, 163 on). Its built-in `--benchmark standard` fails
+here ("village drew no frames", with VRAM off; not investigated). Linux twin not measured, so "close to Linux in a
+real game" is (unverified). OpenGL: the owner saw the GPU warm up during an OpenGL app; with GL on
+the CPU renderer, the likely load is WindowServer compositing its frames (unverified).
 
 ### Known bottlenecks and limits
 
@@ -363,3 +397,4 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
   TODO.md), and renumbered the owners to the series.
 - 2026-11-23: thread 01 (GPU stability): EFI changes 9-14 (VermilionBoot b151-b155), PhxAccel with the physical
   size, the daemon's display check; the display rows of the machine state.
+- 2026-11-23: thread 02 part B: the benchmark table, VRAM BOs off vs on.

@@ -38,6 +38,8 @@ bool PhxBringup::start(IOService *provider) {
     doorbellMap = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
     smuLock = IOLockAlloc();
     gpuLock = IOLockAlloc();
+    vramLock = IOLockAlloc();   // b156
+    clearLock = IOLockAlloc();
     // b140: the scanout lock exists from the start. It was made by the first GPU-present acquire, and the replay engine
     // (odmRunLocked) needs it: the login screen's 240 Hz request at 20:39:39 on 2026-11-20 came 7 s before GPU present
     // started and was refused "not ready", so the login screen stayed at the firmware's 60 Hz.
@@ -98,6 +100,8 @@ void PhxBringup::stop(IOService *provider) {
     if (gSysctlUp) {
         sysctl_unregister_oid(&sysctl__debug_phxbos_flush); sysctl_unregister_oid(&sysctl__debug_phxwait_spin_us); sysctl_unregister_oid(&sysctl__debug_phxbo_zero); sysctl_unregister_oid(&sysctl__debug_phxgva); sysctl_unregister_oid(&sysctl__debug_phxih); sysctl_unregister_oid(&sysctl__debug_phxih_stat); sysctl_unregister_oid(&sysctl__debug_phxeopirq); sysctl_unregister_oid(&sysctl__debug_phxih_vram); sysctl_unregister_oid(&sysctl__debug_phxirq); sysctl_unregister_oid(&sysctl__debug_phxirq_stat); sysctl_unregister_oid(&sysctl__debug_phxwait_irq); sysctl_unregister_oid(&sysctl__debug_phxwait_stat); sysctl_unregister_oid(&sysctl__debug_phxwait_lat); sysctl_unregister_oid(&sysctl__debug_phxwait_irq_dl_us); sysctl_unregister_oid(&sysctl__debug_phxvcn); sysctl_unregister_oid(&sysctl__debug_phxvcn_stat); sysctl_unregister_oid(&sysctl__debug_phxmmvm); sysctl_unregister_oid(&sysctl__debug_phxmmvm_stat); sysctl_unregister_oid(&sysctl__debug_phxbo_stats); sysctl_unregister_oid(&sysctl__debug_phxwait_step_us); sysctl_unregister_oid(&sysctl__debug_phxwait_scoped); sysctl_unregister_oid(&sysctl__debug_phxwait_scoped_stat); sysctl_unregister_oid(&sysctl__debug_phxscan_latchfix); sysctl_unregister_oid(&sysctl__debug_phxscan_race_stat); sysctl_unregister_oid(&sysctl__debug_phxdal_dead); sysctl_unregister_oid(&sysctl__debug_phxdal_stat);
         sysctl_unregister_oid(&sysctl__debug_phxbos_flush_bytes);
+        sysctl_unregister_oid(&sysctl__debug_phxbo_vram); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_proc);   // b156
+        sysctl_unregister_oid(&sysctl__debug_phxbo_vram_selftest); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_stat);
         sysctl_unregister_oid(&sysctl__debug_phxvm);
         sysctl_unregister_oid(&sysctl__debug_phxpt_reclaim);
         sysctl_unregister_oid(&sysctl__debug_phxpt_keep);
@@ -169,6 +173,9 @@ void PhxBringup::stop(IOService *provider) {
         IOLockFree(gpuLock);
         gpuLock = nullptr;
     }
+    if (vramLock) { IOLockFree(vramLock); vramLock = nullptr; }   // b156
+    if (clearLock) { IOLockFree(clearLock); clearLock = nullptr; }
+    if (vpool) { IOFree(vpool, sizeof(phxvram::Pool)); vpool = nullptr; }
     if (doorbellMap) {
         doorbellMap->release();
         doorbellMap = nullptr;

@@ -505,6 +505,7 @@ stated.
 | `phxboot-dpwatch` (value `1` or `2`; empty = `1`) | after `done`, desktop boot | `debug.phxdpwatch`: the DP stream watcher (2 = also the stuck-stream fix); its events go to the boot log |
 | `phxboot-b15` | after `done`, desktop boot | `b15_boot.sh`: the display power recipe (watermarks, DET, DAL watermark table, HUBP rate group, then memory self-refresh) with an underflow watchdog for the whole boot |
 | `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> 20-24 W at idle |
+| `phxboot-bovram` (value: comma-separated process names) | after `done`, desktop boot | VermilionBoot b156's VRAM-backed buffers for those processes: the kext's self-test, then `debug.phxbo_vram_proc` and `debug.phxbo_vram=1`. Names as the kernel keeps them (`ps -o comm` without the path, cut at 16 characters); `WindowServer` is refused. On the XTX machine: buffer bandwidth 42.9 -> 840.9 GB/s |
 | `phxboot-wsprefs` | before the restart | no longer used; the daemon only logs that it can be removed |
 
 Flags read by the helper scripts, not by the daemon itself:
@@ -528,7 +529,7 @@ A reasonable first set on one monitor is `sdma`, `cg` and `uclk` (`456`); add `a
 (section 8).
 
 The LaunchDaemon can also pass `PHXBOOT_NO_SDMA=1`, `PHXBOOT_NO_CG=1`, `PHXBOOT_NO_UCLK=1`, `PHXBOOT_NO_AOC=1`,
-`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
+`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1`, `PHXBOOT_NO_BOVRAM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
 skip a step regardless of the flags.
 
 ### 7.4 The login-window guard
