@@ -39,8 +39,8 @@ pending (2026-11-23, thread 00).
       off). Plugin: the schedule-time copy of the non-async GPU present (present only after completion)
 - [ ] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
       "Revisit"), then re-verify every plan
-- [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from thread 07's inventory.
-      Rollback: Apple menu > Restart
+- [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from the old thread 07's
+      inventory. Rollback: Apple menu > Restart
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the

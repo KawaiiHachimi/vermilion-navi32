@@ -63,7 +63,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 | APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 11 |
 | Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0) and **manual sleep blocked** since 2026-11-23 00:58 (`pmset -a disablesleep 1`; undo `sudo pmset -a disablesleep 0`): Vermilion has no GPU resume path. Display sleep and S3 untested | sleep / power | 05 |
 | Shutdown / restart | clean: 15 boots with previous-shutdown cause 5, SMART "Unsafe Shutdowns" unchanged over 6+ restarts (cold shutdown not checked); restart to accelerated desktop ~67 s | same | 11 |
-| Panics | one at a restart (2026-11-19 22:44), cause unknown; no report is ever saved (`DisableVariableWrite`) | [flicker / heat](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) | 01 |
+| Panics | one at a restart (2026-11-19 22:44), cause unknown; no report is ever saved (`DisableVariableWrite` blocks the NVRAM panic log: from the config, not watched failing) | [flicker / heat](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) | 01 |
 | NVRAM | read-only from macOS (`DisableVariableWrite`, against the Ryzen 7000 installer hang) | efi/machines | 01 |
 | SIP / AMFI / Gatekeeper | SIP custom `0x0A03` (system volume still sealed). **AMFI enforcing** since 2026-11-22 23:45: no `amfi=0x80`; VermilionTrust lets only Vermilion's cdhashes through (`debug.phxtrust_stat`: `mode=enforce list=6 denied_unlisted=0`); third-party apps no longer platform binaries. AMFIPass still loaded (need unknown). Gatekeeper on (status only; no app assessed). XProtect data updates on (`ConfigDataInstall = 1`); macOS and Rapid Security Responses pinned | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 09 |
 | Privacy prompts (TCC) | the Screen Recording prompt appeared and was granted (2026-11-23); camera / microphone prompts untested | macOS integration | 09 |
@@ -118,10 +118,10 @@ add each change here with the thread's number.
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
 - **Outside the EFI:**
   - VermilionAccel with mode id 18 in `/Library/Extensions` (AuxKC; sha256 `c6341e87`). Rollback:
-    `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [runbooks](../.agents/runbooks.md), "Deploying a
-    plugin, translator or RADV build" and the AuxKC note there).
+    `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
+    the kext": the **Allow** click rebuilds the AuxKC, not the restart).
   - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver sha256 `6840fbe3`, cdhash `33b9a186`
-    (thread 05's Music fix on top of b149). Rollback: `~/vermilion-rollback/plugin-20261123/` (b149), then
+    (the old thread 05's Music fix on top of b149). Rollback: `~/vermilion-rollback/plugin-20261123/` (b149), then
     `NVMTLDriver.b139`.
   - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; differs from the repo in comments only), flags
     `sdma`, `cg`, `uclk` (456), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`. Previous daemon:
@@ -170,7 +170,7 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 |---|---|---|---|
 | `pci=0x8000000` | macOS otherwise sets 10-bit tags on the GPP7 root port | Wi-Fi and the I225-V answer at all; must stay while either is used | 07 |
 | `amtk_awdl_offchan=0` | AWDL's off-channel windows stalled Wi-Fi for ~400 ms every ~1 s | AirDrop fails while the router is on a channel AWDL doesn't use (52 here) | 07 |
-| `DisableVariableWrite` | the installer hangs on Ryzen 7000 boards while writing NVRAM | macOS cannot write NVRAM: no startup-disk change, **no panic report**, `phxfb-squat` must be set from Linux | 01 |
+| `DisableVariableWrite` | the installer hangs on Ryzen 7000 boards while writing NVRAM | macOS cannot write NVRAM: no startup-disk change, **no panic report** *(inferred from the config)*, `phxfb-squat` must be set from Linux | 01 |
 | `phxfb-squat` EFI variable (set from Linux) | every OpenCore boot is a squat boot (no phantom display) | **Reset NVRAM deletes it**: never Reset NVRAM | 06 |
 | SIP `0x0A03` + VermilionTrust (was `amfi=0x80` until 2026-11-22) | the ad-hoc signed plugin loads into platform processes; AMFI stays on for everything else | the cdhash list is compiled into the kext: **a new plugin / translator / RADV build needs `trust.sh` + an EFI rebuild**. Its hook offsets were read from 25G241 only: **no macOS update** until thread 09's layout check | 09, 06 |
 | `SecureBootModel = Disabled` | injected kexts are unsigned; VermilionAccel is in the AuxKC | no Apple Secure Boot | 09 |
@@ -179,7 +179,7 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 | `en0` = built-in Ethernet | FairPlay (Apple Music) and iServices take the identity from `en0` | an iPhone / iPad plugged in at first boot took `en0` and broke Music (fixed 2026-11-23) | 10 |
 | `ResizeAppleGpuBars = 0` | Vermilion was validated with BAR0 256 MiB; ReBAR stays on for Linux | the VRAM window size in the kext | 02 |
 | AGDP board-id patch (pikera) | Navi cards hang without it on Tahoe; WhateverGreen breaks on 26 | graphics takeover | — |
-| USB map (UTBMap) | the chipset controller has 17 ports, over macOS's 15 | Bluetooth (port 16) and USB audio (port 11) enumerate only with it; per board | 10 |
+| USB map (UTBMap) | macOS didn't create the audio and Bluetooth ports unmapped (`_UPC`, or the controller's 17 ports over macOS's 15: unproven) | Bluetooth (port 16) and USB audio (port 11) enumerate only with it; per board | 10 |
 | SMCProcessorAMD (read-only) | CPU temperature / package power as SMC keys; AMDRyzenCPUPowerManagement rejected (replaces CPU PM, rewrites a P-state MSR; its Tahoe fork polls GPU registers) | CPU heat and power are measurable; don't add AMDRyzenCPUPowerManagement | 02 |
 | Sleep off + `disablesleep 1` | no GPU resume | sleep work only on a `-phxbringupoff` boot, with the owner | 05 |
 | Debug: `-v`, `debug=0x100`, `keepsyms=1`, OpenCore log `Target = 67` | bring-up diagnostics | slower boot *(unmeasured)*; revisit once stable | 10 |

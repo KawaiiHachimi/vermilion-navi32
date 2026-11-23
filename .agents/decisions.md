@@ -360,8 +360,7 @@ stage of `install` made an accidental `build` / `install` without `--stage` the 
 
 **Correction to 2026-11-22 "Security posture target":** its "FairPlay refuses" under `amfi=0x80` is unproven (Music's
 failure was `en0`; TV's is the missing protected decoder), and the VermilionTrust sanity check does not make a shifted
-AMFI layout fail safe (thread 05's final report): no macOS update before thread 09's layout check.
-
+AMFI layout fail safe (the old thread 05's final report): no macOS update before thread 09's layout check.
 
 **Rename (same day, owner's OK):** `ownback/vermilion` became **`ownback/vermilion-xtx`** (`gh repo rename`; GitHub
 redirects the old URLs; the `fork` remote points at the new name). It is the GPU driver fork and still supports the

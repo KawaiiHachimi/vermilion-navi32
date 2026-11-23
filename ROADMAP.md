@@ -62,8 +62,8 @@ The T3 projects follow the repos:
    clone, project) if 07 can't do that itself. Thread 09 launches 10, which creates the Ryzentosh project.
 2. **Own worktree per thread.** Never switch the branch of a checkout another thread uses.
 3. **One EFI change per boot, always, with the rollback written in TODO.md first.** Only the active thread installs to
-   the EFI partition; any other thread asks it. Every EFI change goes into the boot log in PROJECT_KNOWLEDGE with the
-   thread's number.
+   the EFI partition; any other thread asks it. Every EFI change goes into the EFI change log in PROJECT_KNOWLEDGE with
+   the thread's number.
 4. **Hardware safety (CLAUDE.md rule 1) is not negotiable:** no SMU / PSP / DAL message or register write that Linux
    amdgpu doesn't send on this ASIC, never write the VBIOS, Linux -> macOS is always a full power-off.
 5. **Models:** Opus 5.5, high effort, does the work; ultracode on for 01, 02, 05, 07. Before every merge, a Fable 5.2
@@ -120,9 +120,9 @@ Status: `planned`, `active`, `merged (#N)`.
 
 ## Cross-cutting
 
-- **One Linux session, many answers.** Threads 02 (GPU, CPU), 03 (storage reference, TRIM through LUKS) and 02's fan
-  chip all need Linux numbers. Thread 00 writes one handoff note for a single Linux boot; the results go into
-  PROJECT_KNOWLEDGE's performance record.
+- **One Linux session, many answers.** Thread 02 (GPU, CPU, the fan chip) and the old thread 03's storage baseline
+  (reference numbers, TRIM through LUKS) all need Linux numbers. Thread 00 writes one handoff note for a single Linux
+  boot; the results go into PROJECT_KNOWLEDGE's performance record.
 - **Owner tests** live in [`.agents/OWNER-TESTS.md`](.agents/OWNER-TESTS.md), one checklist, grouped by the thread
   that needs the answer.
 - **Privacy:** no serials, MLB, ROM, UUIDs, MACs, e-mail, EDIDs with serials or AMD firmware in git (CLAUDE.md rules 3

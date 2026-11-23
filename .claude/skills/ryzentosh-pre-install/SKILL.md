@@ -27,7 +27,7 @@ to the user and stop there. Don't improvise.
 4. **Never print serials.** `efi/build.py smbios` runs macserial and writes the serial, MLB, UUID and ROM into
    `~/.config/vermilion/smbios-<machine>.json` (mode 0600). Don't `cat` it, don't print `config.plist`'s
    `PlatformInfo`, and don't paste `build/efi/` anywhere. A built EFI contains the serials: never commit, upload or
-   share it. The same goes for EDIDs with serials, the ACPI dump (it contains the VBIOS) and MAC addresses.
+   share it. The same goes for EDIDs with serials, the ACPI dump (a full one contains the VBIOS) and MAC addresses.
 5. **Tell the user, once, at the start:** everything this agent reads (command output, files, logs) goes to the
    model provider. The skill keeps serials out of that, but the user decides what else to share.
 6. Scripts do the risky work; this skill only runs them. It never writes an ESP layout, a partition table, a
@@ -54,9 +54,10 @@ sudo efi/build.py acpi-dump --machine <id>     # DSDT + namespace + BIOS version
 chmod -R go-rwx ~/.config/vermilion            # acpi-dump doesn't restrict the folder's mode itself
 ```
 
-The dump contains firmware tables, including the VBIOS: it stays in `~/.config/vermilion`, outside git, and is
-never printed. Dump again after every BIOS update; `efi/build.py build` refuses a dump or firmware of another BIOS
-version than the profile's DSDT patches were derived for.
+`acpi-dump` saves the DSDT, the live ACPI namespace and the BIOS version. A full ACPI dump made by hand also holds
+`VFCT`, which is the VBIOS. Either way it stays in `~/.config/vermilion`, outside git, and is never printed. Dump
+again after every BIOS update; `efi/build.py build` refuses a dump or firmware of another BIOS version than the
+profile's DSDT patches were derived for.
 
 ## 4. Monitor capture — to be filled by thread 06
 

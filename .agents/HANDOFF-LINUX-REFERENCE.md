@@ -94,7 +94,7 @@ If `turbostat` is missing, install the package (`linux-tools` / `turbostat` on A
 ## 3. Storage reference and LUKS discards (old thread 03)
 
 Read-only on the LUKS partition, `p2`: all of it is real data. **The variable goes before `fio`.** The command in
-thread 03's report had it after; this is the corrected form:
+the old thread 03's report had it after; this is the corrected form:
 
 ```sh
 sudo -S -p '' env FIODEV=/dev/nvme0n1p2 fio --readonly --thread tools/storage/raw-read.fio < "$file" > "$OUT/fio-raw-read.txt"

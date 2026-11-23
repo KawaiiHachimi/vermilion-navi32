@@ -34,7 +34,7 @@ points at it and never improvises it.
 
 `en0` must be the built-in Ethernet (FairPlay and iServices take the identity from it):
 `networksetup -listallhardwareports`. If `en0` is an iPhone / iPad USB interface, stop. The fix script is TODO
-(thread 10; the manual fix with backups is in thread 05's finding,
+(thread 10; the manual fix with backups is in the old thread 05's finding,
 `.agents/findings/2026-11-22-apple-services-security-inventory.md`). Unplug iPhones and iPads during the install and
 the first boot.
 

@@ -54,8 +54,9 @@ change that caused it:
 Resolved boot-args of `vermilion-trust`: `-v keepsyms=1 debug=0x100 pci=0x8000000 amtk_awdl_offchan=0
 ipc_control_port_options=0 phxdebug=1` (`efi/build.py stages` prints every stage).
 
-A stage can add kexts (`kexts_add`), add or remove boot-args (`boot_args_add`, `boot_args_remove`), Apple-GUID NVRAM variables (`nvram_add`, hex data,
-written by OpenCore at every boot) and set `csr_active_config`. Each change is tested on its own boot; the dated
+A stage can add kexts (`kexts_add`), add or remove boot-args (`boot_args_add`, `boot_args_remove`), add Apple-GUID
+NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot) and set `csr_active_config`. Each change is
+tested on its own boot; the dated
 reasons sit next to each entry in the machine file (`_comment` keys) and in [`.agents/`](../.agents/).
 
 ## Install onto the EFI partition
@@ -121,9 +122,10 @@ from macOS). Which one is the default is open (TODO, thread 10).
   - **`SSDT-EC-USBX-B650EI`:** hides the desktop EC from macOS, adds the fake `EC` and the USB power properties.
   - Nothing else is needed (audited 2026-11-19): the RTC is the legacy one (no AWAC), and PLUG / PMCR / MCHC /
     SBUS are Intel-only.
-- **USB map:** macOS didn't create the internal ports of the USB audio and the Bluetooth module (the chipset
-  controller has 17 ports, over macOS's 15; the firmware's `_UPC` may mark them not connectable too: unproven). USBToolBox drops the ACPI ports and takes them from `kexts/UTBMap.kext`: the
-  8 rear ports and the internal audio / Bluetooth ports ([findings](../.agents/findings/2026-11-22-usb-map.md)).
+- **USB map:** macOS didn't create the internal ports of the USB audio and the Bluetooth module. The cause is
+  unproven: the firmware's `_UPC` marks them not connectable, or the chipset controller's 17 ports exceed macOS's 15.
+  USBToolBox drops the ACPI ports and takes them from `kexts/UTBMap.kext`: the 8 rear ports and the internal audio /
+  Bluetooth ports ([findings](../.agents/findings/2026-11-22-usb-map.md)).
 - **`pci=0x8000000`:** macOS keeps the firmware's PCIe tag settings. Otherwise it enables 10-bit tags on the
   chipset root port and the Wi-Fi card and the I225-V stop answering.
 - **`amtk_awdl_offchan=0`:** MtkWireless keeps AWDL on the router's channel. Without it the radio left the channel
