@@ -98,7 +98,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 - [x] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
       every later switch refused until reboot. b151: Linux's 4 training attempts per link window, a failed from plan
       runs once more (2 per boot); b152 / b153: per-window record, Linux's pause; b154: a retried last window re-runs
-      the switch. On the box 2026-11-23 03:11-04:36: 10 login switches at 1440p60 HDR landed, 5 needed a retry, one
+      the switch. On the box 2026-11-23 03:11-04:36: every login switch at 1440p60 HDR trained, 5 needed a retry, one
       (04:15, b153) stayed black on a locked link until a re-switch, which b154 now does by itself (04:36)
 - [x] The daemon reported `SUCCESS` during that black screen: `disp_check` (`DARK`, the engines' state in
       `/var/log/phxdark-*.txt`, one restart) for a failed engine; deployed 03:08. Its limit: the 04:15 kind of black
