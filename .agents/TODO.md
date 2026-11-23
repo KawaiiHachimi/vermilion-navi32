@@ -51,9 +51,15 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      `OC.bad` and `OC.prev` to `OC`, **power off fully**, power on. From macOS: the same renames under
      `/Volumes/NO NAME/EFI`. Then `rm ~/gpu/phxboot-auto` (back to the stuck-squat setup of today).
    - Worst case named by the old thread 02: a board that hangs on writes may need a CMOS clear (unverified).
+   - **Booted 04:06 and 04:10:** no hang at boot or shutdown, but the write did **not** persist: `vermilion-test` was
+     gone after the restart, `phxfb-squat` stayed in the firmware (squat boot), and
+     `nvram IONVRAM-FORCESYNCNOW-PROPERTY=...` returns "general error". Second test armed: `vermilion-test2=forced`,
+     checked after the next restart (with staged 3). If it is gone too: back to change 11 (`DisableVariableWrite` buys
+     nothing then) and find the real block from Linux (efivars).
 3. **PhxAccel with the physical size** (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
    Privacy & Security before the restart).
-   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`.
+   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged 04:20**
+     (`26685255`, `kmutil load -p`: "not approved"), waiting for the owner's Allow click and the restart.
    - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
    - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
 
