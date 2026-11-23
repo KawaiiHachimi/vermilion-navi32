@@ -98,3 +98,29 @@ already does.
 
 Estimated: M1 a few days of code and host tests, M2-M3 a week of use. Not started in thread 02 beyond this note and
 M0: M1 is its own kext build and boot (TODO 02).
+
+## M1 / M2 on the box (2026-11-23 09:00-09:02, VermilionBoot b156, EFI change 16)
+
+XTX machine, 1440p240 HDR, idle desktop (owner away from the keyboard), free idle clocks (`phxboot-idledpm`) and
+interrupt waits on. `vramtest.sh` (scratchpad): baseline with the switch off, the self-test, then
+`debug.phxbo_vram_proc=vkbench,metalbench` and `debug.phxbo_vram=1`, the switch off again at the end.
+
+| | switch off (system memory) | VRAM BOs | Linux |
+|---|---|---|---|
+| `vkbench bandwidth 5`, median / best | 42.9 / 43.7 GB/s | **840.9 / 859.4 GB/s** | 837.3 / 851.1 |
+| `metalbench bandwidth 5` | 42.9 / 43.7 GB/s | **836.1 / 858.9 GB/s** | n/a |
+| UCLK during the run (SMU metrics, 0.5 s) | 96 MHz throughout | **1249 MHz** from the second sample | 1249 MHz |
+| GPU socket power during the run | 136 W | 261 W | n/a |
+| `vkbench zerocheck` (64 MiB buffers: fill A with a pattern, free it, read a new B) | 4 rounds, 0 of 134 M dwords non-zero | **8 rounds, 0 of 268 M dwords non-zero** | n/a |
+
+- Self-test: 1 (CPU-checked clear inside BAR0; GPU pattern fill and clear at the pool's first and last MiB read back
+  through MM_INDEX).
+- Pool: [512, 20464) MiB, 19952 MiB free; the GFXHUB system aperture ends at 20464 MiB (XT value, XTX.md row 3), so
+  that is the pool's end today. Peak use 565 MiB; 28 allocs, 28 frees, 0 fails, 0 lost, 0 fallbacks, 0 leaked.
+- Clears: 28, 2118 MiB, **avg 9.3 ms, max 30.8 ms** (a 256 MiB buffer): ~8 GB/s, the CP DMA's 32 KiB packets.
+  Fine for an opt-in; for all processes a faster clear (bigger CP DMA ops are not allowed on GFX11; a compute
+  shader or SDMA as Linux) is worth measuring first *(unverified)*.
+- No display underflow (OPTC0 / HUBP0 stickies 0 after the run), every submission retired, no map failure.
+- RADV's memory type 0 (DEVICE_LOCAL only, the 6 GiB "hi" heap) is the one placed in the pool.
+
+Not yet measured: real apps (a Metal game, WebGL, Minecraft) with the switch on; days of use (M3).
