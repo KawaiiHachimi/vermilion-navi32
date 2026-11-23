@@ -27,7 +27,8 @@ Thread 02 part B: **EFI change 16** (VermilionBoot b156, VRAM-backed BOs, off at
 
 Thread 02 part C: **EFI change 17** (VermilionBoot b157: GPU time per context, off by default) **plus mesboot with
 the system aperture from FB_LOCATION** (24 GiB on the XTX, `0x00217fbf`; the XT keeps `0x00213fbf`), installed together
-2026-11-23 for one boot. Check after the boot: accelerated desktop at 1440p240 HDR; `phxctl regs 0x28DE` reads
+2026-11-23, **booted 10:29 and verified** (desktop 1440p240 HDR + VRR, `0x28DE` = `0x00217fbf`, pool `[512, 24464)` MiB,
+self-test 1, `debug.phxgpu_time` answers). Check after the boot was: accelerated desktop at 1440p240 HDR; `phxctl regs 0x28DE` reads
 `0x00217fbf`; `debug.phxbo_vram_stat` pool `[512, 24464)` MiB and `debug.phxbo_vram_selftest` 1 (it now tests the
 pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.prev` = change 16 (copy in
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture

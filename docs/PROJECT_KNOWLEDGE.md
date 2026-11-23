@@ -126,6 +126,7 @@ add each change here with the thread's number.
   | 14 | 2026-11-23 04:52 | 01 | VermilionBoot b155 (`f95b4baf`): drm's 32-try rule for the trainers' DPCD accesses; the live switch `debug.phxp0odm_dbuf` (0 at boot) |
   | 15 | 2026-11-23 06:31 (first boot 07:10, after the Linux run; verified: `list=8 denied_unlisted=0`, `profile navi31`, Metal "AMD Radeon RX 7900 XTX", no leaked environment) | 02 | VermilionTrust 1.0.4 (`63481dc4`) for RADV with the XTX profile (patches 0018-0019, `801ae178`) and the plugin without the environment leak (`3be1ec3c`), both installed outside the EFI the same minute |
   | 16 | 2026-11-23 08:51 (booted 08:54, verified: desktop, self-test 1) | 02 B | VermilionBoot b156 (`d8f5948a`): VRAM-backed BOs, opt-in per process, off at boot |
+  | 17 | 2026-11-23 10:27 (booted 10:29, verified: desktop, aperture, self-test 1) | 02 C | VermilionBoot b157 (`5110437b`): GPU time per context (`debug.phxgpu_time`, off at boot). Same boot, outside the EFI: mesboot with the system aperture from FB_LOCATION (24 GiB) |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
@@ -312,6 +313,7 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 | 2026-11-23 | Same, under load | `vkbench bandwidth / compute`, `metalbench bandwidth`, 5 s each, pinned vs free | 44.1 / 43.7 GB/s, 0.407 / 0.405 ms, 44.2 / 43.8 GB/s; board at 100 % 206-304 / 172-270 W; UCLK stays 96 (buffers are system memory) | same |
 | 2026-11-23 | After the restart with the thread 02 daemon | 07:55, 4 min after boot, idle desktop | socket / board 23 / 31 W (UCLK 96, FCLK 1000, DCEFCLK 200), no underflow; `vkbench submit 5 200 512 512` median 124 us, p99 0.46 ms; `metalbench` same 207 us, p99 0.66 ms; IH 89 k IVs, 0 overflow | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
 | 2026-11-23 | **VRAM-backed BOs** (b156, opt-in) | 1440p240 HDR, idle; `vkbench` / `metalbench bandwidth 5`, switch off vs `debug.phxbo_vram=1` for those two | 42.9 -> **840.9** GB/s (vk), 42.9 -> **836.1** GB/s (Metal), Linux 837; UCLK 96 -> 1249 under load; `zerocheck` 0 non-zero of 268 M dwords; clear ~8 GB/s (256 MiB in 31 ms) | [VRAM BO design, M1 / M2](../.agents/findings/2026-11-23-vram-bo-design.md) |
+| 2026-11-23 | VRAM pool size (b157 + mesboot aperture from FB_LOCATION) | boot 10:29 | GFXHUB system aperture `0x00213fbf` -> `0x00217fbf` (Linux's value); VRAM BO pool [512, 20464) -> **[512, 24464) MiB**; self-test passes at the new top | TODO "Staged now" |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
