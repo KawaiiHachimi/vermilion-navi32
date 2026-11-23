@@ -65,3 +65,28 @@ Next (design, not started): put the app drawables (CAMetalLayer IOSurfaces) in V
 WindowServer reads VRAM; or let a fullscreen opaque app's frame go to the display directly, as a real Mac does.
 Both touch the accel kext and the plugin. The cheaper first step to measure: how the plugin's WindowServer present
 path reads the app's IOSurface, and whether a DMA copy of it into VRAM beats the shader sampling it.
+
+## One frame, submission by submission (b158 trace, 10:59 VRAM BOs off / 11:00 on)
+
+`debug.phxgpu_trace` over ~0.6 s of Horizon fullscreen 1440p (`~/src/bench/hztrace.sh`; raw:
+`~/src/bench/results/hztrace-20261123-1059*`, `-1100*`). Every frame repeats the same pattern on the gfx queue:
+
+| Submission (IB dwords) | Who | VRAM BOs off | VRAM BOs on | Reading |
+|---|---|---|---|---|
+| 6 small ones (128-720 dw) | Horizon | 10-70 us each; one (224 dw) 332 us | 10-60 us each; the 224-dw one 41 us | setup, uploads, culling |
+| **main pass (1904 dw)** | Horizon | **5386 us** | **2345 us** | the world: VRAM BOs halve it, still >10x Linux's whole frame (0.22 ms) |
+| 488-504 dw | Horizon | 750 us | 747 us | unchanged by VRAM BOs: the pass into the system-memory drawable (14.7 MB in 0.75 ms = ~20 GB/s, a PCIe write rate) (unverified) |
+| 136 dw, 472 dw, 136 dw | WindowServer | 808 + 812 + 520 us | same | WindowServer's three composite submissions per Horizon frame, ~2.1 ms (it reads and writes system-memory surfaces; not opted in) |
+
+What is still slow, and why (candidates, in order of size):
+1. **The main pass, 2.3 ms with VRAM BOs on.** Its private buffers and textures are now in VRAM; what is left in
+   system memory is every CPU-visible buffer: wgpu asks for MAPPABLE_PRIMARY_BUFFERS, and Horizon's section vertex
+   arenas (240 MB) and uniforms are Shared, i.e. system memory read over PCIe while drawing. On Linux, Resizable
+   BAR makes all 24 GiB CPU-visible and RADV puts such buffers in VRAM; on macOS the CPU-visible VRAM is the 256 MiB
+   BAR, already used (`NVMTL_SHARED_VRAM=1` found a budget of 0). (unverified: which buffers the pass reads.)
+2. **The present: Horizon's 0.75 ms pass into the drawable plus WindowServer's ~2.1 ms composite**, both on
+   system-memory IOSurfaces. Real Mac drivers keep a VRAM-resident copy of GPU-used IOSurfaces.
+3. Small: six submissions of setup per frame, ~0.2 ms.
+
+These are not Horizon-specific: (1) hits every app that streams data through CPU-visible buffers (wgpu, MoltenVK and
+most games), (2) every app that presents frames, at a cost that grows with resolution.

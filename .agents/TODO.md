@@ -35,7 +35,7 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
 Thread 02 part C: **EFI change 18** (VermilionBoot b158: per-submission GPU trace, off by default), installed
-2026-11-23 ~11:00, restart pending the owner's OK. Check after the boot: accelerated desktop 1440p240 HDR; `sysctl
+2026-11-23 ~10:55, **booted 10:57 and verified** (desktop, trace works, pool [512, 24464) MiB). Check after the boot was: accelerated desktop 1440p240 HDR; `sysctl
 debug.phxgpu_trace` answers; pool `[512, 24464)` MiB. Rollback: `EFI/OC.prev` = change 17 (copy in
 `~/vermilion-rollback/EFI-OC.change17-20261123`). The same install replaced a file Linux's fsck had renamed on the
 ESP (`MtkWirelessBT.kext/Contents/Resources/FSCK0000.000`, the libsbc license text).
@@ -148,9 +148,10 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). **Measured with b157:**
       Horizon 3.47 ms + WindowServer's composite 2.20 ms per frame, gfx queue 93 % full. **Linux twin (10:45):
       4370 fps, p50 0.22 ms** for the same view ([linux-horizon](findings/2026-11-23-linux-horizon.md)): ~25x. Even
-      Horizon's own GPU time on macOS (3.47 ms) is >15x Linux's whole frame. Next: split Horizon's 8 submissions
-      per frame (which one is slow, waits inside the IBs, the system-memory drawable); drawables in VRAM or a direct
-      fullscreen path; Resizable BAR.
+      Horizon's own GPU time on macOS (3.47 ms) is >15x Linux's whole frame. **b158 trace:** the main pass 2.35 ms (5.39
+      off), the drawable pass 0.75 ms, WindowServer 3 x ~0.7 ms. Next, by reach: (1) CPU-visible VRAM for Shared
+      buffers (Resizable BAR in macOS: OpenCore `ResizeAppleGpuBars` plus the kext's BAR0 window); (2) GPU-used
+      IOSurfaces resident in VRAM (drawables, WindowServer's surfaces); (3) M3, VRAM BOs for every process.
 - [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault; WindowServer
       starved, daemon reverted to GOP: [finding](findings/2026-11-23-clpeak-hang.md)). Find the MPS kernel that does
       not finish (clpeak's `metal:0` runs MPSMatrix, `coreml:0` MPSNDArray); keep clpeak out of the benchmark set until then.
