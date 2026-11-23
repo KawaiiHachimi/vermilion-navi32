@@ -25,6 +25,53 @@ results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean a
 Thread 02 part B: **EFI change 16** (VermilionBoot b156, VRAM-backed BOs, off at boot) booted 08:54 and is verified
 (PROJECT_KNOWLEDGE). Rollback: `EFI/OC.prev` = change 15, copy in `~/vermilion-rollback/EFI-OC.change15-20261123`.
 
+Thread 02 part C: **EFI change 17** (VermilionBoot b157: GPU time per context, off by default) **plus mesboot with
+the system aperture from FB_LOCATION** (24 GiB on the XTX, `0x00217fbf`; the XT keeps `0x00213fbf`), installed together
+2026-11-23, **booted 10:29 and verified** (desktop 1440p240 HDR + VRR, `0x28DE` = `0x00217fbf`, pool `[512, 24464)` MiB,
+self-test 1, `debug.phxgpu_time` answers). Check after the boot was: accelerated desktop at 1440p240 HDR; `phxctl regs 0x28DE` reads
+`0x00217fbf`; `debug.phxbo_vram_stat` pool `[512, 24464)` MiB and `debug.phxbo_vram_selftest` 1 (it now tests the
+pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.prev` = change 16 (copy in
+`~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
+/usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
+
+Thread 02 part C: **EFI change 20** (stage `vermilion-trust-bar1g` with VermilionBoot b159: CPU-visible VRAM BOs in
+[352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, **booted 15:49 and verified**: desktop
+1440p240 HDR, `phx-fb-aper-len` 1073741824, self-test 1 (step 3's BAR0 read-back at 352 and 1023 MiB passed), hi pool
+`[1024, 24464)` MiB, CPU-visible pool `[352, 1024)` MiB. **The first boot attempt after the restart at 15:45 failed**
+(owner: "one restart didn't work, the second one did"): the shutdown was clean (logs to 15:45:02), the failed boot left
+no log at all (the next line is the good boot at 15:49:15), so it stopped before logd; what the screen showed: asked.
+Cause unknown (unverified whether b159, the 1 GiB BAR or a warm restart; b159's `start` only maps 1 GiB instead of 512 MiB).
+Check after the boot: accelerated desktop 1440p240 HDR + VRR; `ioreg -l | grep phx-fb-aper-len` 1073741824;
+`debug.phxbo_vram_selftest` 1 (now with step 3, the BAR0 read-back); `debug.phxbo_vram_stat` shows the hi pool from
+1024 MiB and a "CPU-visible pool" `[352, 1024)` MiB. Rollback: `EFI/OC.prev` = change 19 (copy in
+`~/vermilion-rollback/EFI-OC.change19-20261123`); if macOS does not reach the desktop, boot Linux and
+`mv /boot/EFI/OC /boot/EFI/OC.b159-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`.
+
+Thread 02 part C, follow-ups to b159:
+- [x] (1) The leak: a process that exits with its CPU-visible BOs still mapped parks each one (Horizon: ~80 per run),
+  and past b159's 256 slots the rest leaked until reboot. **Fixed in b160** (one slot per possible BO, reaped on every
+  allocation and stat read), built 2026-11-23, **not installed**: it goes in with the next build that needs a restart.
+  **No process other than `horizon-client` joins `debug.phxbo_vram_proc` until b160 runs.**
+- [ ] (2) Boots that stop without a macOS log: the counter is in OWNER-TESTS 01 (watch item). #2 (15:45, b159, warm)
+  stopped in OpenCore with no GOP. A third one on b159 means reverting to EFI change 19 before going on.
+- [ ] (3) Horizon is GPU-bound at 94 % (finding horizon-present-cost, "b159"): profile the main pass.
+
+Thread 02 part C: **EFI change 19** (stage `vermilion-trust-bar1g`: OpenCore `ResizeAppleGpuBars` 0 -> 10, BAR0 1 GiB
+for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, **booted 11:09 and verified**: `phx-bar0-len`
+1073741824, `phx-fb-aper-len` 536870912, desktop 1440p240 HDR + VRR, VRAM self-test 1. New on this boot (owner): an
+Apple logo with a progress bar instead of the verbose text (`-v` is in the boot-args), and no password prompt;
+cause not looked into (unverified whether it comes from the BAR change).
+Check after the boot: the machine boots to the accelerated desktop 1440p240 HDR; `ioreg -l | grep phx-bar0-len` reads
+1073741824 (or the largest size the card supports up to 1 GiB); `phx-fb-aper-len` 536870912 (kFbAperMapMax); the
+VRAM self-test 1. Rollback: `EFI/OC.prev` = change 18 (copy in `~/vermilion-rollback/EFI-OC.change18-20261123`); if
+macOS does not reach the desktop at all, boot Linux and `mv /boot/EFI/OC /boot/EFI/OC.bar1g-bad && mv /boot/EFI/OC.prev /boot/EFI/OC` (`OC.bad` is taken by change 12) (as [runbooks](runbooks.md) line ~204).
+
+Thread 02 part C: **EFI change 18** (VermilionBoot b158: per-submission GPU trace, off by default), installed
+2026-11-23 ~10:55, **booted 10:57 and verified** (desktop, trace works, pool [512, 24464) MiB). Check after the boot was: accelerated desktop 1440p240 HDR; `sysctl
+debug.phxgpu_trace` answers; pool `[512, 24464)` MiB. Rollback: `EFI/OC.prev` = change 17 (copy in
+`~/vermilion-rollback/EFI-OC.change17-20261123`). The same install replaced a file Linux's fsck had renamed on the
+ESP (`MtkWirelessBT.kext/Contents/Resources/FSCK0000.000`, the libsbc license text).
+
 Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
 
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
@@ -130,8 +177,13 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
 
 - [ ] **A fixed cost per presented frame** (Horizon fullscreen 1440p ~160 fps vs >3x on Linux by the owner's report;
       a 1280x720 window gives 328 fps): the app's drawable IOSurface in system memory plus WindowServer's composite,
-      ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). Next: per-context GPU time in
-      the kext; a Linux twin of the Horizon run; then drawables in VRAM / a direct fullscreen path / Resizable BAR.
+      ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). **Measured with b157:**
+      Horizon 3.47 ms + WindowServer's composite 2.20 ms per frame, gfx queue 93 % full. **Linux twin (10:45):
+      4370 fps, p50 0.22 ms** for the same view ([linux-horizon](findings/2026-11-23-linux-horizon.md)): ~25x. Even
+      Horizon's own GPU time on macOS (3.47 ms) is >15x Linux's whole frame. **b158 trace:** the main pass 2.35 ms (5.39
+      off), the drawable pass 0.75 ms, WindowServer 3 x ~0.7 ms. Next, by reach: (1) CPU-visible VRAM for Shared
+      buffers (Resizable BAR in macOS: OpenCore `ResizeAppleGpuBars` plus the kext's BAR0 window); (2) GPU-used
+      IOSurfaces resident in VRAM (drawables, WindowServer's surfaces); (3) M3, VRAM BOs for every process.
 - [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault; WindowServer
       starved, daemon reverted to GOP: [finding](findings/2026-11-23-clpeak-hang.md)). Find the MPS kernel that does
       not finish (clpeak's `metal:0` runs MPSMatrix, `coreml:0` MPSNDArray); keep clpeak out of the benchmark set until then.

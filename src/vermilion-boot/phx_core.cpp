@@ -21,8 +21,9 @@ bool PhxBringup::start(IOService *provider) {
         setProperty("phx-pci-cmd-after", pci->configRead16(kIOPCIConfigCommand), 16);
     }
     mmio = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress5);
-    // navi31: BAR0 measures 256 MiB on the reference RX 7900 XT and on an XTX, both with Resizable BAR on in the BIOS.
-    // Everything this kext places in VRAM lives below 160 MiB, so map at most kFbAperMapMax even on a larger BAR.
+    // navi31: BAR0 measures 256 MiB on the reference RX 7900 XT and on an XTX with OpenCore's ResizeAppleGpuBars 0, and
+    // 1 GiB on the XTX with the vermilion-trust-bar1g stage (2026-11-23). The fixed regions live below 352 MiB; b159
+    // maps up to kFbAperMapMax (1 GiB, Apple's BAR limit) for the CPU-visible VRAM BOs above them.
     if (IODeviceMemory *bar0 = pci->getDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0)) {
         IOByteCount len = bar0->getLength() < kFbAperMapMax ? bar0->getLength() : kFbAperMapMax;
         if (IODeviceMemory *sub = IODeviceMemory::withSubRange(bar0, 0, len)) {
@@ -30,6 +31,7 @@ bool PhxBringup::start(IOService *provider) {
             sub->release();
         }
         setProperty("phx-bar0-len", static_cast<uint64_t>(bar0->getLength()), 64);
+        fbBarLen = bar0->getLength();   // b159
     }
     if (fbAper) {
         fbAperLen = fbAper->getLength();
@@ -102,6 +104,10 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxbos_flush_bytes);
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_proc);   // b156
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram_selftest); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_stat);
+        sysctl_unregister_oid(&sysctl__debug_phxgpu_time_on); sysctl_unregister_oid(&sysctl__debug_phxgpu_time_reset);   // b157
+        sysctl_unregister_oid(&sysctl__debug_phxgpu_time);
+        sysctl_unregister_oid(&sysctl__debug_phxgpu_trace); sysctl_unregister_oid(&sysctl__debug_phxgpu_trace_dump);   // b158
+        if (trace) { IOFree(trace, sizeof(TraceRec) * kTraceN); trace = nullptr; }
         sysctl_unregister_oid(&sysctl__debug_phxvm);
         sysctl_unregister_oid(&sysctl__debug_phxpt_reclaim);
         sysctl_unregister_oid(&sysctl__debug_phxpt_keep);
@@ -176,6 +182,11 @@ void PhxBringup::stop(IOService *provider) {
     if (vramLock) { IOLockFree(vramLock); vramLock = nullptr; }   // b156
     if (clearLock) { IOLockFree(clearLock); clearLock = nullptr; }
     if (vpool) { IOFree(vpool, sizeof(phxvram::Pool)); vpool = nullptr; }
+    if (visZ) {   // b159/b160: parked CPU-visible BOs, then the pool
+        for (uint32_t i = 0; i < visZn; i++) visZ[i].md->release();
+        IOFree(visZ, visZCap * sizeof(VisZombie)); visZ = nullptr; visZCap = visZn = 0;
+    }
+    if (vispool) { IOFree(vispool, sizeof(phxvram::Pool)); vispool = nullptr; }
     if (doorbellMap) {
         doorbellMap->release();
         doorbellMap = nullptr;

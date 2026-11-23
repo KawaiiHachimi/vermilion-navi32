@@ -476,3 +476,38 @@ and 53.5 -> 23.5 W socket; under load nothing got slower. `idle_dpm.sh` (flag `p
 desktop settled and keeps upstream's watchdog for the whole boot: the first underflow re-pins 456 for the rest of the
 boot. Not combined with `b15` (the XT's own recipe) and not after a pipe-1 boot. Every message is one Linux sends on this
 card. Evidence: [perf finding](findings/2026-11-23-perf-power.md) section 9.
+
+## 2026-11-23: GPU work targets Linux parity in every workload, not single apps
+
+**Decision:** thread 02 part C and later GPU work rank fixes by how many apps they speed up: the present path (app
+frames in system memory, WindowServer's composite), per-submission overhead in the plugin, VRAM BOs for every
+process (M3), the 6 GiB heap and working set, CPU-visible VRAM (Resizable BAR), OpenGL / OpenCL on the GPU.
+Cross-platform workloads with a Linux twin (Horizon's `horizon-ctl bench`, vkbench / metalbench, later browser
+WebGL / WebGPU and others) are the measuring sticks.
+**Why:** the owner wants macOS "just as performant as Linux in any game, application, workload" (2026-11-23); Horizon
+was installed only to compare (160 fps on macOS vs 4370 on Linux, same view).
+**Revisit:** when a measuring stick disagrees with the others (a cause that only one app hits).
+
+## 2026-11-23: BAR0 1 GiB for macOS (`ResizeAppleGpuBars` 10), replacing 0
+
+**Decision:** a stage `vermilion-trust-bar1g` resizes the GPU's BAR0 to 1 GiB for macOS (OpenCore Booter quirk
+`ResizeAppleGpuBars` 10), first with the kext unchanged (one boot to prove macOS takes it), then the kext places
+CPU-visible client BOs in real VRAM inside the window ([256 MiB, 1 GiB) minus the scan slots), instead of system
+memory behind a 256 MiB budget as today (`kVisTotal`, "E1 backs every BO with system memory").
+**Why:** the owner wants Linux parity in every workload (decision above). On Linux, Resizable BAR (on in the BIOS)
+makes all 24 GiB CPU-visible and RADV puts mappable buffers in VRAM; on macOS every CPU-written buffer is read over
+PCIe (Horizon's main pass: 2.35 ms against Linux's 0.22 ms frame). Apple's PCI support stops at 1 GiB (OpenCore docs),
+so 1 GiB is the most macOS can get: 4x today, not 24 GiB. ocvalidate flags any value but 0 as "unstable with macOS
+sleep-wake"; this machine has no sleep resume path, so the stage accepts that one message (`ocvalidate_accept`
+in efi/build.py; any other error still fails the build).
+**Replaces:** "2026-11-18: `ResizeAppleGpuBars = 0`, Resizable BAR stays on" for the vermilion-trust-bar1g stage; the
+default stage stays at 0 until the stage is verified.
+**Revisit:** if macOS fails PCI configuration or the desktop with 1 GiB; when sleep gets a resume path.
+
+## 2026-11-23: thread 02 part C merges in milestones
+**Choice:** one PR per systemic fix, merged once it is measured against a Linux twin (C1: GPU timing, aperture, BAR0
+1 GiB, CPU-visible VRAM BOs; then e.g. shader / translator cost, the present path, per-submit overhead). After each,
+ROADMAP row 02 says what is left, so it is clear when 03 can start. Translator shader-quality work stays in 02 while
+it is the top cause. Each branch is pushed to `fork` under its own name (`git push -u fork <branch>`), never left local.
+**Why:** coordination thread, 2026-11-23: one long branch is hard to review and loses work if the machine fails.
+**Revisit:** if a fix can't be measured on its own.

@@ -112,6 +112,11 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxbo_vram_proc);
         sysctl_register_oid(&sysctl__debug_phxbo_vram_selftest);
         sysctl_register_oid(&sysctl__debug_phxbo_vram_stat);
+        sysctl_register_oid(&sysctl__debug_phxgpu_time_on);        // b157
+        sysctl_register_oid(&sysctl__debug_phxgpu_time_reset);
+        sysctl_register_oid(&sysctl__debug_phxgpu_time);
+        sysctl_register_oid(&sysctl__debug_phxgpu_trace);          // b158
+        sysctl_register_oid(&sysctl__debug_phxgpu_trace_dump);
         sysctl_register_oid(&sysctl__debug_phxwait_step_us);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped_stat);
@@ -297,6 +302,13 @@ IOReturn IOAccelPhxNativeClient::clientMemoryForType(UInt32 type, IOOptionBits *
         IOLockUnlock(lock);
         return kIOReturnNotFound;
     }
+    if (b->vram && b->visVram) {   // b159: its BAR0 pages, write-combined (as amdgpu maps visible VRAM)
+        b->md->retain();
+        *memory = b->md;
+        *options = kIOMapWriteCombineCache;
+        IOLockUnlock(lock);
+        return kIOReturnSuccess;
+    }
     if (b->vram) {   // b156: its bytes are VRAM the CPU cannot reach; the anchor page is not them
         OSIncrementAtomic64(&gVramCpuMapRefused);
         IOLockUnlock(lock);
@@ -424,8 +436,10 @@ IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
     inf.gc_version = kGcVersion;
     inf.ring_size_dw = 4096;
     inf.max_ibs = PHXN_MAX_IBS;
-    inf.vram_vis_total = kVisTotal;
-    inf.vram_vis_free = kVisTotal - visUsed;
+    // b159: an opted-in process sees the CPU-visible VRAM pool when it is bigger than the old 256 MiB budget
+    const uint64_t vt = phxBoVramProcOn() ? owner->vramVisTotal() : 0, visTot = vt > kVisTotal ? vt : kVisTotal;
+    inf.vram_vis_total = visTot;
+    inf.vram_vis_free = visTot > visUsed ? visTot - visUsed : 0;
     inf.vram_hi_total = kHiTotal;
     inf.vram_hi_free = kHiTotal - hiUsed;
     inf.gtt_cap = kGttCap;
@@ -516,6 +530,37 @@ IOReturn IOAccelPhxNativeClient::doBoCreate(IOExternalMethodArguments *a) {
                 return kIOReturnSuccess;
             } else {
                 owner->vramPoolFree(off, size);
+            }
+        }
+        OSIncrementAtomic64(&gVramFallbacks);
+    }
+    // b159: real CPU-visible VRAM inside the BAR0 window (1 GiB with the vermilion-trust-bar1g stage) for an opted-in
+    // process's VRAM BO the CPU may map: cleared on the GPU, CPU-mapped write-combined through BAR0, and the kernel's
+    // own view (fence writes, IB checks) is its BAR0 address. Any failure: system memory as before.
+    if (phxBoVisVramWanted(d, f) && visUsed + size <= owner->vramVisTotal()) {
+        uint32_t hv = 1;
+        while (hv < PHXN_MAX_BOS && bos[hv].md)
+            hv++;
+        const uint64_t off = hv < PHXN_MAX_BOS ? owner->vramVisAlloc(size) : 0;
+        if (off) {
+            IOMemoryDescriptor *bar = nullptr;
+            uint8_t *kv = owner->barKva(off);
+            if (!kv || !owner->barKva(off + size - 1) || owner->vramClear(off, size) != kIOReturnSuccess) {
+                OSIncrementAtomic64(&gVramLeaked);   // a failed clear may still be running: never handed out again
+            } else if ((bar = IOMemoryDescriptor::withPhysicalAddress(owner->barPhys() + off, size, kIODirectionInOut))) {
+                visUsed += size;
+                OSAddAtomic64(static_cast<SInt64>(size), &gBoBytes[0]);
+                bos[hv] = Bo{bar, size, 4, PHXN_PLACED_CPU_MAPPABLE | PHXN_PLACED_ZEROED, kv, false};
+                bos[hv].vram = off;
+                bos[hv].visVram = true;
+                OSIncrementAtomic64(&gVramVisBos);
+                a->scalarOutput[0] = hv;
+                a->scalarOutput[1] = size;
+                a->scalarOutput[2] = 4;
+                a->scalarOutput[3] = PHXN_PLACED_CPU_MAPPABLE | PHXN_PLACED_ZEROED;
+                return kIOReturnSuccess;
+            } else {
+                owner->vramVisRelease(nullptr, off, size);
             }
         }
         OSIncrementAtomic64(&gVramFallbacks);
@@ -714,10 +759,12 @@ void IOAccelPhxNativeClient::boRelease(Bo &b) {
     // seqno, or the client's last submission); finishFree and freeAll unmapped it first. Otherwise (free() without the
     // close's wait) it is never handed out again in this boot.
     if (b.vram && owner) {
-        if (owner->gpuRetired() >= (b.freeSeq ? b.freeSeq : lastSeq))
-            owner->vramPoolFree(b.vram, b.size);
-        else
+        if (owner->gpuRetired() < (b.freeSeq ? b.freeSeq : lastSeq))
             OSIncrementAtomic64(&gVramLeaked);
+        else if (b.visVram)
+            owner->vramVisRelease(b.md, b.vram, b.size);   // b159: parked while a CPU map still holds its pages
+        else
+            owner->vramPoolFree(b.vram, b.size);
     }
     if (b.host)
         b.md->complete();

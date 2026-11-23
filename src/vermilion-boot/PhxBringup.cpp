@@ -36,6 +36,7 @@
 #include "phx_regs_dcn32.h"
 #include "PhxVramPool.h"   // b156: VRAM-backed BOs (phx_vram.cpp)
 #include "PhxCpDma.h"
+#include "PhxGpuTime.h"   // b157: GPU time per context (phx_gputime.cpp)
 #include "PhxScanLayout.h"   // b126: GPU-present slot layout by frame size (phx_scan.cpp)
 #include "PhxDdc.h"
 #include "PhxEdid.h"
@@ -75,7 +76,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 156u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 160u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles
@@ -83,6 +84,7 @@ static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called 
 #include "phx_globals.cpp"
 #include "phx_classes.cpp"
 #include "phx_sysctl.cpp"
+#include "phx_gputime.cpp"   // b157: GPU time per context; before phx_vram.cpp and phx_queue.cpp, which retire through it
 #include "phx_vram.cpp"   // b156: before phx_core.cpp, which unregisters its sysctls
 #include "phx_core.cpp"
 #include "phx_vm.cpp"

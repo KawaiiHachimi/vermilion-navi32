@@ -128,7 +128,20 @@ static void gart(void)
    wr(SEG0(0x16f3), (uint32_t)((FB_PA + GART_PT) | 1)); wr(SEG0(0x16f4), (uint32_t)((FB_PA + GART_PT) >> 32));   // PDB base = physical (FB_PA + vram offset), as the Linux trace
    // system aperture / AGP / defaults exactly as the Linux trace (gfxhub_v3_0_init_system_aperture_regs)
    wr(SEG0(0x167c), 0); wr(SEG0(0x167b), 0x00ffffff); wr(SEG0(0x167a), 0);      // AGP_BASE/BOT/TOP (AGP off)
-   wr(SEG0(0x167d), 0x00200000); wr(SEG0(0x167e), 0x00213fbf);                  // SYSTEM_APERTURE LOW/HIGH = VRAM MC range (navi31: 20 GiB, Linux trace)
+   // SYSTEM_APERTURE LOW/HIGH = the VRAM MC range, as gfxhub_v3_0_init_system_aperture_regs (vram_start >> 18,
+   // vram_end >> 18). Thread 02 part C: derived from GCMC_VM_FB_LOCATION_BASE/TOP (16 MiB units, set before we run)
+   // instead of the XT's 20 GiB constant (XTX.md row 3). Linux's vram_end leaves out the top 16 MiB of the FB range:
+   // the XT's top 0x84FF gives 0x00213fbf (the value in the XT trace, unchanged), the XTX's 0x85FF (read on the box
+   // 2026-11-23) gives 0x00217fbf, Linux's value on the XTX (dmesg: VRAM 24560M 0x80_0000_0000 - 0x85_FEFF_FFFF).
+   // An implausible read keeps 0x00213fbf.
+   {
+      const uint32_t fbBase = rd(SEG0(0x1678)) & 0x00FFFFFF, fbTop = rd(SEG0(0x1679)) & 0x00FFFFFF;
+      uint32_t apLo = 0x00200000, apHi = 0x00213fbf;
+      if (fbBase == 0x8000 && fbTop > fbBase && fbTop - fbBase < 0x800) { apLo = fbBase << 6; apHi = (fbTop << 6) - 1; }
+      else fprintf(stderr, "mesboot: GCMC_VM_FB_LOCATION base 0x%x top 0x%x not plausible: system aperture stays 20 GiB\n", fbBase, fbTop);
+      wr(SEG0(0x167d), apLo); wr(SEG0(0x167e), apHi);
+      printf("system aperture 0x%08x-0x%08x (FB_LOCATION 0x%x-0x%x)\n", apLo, apHi, fbBase, fbTop);
+   }
    wr(SEG0(0x15a8), (uint32_t)(SAFE_PAGE >> 12));   /* navi31: our own VRAM page */ wr(SEG0(0x15a9), 0);                           // SYSTEM_APERTURE_DEFAULT_ADDR LSB/MSB
    wr(SEG0(0x15cb), (uint32_t)(SAFE_PAGE >> 12));   /* navi31: our own VRAM page */ wr(SEG0(0x15cc), 0);                           // L2 protection fault default addr
    wr(SEG0(0x15c5), 0x00060000);                                                // L2_PROTECTION_FAULT_CNTL2

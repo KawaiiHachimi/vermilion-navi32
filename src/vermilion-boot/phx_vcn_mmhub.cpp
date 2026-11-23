@@ -218,11 +218,7 @@ IOReturn PhxBringup::gpuSubmitVcn(uint32_t handle, const uint64_t *ibVa, const u
         return kIOReturnBadArgument;
     IOLockLock(gpuLock);
     for (int spin = 0;; spin++) {
-        const uint64_t done = queueFence(q);
-        while (q.head != q.tail && q.fseq[q.head & 63] <= done) {
-            q.doneEnd = q.fend[q.head & 63];
-            q.head++;
-        }
+        retireLocked(q);
         if (q.tail - q.head < 63 && q.wptr + need - q.doneEnd <= q.ringDw - 64)
             break;
         if (spin > 40000) {
@@ -258,6 +254,7 @@ IOReturn PhxBringup::gpuSubmitVcn(uint32_t handle, const uint64_t *ibVa, const u
     q.wptr += k;
     q.fseq[q.tail & 63] = seq;
     q.fend[q.tail & 63] = q.wptr;
+    q.fctx[q.tail & 63] = phxgputime::kNoCtx;   // b157
     gVcnSubAbs[q.tail & 63] = mach_absolute_time();
     __asm__ __volatile__("" ::: "memory");
     q.tail = q.tail + 1;

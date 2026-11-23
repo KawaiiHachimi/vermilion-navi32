@@ -114,6 +114,12 @@
       "inherits": "vermilion-trust",
       "booter_quirks": {"DisableVariableWrite": false}
     },
+    "vermilion-trust-bar1g": {
+      "_comment": "Thread 02 part C, step 1 of CPU-visible VRAM (decisions 2026-11-23): vermilion-trust with BAR0 resized to 1 GiB for macOS instead of 256 MiB (OpenCore Booter quirk ResizeAppleGpuBars 10: 2^10 MB, Apple's documented maximum; OpenCore picks the largest supported size up to it). VermilionBoot maps at most kFbAperMapMax of it and places nothing new there yet; this boot only proves macOS takes the 1 GiB BAR. ocvalidate calls any value but 0 'unstable with macOS sleep-wake'; sleep has no resume path on this machine anyway, so that one message is accepted (ocvalidate_accept).",
+      "inherits": "vermilion-trust",
+      "booter_quirks": {"ResizeAppleGpuBars": 10},
+      "ocvalidate_accept": ["Booter->Quirks->ResizeAppleGpuBars is set to 10, which is unstable with macOS sleep-wake!"]
+    },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "vermilion",

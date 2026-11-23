@@ -55,6 +55,14 @@ public:
     IOReturn vramClear(uint64_t off, uint64_t bytes);           // zeros, counted in debug.phxbo_vram_stat
     int vramSelftest();
     int vramStat(char *b, size_t cap);
+    // b159: CPU-visible VRAM BOs inside the BAR0 window (phx_vram.cpp): [kVisPoolBase, BAR0 end) when BAR0 is bigger
+    // than the fixed layout (EFI stage vermilion-trust-bar1g: 1 GiB)
+    uint64_t vramVisAlloc(uint64_t bytes);                      // a VRAM offset inside BAR0, 0 = none
+    void vramVisRelease(IOMemoryDescriptor *md, uint64_t off, uint64_t bytes);
+    uint64_t vramVisTotal();                                    // bytes in the window pool, 0 = no window
+    uint64_t barPhys() const { return fbAperPhys; }
+    uint8_t *barKva(uint64_t off) const {
+        return (fbAper && off < fbAperLen) ? reinterpret_cast<uint8_t *>(fbAper->getVirtualAddress() + off) : nullptr; }
     void scanQuery(phxn_scan_query *q);
     IOReturn scanAcquire(const void *who, uint64_t out[2]);
     IOReturn scanAllocSlot(const void *who, const phxn_scan_reg *r, uint32_t *slot, uint64_t *mc, uint64_t *vramOff);
@@ -137,6 +145,11 @@ private:
         uint64_t dbByte, wptr, doneEnd;
         uint64_t fseq[64], fend[64];
         volatile uint32_t head, tail;
+        uint16_t fctx[64];      // b157: the context of each history entry for GPU time (phxgputime::kNoCtx: unstamped)
+        uint64_t tsLastEnd;     // b157: bottom-of-pipe stamp of the last accounted submission on this queue
+        uint64_t fsub[64];      // b158: GOLDEN_TSC when the CPU queued the entry (trace only)
+        uint32_t fdw[64];       // b158: the entry's IB dwords, summed (trace only)
+        uint8_t fnib[64];       // b158: its IB count (trace only)
     };
     GpuQueue gq[3]{};
     uint64_t gSeq{0};
@@ -144,9 +157,27 @@ private:
     IOLock *gpuLock{nullptr};
     // b156: VRAM-backed BOs (phx_vram.cpp): the pool (vramLock) and the kext's own clear IB (clearLock)
     phxvram::Pool *vpool{nullptr};
+    phxvram::Pool *vispool{nullptr};   // b159: CPU-visible VRAM BOs inside BAR0
+    uint64_t fbBarLen{0};              // b159: BAR0's length as macOS assigned it (fbAperLen: the part mapped)
+    struct VisZombie { IOMemoryDescriptor *md; uint64_t off, size; };   // b159: freed while a CPU map still holds it
+    // b160: one slot per BO the pool can hold (its size / the 64 KiB granule), allocated with the pool: parking never
+    // runs out (b159 had 256 slots and leaked past them; Horizon parks ~80 BOs at every exit)
+    VisZombie *visZ{nullptr};
+    uint32_t visZCap{0}, visZn{0};
+    void visReapLocked();
     IOLock *vramLock{nullptr}, *clearLock{nullptr};
     bool vramPoolUpLocked();
     IOReturn gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw, uint64_t *seqOut);
+    // b157: retire the finished history entries of a queue (gpuLock held), accounting their GPU time (phx_gputime.cpp)
+    void retireLocked(GpuQueue &q);
+    void gpuTimeAccount(GpuQueue &q, uint32_t idx);
+public:
+    int gpuTimeStat(char *b, size_t cap);
+    void gpuTimeReset();
+    int gpuTraceSet(int on);                 // b158: per-submission trace (phx_gputime.cpp)
+    char *gpuTraceDump(size_t *len);         // IOMalloc'd text, *len bytes allocated
+    uint64_t goldenTsc() const;
+private:
     // One GPUVM context (page tables) per client, and the eight hardware VMIDs lent to contexts at submission time,
     // as amdgpu does: a fixed VMID per client capped Metal at eight processes, and with every app allowed Metal the
     // ninth got no device (2026-10-20). A context's handle is its index + 1.
@@ -162,12 +193,28 @@ private:
     // who owns each context, for the fault/stall diagnostics (set by the client in its own process context)
     int ctxPid[kMaxCtx]{};
     char ctxName[kMaxCtx][20]{};
+    // b157: GPU time per queue and context since the last reset (index kMaxCtx: the context was closed and reused)
+    uint64_t ctxGpuTicks[3][kMaxCtx + 1]{}, ctxGpuSubs[3][kMaxCtx + 1]{};
+    uint64_t gpuTimeResetAbs{0}, gpuTimeLost{0};
+    struct TraceRec { uint64_t sub, start, end; uint32_t dw; uint16_t ctx; uint8_t q, nib; };   // b158
+    static constexpr uint32_t kTraceN = 4096;
+    TraceRec *trace{nullptr};
+    uint32_t traceN{0};   // records written (the ring holds the last kTraceN)
 public:
     IOLock *scanLockForEngines() const { return scanLock; }   // b131: debug.phxp0odm holds it so no flip runs mid-plan
     bool scanYieldForModeLocked(uint32_t targetH);
     bool scanAcquiredLocked() const { return scan.acquired; }   // b144 (scanLock held)             // b139: give the plane back before a size change (scanLock held)
     void vmTag(uint32_t handle, int pid, const char *name) {
-        if (handle && handle <= kMaxCtx) { ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
+        if (handle && handle <= kMaxCtx) {
+            if (gpuLock && ctxPid[handle - 1] != pid) {   // b157: a reused context: its GPU time goes to the "closed" row
+                IOLockLock(gpuLock);
+                for (uint32_t qi = 0; qi < 3; qi++) {
+                    ctxGpuTicks[qi][kMaxCtx] += ctxGpuTicks[qi][handle - 1]; ctxGpuTicks[qi][handle - 1] = 0;
+                    ctxGpuSubs[qi][kMaxCtx] += ctxGpuSubs[qi][handle - 1]; ctxGpuSubs[qi][handle - 1] = 0;
+                }
+                IOLockUnlock(gpuLock);
+            }
+            ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
     // the process whose context a hardware VMID points at, for a fault report
     const char *hwVmidOwner(uint32_t hwVmid, int *pid) const {
         *pid = 0;
@@ -435,6 +482,7 @@ private:
         uint64_t scanVram{0};
         uint64_t freeSeq{0};      // freed by the client, released once the GPU retires this seqno (b52); 0 = live
         uint64_t vram{0};         // b156: a VRAM-backed BO's pool offset (md is a 4 KiB anchor, kva NULL); 0 = system pages
+        bool visVram{false};      // b159: vram is inside BAR0: md covers its BAR pages (CPU maps), kva the kernel's BAR view
     };
     struct Map {
         bool used;
