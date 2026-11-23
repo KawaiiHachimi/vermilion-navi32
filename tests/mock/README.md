@@ -50,17 +50,22 @@ bash b21guard_mut.sh           # 15 mutations of the login-window guard (b21_on 
 ```
 
 ## Running on Linux (11-23)
-The same commands run on Linux (bash 5, GNU coreutils, python3; no root). Every suite sources `lib/portable.sh`:
+The same commands are meant to run on Linux (bash 5, GNU coreutils, python3; no root); a real Linux run is still
+(unverified), see the end of this section. The 15 shell suites that used a macOS path or tool source
+`lib/portable.sh` (as do `b15diff.sh` and `mutlib.sh`); the other seven (`perflog_test.sh`, `wifilog_test.sh`,
+`reboot_to_linux_test.sh`, `linux_pci_capture_test.sh`, `wm144_guard_test.sh` and the two Python suites) needed no
+change:
 
 - **macOS: nothing changes.** Work dirs stay in `/private/tmp`, `sed -i ''`, `/usr/libexec/PlistBuddy`, the system
   `plutil` / `stat` / `md5`, and run.sh still gives the daemon `PATH=<fakes>:/usr/bin:/bin:/usr/sbin:/sbin`.
-- **Elsewhere** (`uname` is not Darwin, or `MOCK_SHIMS=1`): work dirs in `${TMPDIR:-/tmp}` (`MOCKTMP=<dir>` overrides),
-  `sed -i` for GNU sed, and `lib/bin/` goes in front of PATH (and of the daemon's PATH in run.sh). It holds stand-ins for
-  the macOS tools the suites and the scripts they test call:
+- **Elsewhere** (`uname` is not Darwin): work dirs in `${TMPDIR:-/tmp}` (`MOCKTMP=<dir>` overrides, on macOS too).
+  `sed -i` without the `''` when the `sed` on PATH is GNU sed. Off macOS, or with `MOCK_SHIMS=1` on a Mac, `lib/bin/`
+  goes in front of PATH (and of the daemon's PATH in run.sh). It holds stand-ins for the macOS tools the suites and
+  the scripts they test call:
 
   | shim | does |
   |---|---|
-  | `PlistBuddy` | Python plistlib: Print / Set / Add / Delete as the suites use them (output and exit codes checked against `/usr/libexec/PlistBuddy` on macOS 26.7.1) |
+  | `PlistBuddy` | Python plistlib: Print / Set / Add / Delete as the suites use them (output, exit codes and when the file is written checked against `/usr/libexec/PlistBuddy` on macOS 26.7.1; Print of a dict lists the keys in another order) |
   | `plutil` | `-lint`, `-extract <key> raw -o -`, `-convert json -o -` |
   | `stat` | BSD `stat -f <fmt>` on GNU `stat -c` (`%u %g %Su %Sg %z %m ...`); any other call goes to the real stat |
   | `md5` | `-q` / `-r` on md5sum |
@@ -82,7 +87,9 @@ already failed before it (`phxctl_serve_test.sh` 1 failed; "bad" or "missed" mut
 `.agents/findings/2026-11-18-mock-tests-on-linux.md`.
 
 A run on a real Linux machine is still **(unverified)**. On a Mac, a script that calls `/usr/bin/<tool>` by full
-path still gets the BSD tool, and `MOCK_DARWIN` stays 1, so the `phxctl_serve_test.sh` SKIP path has not run.
+path still gets the BSD tool, and `MOCK_DARWIN` stays 1, so the `phxctl_serve_test.sh` SKIP path and the
+`${TMPDIR:-/tmp}` work-dir default have not run. One full-path call has no override: the daemon's
+`/usr/bin/stat -f %Su "$0"` (`PHX_USER`), which GNU stat answers differently (unverified what the suites then do).
 
 ## Cost knobs (11-04: the suites ran the MacBook fan at max)
 - `PAR=<n>`: how many run at once. **run.sh and b15test.sh**: a full run splits its scenarios round-robin over n shards

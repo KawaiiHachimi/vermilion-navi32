@@ -129,7 +129,8 @@ pending (2026-11-23, thread 00).
          for the peer);
       4. AirDrop both ways with `amtk_awdl_offchan=0`.
 
-      Background in [the finding](findings/2026-11-22-audio-connectivity-inventory.md).
+      Background in [the finding](findings/2026-11-22-audio-connectivity-inventory.md). The route / NDP check
+      comes from issue #10 below *(unverified, web research 2026-11-23)*.
 - [ ] [MtkWireless issue #10](https://github.com/Dino-VN/MtkWireless/issues/10) (closed, fixed in 1.1.2, commit
       `5715618`) is nearly this machine: a Ryzen 9 7900X, ASUS ROG STRIX B650E-F, MT7922 `14c3:0616`, Bluetooth
       `0489:e0e2` with MtkWirelessBT 1.1.1 + BlueToolFixup 2.7.2, MacPro7,1, macOS 26.7.3, and an iPhone17,1 on

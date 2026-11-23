@@ -28,7 +28,7 @@ does.
 
 ## 2026-11-23: the suites made portable (thread 00)
 
-Every suite now sources `tests/mock/lib/portable.sh` ([README](../../tests/mock/README.md), "Running on Linux"). It
+The 15 shell suites that used a macOS path or tool now source `tests/mock/lib/portable.sh` ([README](../../tests/mock/README.md), "Running on Linux"). It
 provides:
 - the work-dir root `MOCKTMP`;
 - `mock_sedi` (GNU / BSD `sed -i`);
@@ -69,6 +69,10 @@ All three runs gave exactly the same numbers for every suite:
 
 Still open:
 - A run on a real Linux machine is **(unverified)**. On the Mac, `/usr/bin/<tool>` called by full path stays BSD, and
-  the off-macOS SKIP in `phxctl_serve_test.sh` hasn't run.
+  the off-macOS SKIP in `phxctl_serve_test.sh` hasn't run. `MOCKTMP` follows `uname`, not `MOCK_SHIMS`, so the
+  Linux-like run (`TMPDIR=/tmp`, no `MOCKTMP`) kept `/private/tmp` for the suites that use `MOCKTMP`: the
+  `${TMPDIR:-/tmp}` default hasn't run either.
+- The daemon's `/usr/bin/stat -f %Su "$0"` (`PHX_USER`, `phxboot-navi31.sh`) has no override. GNU stat reads `-f` as
+  "file system", so on Linux `PHX_USER` gets other text. What run.sh then does is (unverified).
 - The five failing results above are older than this change and are not investigated yet. They are in
   [TODO.md](../TODO.md), thread 12.

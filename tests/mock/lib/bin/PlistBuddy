@@ -9,9 +9,12 @@
 #   Delete :path
 #   Save / Exit
 # As PlistBuddy (checked on macOS 26.7.1 against /usr/libexec/PlistBuddy): a missing file prints
-# "File Doesn't Exist, Will Create: <file>" on stdout and is written only if a command changed something; an error
-# goes to stderr, the next commands still run, and the exit status is 1 if any command failed; dict keys are written
-# sorted, a new file as XML, an existing file in its own format.
+# "File Doesn't Exist, Will Create: <file>" on stdout; the file is written after an Add that worked and after any Set
+# or Delete, also one that failed (PlistBuddy then creates an empty plist, or rewrites the file); an error goes to
+# stderr, the next commands still run, and the exit status is 1 if any command failed; dict keys are written sorted, a
+# new file as XML, an existing file in its own format.
+# Not as PlistBuddy: Print of a dict lists the keys in file order (PlistBuddy: its own order), and Add does not create
+# missing parents. The suites and scripts print scalars only and add the parent first.
 import base64
 import datetime
 import os
@@ -228,6 +231,8 @@ def main(argv):
         try:
             changed = run(root, c) or changed
         except Fail as e:
+            if c.strip().split(" ")[0].lower() in ("set", "delete"):
+                changed = True   # PlistBuddy saves after a Set / Delete that failed too
             sys.stdout.flush()
             sys.stderr.write(str(e) + "\n")
             sys.stderr.flush()
