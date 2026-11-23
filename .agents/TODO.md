@@ -56,12 +56,28 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      `nvram IONVRAM-FORCESYNCNOW-PROPERTY=...` returns "general error". Second test armed: `vermilion-test2=forced`,
      checked after the next restart (with staged 3). If it is gone too: back to change 11 (`DisableVariableWrite` buys
      nothing then) and find the real block from Linux (efivars).
-3. **PhxAccel with the physical size** (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
+3. **PhxAccel with the physical size** (**booted 04:15:** loaded, `CGDisplayScreenSize` 591.1 x 332.5 mm; the black
+   screen of that boot was the LG after a training retry, not this: section 8 of the finding) (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
    Privacy & Security before the restart).
    - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged 04:20**
      (`26685255`, `kmutil load -p`: "not approved"), waiting for the owner's Allow click and the restart.
    - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
    - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
+4. **EFI change 13: VermilionBoot b154** (a switch whose last link window needed a retry runs once more from the
+   target; [finding](findings/2026-11-23-gpu-stability.md) section 8) on stage `vermilion-trust` (= change 11's
+   config, `DisableVariableWrite` true; only the kext differs from the live `EFI/OC`). Owner's OK 2026-11-23 ~04:30. **Installed 04:40:** `EFI/OC` = change 13 (b154 `78f560cc`), `EFI/OC.prev` = change 11 (b153 `bd3f72fa`), config.plist byte-identical; `EFI/OC.bad` (change 12) left on the ESP.
+   - Found before the install: the live `EFI/OC` was already change 11 (b153, `DisableVariableWrite` true), change 12 sat
+     in `EFI/OC.bad`, no `EFI/OC.prev`: the Linux rollback of 2 had been carried out, at a time not yet known (ask the
+     owner). So the NVRAM result of 2 is unsure: the boots 04:06 / 04:10 / 04:15 may all have run change 11.
+     In `EFI/OC` a FAT repair had turned `MtkWirelessBT.kext/Contents/Resources/google-libsbc-LICENSE.txt` into
+     `FSCK0000.000` (the same text; the kext's binary unchanged).
+   - Before: `~/vermilion-rollback/EFI-OC.change11-20261123` (a copy of the live `EFI/OC`) and
+     `~/vermilion-rollback/EFI-OC.change12-nvram-20261123` (`EFI/OC.bad`); `efi/build.py install` makes change 11
+     `EFI/OC.prev`; `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` removed (its swap would now undo b154).
+   - Check: `debug.phxp0odm_stat` `recovery:` line has `redone=`; at a login whose last window retried, `redone=1` and
+     a picture. 2-3 restarts at 1440p60 HDR.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (from macOS under `/Volumes/NO NAME/EFI`, or from Linux under
+     `/boot/EFI`, then power off fully).
 
 ## 01 GPU stability
 

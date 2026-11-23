@@ -110,3 +110,34 @@ With Linux's pause the clock-recovery failures of b151 / b152 did not come back 
 boots before), but the sink once did not answer AUX at the first access after its D3 (a different failure). Three boots
 are too few to call either rate. The retry (b151) is what keeps the screen on; the pause stays because it is Linux's
 timing. Again a run at the shutdown: macOS asked for SDR 60 Hz as the session ended (03:53:59, second sighting).
+
+## 8. 04:15 (b153 + the size fix): a black picture on a locked link, and b154
+
+The owner restarted with the new PhxAccel (physical size) and had a black screen; they logged in blind and reached T3
+from the phone. What the machine showed during the black screen (04:17-04:25):
+
+- The daemon: `engine run 2 ... result=DONE target=1440060`; the HDR to plan's second window `tries=2 rc=aux,ok`
+  (the first attempt got no AUX answer, as at 03:51), 227 ms after window 1; then `SUCCESS`.
+- The link: `debug.phxdpcd=0x12` (AUX 2 = DP B, reads only): link rate 0x0a x4, lane status `77 77`, interlane align
+  `01`, sink status `01` (receive port 0 in sync).
+- Pipe 0: OTG0 on, 60 Hz; HUBP0 scanning `0x80_1000_0000` (GPU present's slot 0), no underflow; DPG0 off (no test
+  pattern); post check passed.
+- WindowServer: GPU present ON (ARGB2101010), 3000 presents, 0 dropped; `screencapture` gave the normal desktop.
+- The size fix: loaded (AuxKC rebuilt 04:14), `CGDisplayScreenSize` 591.1 x 332.5 mm, not built-in, brightness 1.0.
+
+A session-only switch (`CGCompleteDisplayConfiguration(..., kCGConfigureForSession)`) to 1440p144 HDR brought the
+picture back (owner) and the switch back to 1440p60 HDR kept it. The 144 switch's first window needed 3 attempts
+(clock recovery, then AUX, then trained); the to plan's windows and every window of the switch back trained at once.
+
+Reading: the sink can stay black after a retried link window although DPCD says the link is locked and in sync
+(seen once, LG 27GS95QE-B, after `rc=aux,ok` in the last window; the same retry at 03:51 gave a picture). A fresh mode set
+recovers it. The size fix is not the cause (the picture works with it at 144 and at 60 Hz). Nothing on the GPU side
+tells the black state apart, which is why the daemon said `SUCCESS`.
+
+b154: after a switch whose last window trained only after a retry, the engine runs the switch once more from the
+target (its from plan to the hub, its to plan), once per run, at most 4 per boot; at the hub (no plan pair) it is
+noted (`redone=-1`), not run. Same Linux sequences as any switch away and back; nothing new is written.
+
+Also found: `EFI/OC` was already change 11 and change 12 sat in `EFI/OC.bad` (the Linux rollback of the NVRAM test had
+been carried out; when is not known yet), so the NVRAM test result of 04:06-04:15 is unsure. A FAT repair had turned one
+licence text in each tree into `FSCK0000.000` (same bytes).

@@ -551,20 +551,25 @@ int main() {
         const auto e = env(h);
         h.failEnables = {1, 2};
         CHECK(run(e, st, r, kSel240, 0, aux(h), kSet) == kDone && !r.failed && curHz(r, kSet) == 240 && h.phyRate == 81000);
-        CHECK(r.train.tries == 3 && r.train.rc[0] == phxdpl::kErrCr && r.train.rc[1] == phxdpl::kErrCr && r.train.rc[2] == phxdpl::kOk);
-        CHECK(r.train.failedOnce && r.train.first.crLoops >= 1 && r.trainRetried == 1 && !r.last.why);
-        // the attempts' ENABLEs: a DISABLE before each retry, then Linux's 100 / 150 ms
-        CHECK(h.enableAt.size() == 3 && h.enableAt[1] - h.enableAt[0] >= 100000 && h.enableAt[2] - h.enableAt[1] >= 150000);
+        const Train &t0 = r.wins[0];
+        CHECK(t0.tries == 3 && t0.rc[0] == phxdpl::kErrCr && t0.rc[1] == phxdpl::kErrCr && t0.rc[2] == phxdpl::kOk);
+        CHECK(t0.failedOnce && t0.first.crLoops >= 1 && r.trainRetried == 1 && !r.last.why);
+        // b154: the entry's only (= last) window needed a retry: the switch ran again, 240 -> 144 -> 240, each first time
+        CHECK(r.redone == 1 && r.redos == 1 && r.nWins == 3 && r.wins[1].plan == k240From.name && r.wins[2].plan == k240To.name);
+        CHECK(r.wins[1].tries == 1 && r.wins[2].tries == 1 && r.train.tries == 1 && r.where == kLinux && r.cur == 3);
+        // the attempts' ENABLEs: a DISABLE before each retry, then Linux's 100 / 150 ms; then the redo's two windows
+        CHECK(h.enableAt.size() == 5 && h.enableAt[1] - h.enableAt[0] >= 100000 && h.enableAt[2] - h.enableAt[1] >= 150000);
         unsigned dis = 0;
         for (auto &c : h.cmds) if (c[0] == phxdpl::kTxHdr && ((c[1] >> 8) & 0xff) == phxdpl::kTxDisable) dis++;
         CHECK(dis >= 3);   // the plan's own link off + one per retry
         char b[4096];
         CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "tries=3") && std::strstr(b, "train_retried=1"));
-        // b152: the entry's one window, its plan, the three attempts, the first failure's report and the timing
-        CHECK(r.nWins == 1 && r.wins[0].tries == 3 && r.wins[0].plan == kEntry.name && r.wins[0].failedOnce);
+        CHECK(std::strstr(b, "redone=1 redos=1/4") && std::strstr(b, "plans=kPhxP0odm_1440p240_from,kPhxP0odm_1440p240_to"));
+        // b152: the entry's window, its plan, the three attempts, the first failure's report and the timing
+        CHECK(r.wins[0].tries == 3 && r.wins[0].plan == kEntry.name && r.wins[0].failedOnce);
         CHECK(r.wins[0].trainUs >= 250000 && r.wins[0].sincePrevUs == 0);   // the retries' 100 + 150 ms are in it
         CHECK(std::strstr(b, "train_w1: plan=kPhxP0odm_1440p240 link 0x1e x4 tries=3 rc=clock-recovery,clock-recovery,ok,-") && std::strstr(b, " first: cr="));
-        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.train.tries == 1 && r.trainRetried == 1);
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.train.tries == 1 && r.trainRetried == 1 && r.redone == 0);
     }
     // ---- b151: every attempt fails: the four attempts are kept with the first one's report; the entry falls back ----
     {
@@ -609,6 +614,57 @@ int main() {
         h.failEnables = {n0 + 1, n0 + 2, n0 + 3, n0 + 4, n0 + 5, n0 + 6, n0 + 7, n0 + 8};   // 144 -> 60, then 60 -> 144
         CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kFellBack && !r.failed && curHz(r, kSet) == 144 && r.backRes == 1);
         CHECK(r.recoveries == 1 && r.recovered == 1 && r.last.plan == k60To.name && r.fbPlan == k60From.name);
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 60);
+    }
+    // ---- b154: an HDR switch whose second (last) window trains at the second attempt runs once more ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.redone == 0);
+        const unsigned n0 = h.enables;
+        h.failEnables = {n0 + 2};   // the 1440060 to plan: window 1 trains, window 2's first attempt fails (seen 04:15)
+        CHECK(run(e, st, r, 1440060, 0, aux(h), kSet) == kDone && !r.failed && curKey(r, kSet) == 1440060);
+        CHECK(r.redone == 1 && r.redos == 1 && r.trainRetried == 1 && r.nWins == 6 && h.enables == n0 + 7);
+        CHECK(r.wins[1].tries == 2 && r.wins[2].plan == kH60f.name && r.wins[3].plan == kH60f.name);
+        CHECK(r.wins[4].plan == kH60.name && r.wins[5].plan == kH60.name && r.wins[5].tries == 1);
+        CHECK(h.r[0x056C9] == 0x42000000u && h.phyRate == 0x0a * 2700u && r.fellBacks == 0 && r.dones == 3);
+        char b[4096];
+        CHECK(stat(r, kSet, b, sizeof b) > 100 && std::strstr(b, "train_w6: plan=kPhxP0odm_1440p60hdr_to") && std::strstr(b, "redone=1 redos=1/4"));
+        CHECK(std::strlen(b) < 3000 && std::strstr(b, "underflow: stale_cleared="));   // fits phx_p0odm.cpp's 4096 with a fail line
+        // a retry in the first window only (the last trains at once): no redo
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        const unsigned n1 = h.enables;
+        h.failEnables = {n1 + 1};
+        CHECK(run(e, st, r, 1440060, 0, aux(h), kSet) == kDone && r.redone == 0 && r.nWins == 2 && r.wins[0].tries == 2 && r.redos == 1);
+        // the hub as the target: its last window retried, no plan pair to run again: noted, not run
+        const unsigned n2 = h.enables;
+        h.failEnables = {n2 + 2};   // 1440060 -> 144: the from plan's second window, first attempt
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone && r.redone == -1 && r.redos == 1 && curHz(r, kSet) == 144);
+        // the boot's redos run out at kMaxRedos: then noted, not run
+        for (unsigned k = 0; k < 3; k++) {
+            const unsigned n = h.enables;
+            h.failEnables = {n + 1};
+            CHECK(run(e, st, r, k % 2 ? 144 : 240, 0, aux(h), kSet) == kDone);
+        }
+        CHECK(r.redos == 3);   // 240 (redo), 144 (hub: none), 240 (redo)
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        const unsigned n3 = h.enables;
+        h.failEnables = {n3 + 1};
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && r.redone == 1 && r.redos == 4);
+        CHECK(run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        const unsigned n4 = h.enables;
+        h.failEnables = {n4 + 1};
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && r.redone == -1 && r.redos == 4 && r.nWins == 1 && !r.failed);
+    }
+    // ---- b154: the redo's from plan fails every attempt: it runs again (a recovery) and lands on 144 = a fall-back ----
+    {
+        Hw h; gop(h); State st{}; Run r{};
+        const auto e = env(h);
+        CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 144, 0, aux(h), kSet) == kDone);
+        const unsigned n0 = h.enables;
+        h.failEnables = {n0 + 1, n0 + 3, n0 + 4, n0 + 5, n0 + 6};   // 144 -> 60 trains at the 2nd; the redo's 60 -> 144 fails all 4
+        CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kFellBack && !r.failed && curHz(r, kSet) == 144 && r.redone == 1);
+        CHECK(r.recoveries == 1 && r.recovered == 1 && r.last.plan == k60From.name && r.fbCount[0] == 1);
         CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && curHz(r, kSet) == 60);
     }
     std::printf("p0odm_test: %d/%d checks passed\n", checks - fails, checks);

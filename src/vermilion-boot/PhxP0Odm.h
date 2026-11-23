@@ -24,6 +24,9 @@
 // b151: every link window trains the way Linux's perform_link_training_with_retries does on a PHY endpoint: up to
 // kTrainAttempts at the plan's rate and lanes, link off between (dp_disable_link_phy: D3, TRANSMITTER_CONTROL DISABLE),
 // then 100, 150, 200 ms; the first failed attempt's CR / EQ report is kept (Run.trainFail, Fail.train*).
+// b154: a switch whose last link window trained only after a retry runs once more from the target (its from plan to the
+// hub, then its to plan): the LG once kept a black picture after such a retry with the link locked and in sync, and a new
+// mode set brought it back (.agents/findings/2026-11-23-gpu-stability.md, section 8). At most kMaxRedos per boot.
 //
 // Selector (root writes debug.phxp0odm): 1 = survey (reads + DPCD reads only), 2 = 240 (b131 alias), 3 = 144 (alias),
 // or the target in Hz: 60, 120, 144, 240. System Settings reaches it through phxPipe0SetMode (phx_p0odm.cpp p0OdmRoute).
@@ -103,6 +106,8 @@ constexpr unsigned kTrainAttempts = 4;
 constexpr uint32_t kTrainRetryDelayUs[kTrainAttempts - 1] = {100000, 150000, 200000};
 // b151: from plans run again after a failure at most this often per boot (then a failure latches, as before b151)
 constexpr uint32_t kMaxRecoveries = 2;
+// b154: switches run again because their last link window needed a retry, at most this often per boot
+constexpr uint32_t kMaxRedos = 4;
 
 // One link window's training: attempts made, each attempt's result, the first failed attempt's report.
 // b152: the plan it belongs to and its timing (us, from Env::nowUs; 0 without a clock): offToUp = from the plan's
@@ -116,7 +121,7 @@ struct Train {
     const char *plan;
     uint32_t offToUpUs, trainUs, sincePrevUs;
 };
-constexpr unsigned kMaxWins = 4;   // link windows kept per run (leg 1 + an HDR to plan's two + a fall-back's)
+constexpr unsigned kMaxWins = 8;   // link windows kept per run (leg 1 + an HDR to plan's two + a fall-back's; b154: + a redo's)
 
 struct Fail {
     const char *why, *plan; uint32_t step, line, op, reg, val, got, dalResp, target;
@@ -133,6 +138,7 @@ struct Run {
     uint32_t fbCount[kMaxModes];    // fall-backs per target mode (2 = refused for the boot)
     uint32_t recoveries, recovered; // b151: from plans run again after a failure / of those, landed on 144
     uint32_t trainRetried;          // b151: link windows that needed more than one attempt and trained
+    uint32_t redos;                 // b154: switches run again after a retried last window (kMaxRedos)
     const char *lastRefusal;
     Fail last;                      // the last failure, kept across runs
     // this run
@@ -140,6 +146,7 @@ struct Run {
     uint32_t target;
     const char *why, *pipeWhy, *plan1, *plan2, *fbPlan;
     const char *retryWhy;           // b151: why the first try of the from plan that ran again failed
+    int redone;                     // b154: this run ran the switch again (1), or wanted to but could not (-1: none left / at the hub)
     phxdpb::Run g;                  // the gates' reads (DP B, mode, DMCUB, DPCD)
     uint8_t fecCap, dscCap;
     uint32_t hubp1Clk, dom1;
@@ -562,7 +569,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         r = Run{};
         r.failed = k.failed; r.where = k.where; r.cur = k.cur; r.attempts = k.attempts + 1; r.refusals = k.refusals; r.dones = k.dones;
         r.fellBacks = k.fellBacks; r.sames = k.sames; r.lastRefusal = k.lastRefusal; r.last = k.last;
-        r.recoveries = k.recoveries; r.recovered = k.recovered; r.trainRetried = k.trainRetried;
+        r.recoveries = k.recoveries; r.recovered = k.recovered; r.trainRetried = k.trainRetried; r.redos = k.redos;
         for (unsigned i = 0; i < kMaxModes; i++) r.fbCount[i] = k.fbCount[i];
     }
     r.sel = sel;
@@ -620,6 +627,21 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         r.res = kFellBack;
         return kFellBack;
     };
+    // a from plan (to the hub) failed: no plan knows this state, unless the plan lands when run again
+    auto fromFailed = [&](int b, const Plan &p) -> int {
+        keepFail(r, p.name);
+        const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
+        const char *why = r.why;
+        const int b2 = again(b, p);
+        r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
+        if (b2 < 0) return stop(r, st);
+        if (b2) { r.failed = 1; r.res = kFailed; return kFailed; }
+        // landed on the hub: the target was not reached; this run counts as a fall-back for it
+        r.where = kLinux; r.cur = static_cast<int>(s.hub);
+        r.fbCount[ti]++; r.fellBacks++;
+        r.res = kFellBack;
+        return kFellBack;
+    };
     if (p1) {
         r.phase = 1;
         const int b = leg(x, *p1, s.m[m1]);
@@ -627,18 +649,7 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
         if (b) {
             if (!r.effects) { keepFail(r, p1->name); return refuse(r, r.why); }   // nothing written or sent: a plain refusal
             if (r.where == kMac) return fallBack(p1->name);
-            keepFail(r, p1->name);   // a from plan failed: no plan knows this state, unless the plan lands when run again
-            const uint32_t s0 = r.step, l0 = r.line, o0 = r.op, rg0 = r.reg, v0 = r.val, got0 = r.got;
-            const char *why = r.why;
-            const int b2 = again(b, *p1);
-            r.step = s0; r.line = l0; r.op = o0; r.reg = rg0; r.val = v0; r.got = got0; r.why = why;
-            if (b2 < 0) return stop(r, st);
-            if (b2) { r.failed = 1; r.res = kFailed; return kFailed; }
-            // landed on the hub: the target was not tried; this run counts as a fall-back for it
-            r.where = kLinux; r.cur = static_cast<int>(s.hub);
-            r.fbCount[ti]++; r.fellBacks++;
-            r.res = kFellBack;
-            return kFellBack;
+            return fromFailed(b, *p1);
         }
         r.where = kLinux; r.cur = m1;
     }
@@ -652,6 +663,28 @@ inline int run(const Env &e, State &st, Run &r, int sel, int restartDone, const 
             return fallBack(p2->name);
         }
         r.cur = ti;
+    }
+    // b154: the last link window of the switch trained only after a retry (r.train is the last window run). The LG once
+    // kept a black picture after that with the link locked and in sync (2026-11-23 04:15), and a new mode set brought it
+    // back. So the switch runs once more from the target: its from plan to the hub, its to plan (Linux's own sequences,
+    // as a switch away and back). Not again in the same run. At the hub there is no plan pair: noted, not run.
+    if (r.nWins && r.train.tries > 1) {
+        if (static_cast<unsigned>(ti) == s.hub || !tm.from || !tm.to || r.redos >= kMaxRedos) r.redone = -1;
+        else {
+            r.redos++;
+            r.redone = 1;
+            r.plan1 = tm.from->name; r.plan2 = tm.to->name;
+            r.phase = 1;
+            const int b = leg(x, *tm.from, s.m[s.hub]);
+            if (b < 0) return stop(r, st);
+            if (b) return fromFailed(b, *tm.from);
+            r.cur = static_cast<int>(s.hub);
+            r.phase = 2;
+            const int b2 = leg(x, *tm.to, tm);
+            if (b2 < 0) return stop(r, st);
+            if (b2) return fallBack(tm.to->name);
+            r.cur = ti;
+        }
     }
     r.phase = 4;
     r.dones++;
@@ -699,8 +732,8 @@ inline int stat(const Run &r, const Set &s, char *b, int n) {
                        t.first.status[5]);
         PHXODM_OUT("\n");
     }
-    PHXODM_OUT("recovery: recoveries=%u/%u recovered=%u train_retried=%u retry_why=%s\n", r.recoveries, kMaxRecoveries, r.recovered,
-               r.trainRetried, r.retryWhy ? r.retryWhy : "-");
+    PHXODM_OUT("recovery: recoveries=%u/%u recovered=%u train_retried=%u retry_why=%s redone=%d redos=%u/%u\n", r.recoveries,
+               kMaxRecoveries, r.recovered, r.trainRetried, r.retryWhy ? r.retryWhy : "-", r.redone, r.redos, kMaxRedos);
     PHXODM_OUT("gates: otg0 %u Hz pclk=%u kHz scratch1=0x%08x link_now 0x%02x fec_cap=0x%02x dsc_cap=0x%02x hubp1_clk=0x%x dom1=0x%08x\n",
                r.g.hz, r.g.pclkKhz, r.g.scr1, r.g.link0[0], r.fecCap, r.dscCap, r.hubp1Clk, r.dom1);
     PHXODM_OUT("stop: step=%u line=%u op=%u reg=0x%05x val=0x%08x got=0x%08x back=%u\n", r.step, r.line, r.op, r.reg, r.val, r.got, r.backRes);
