@@ -35,7 +35,12 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
 Thread 02 part C: **EFI change 20** (stage `vermilion-trust-bar1g` with VermilionBoot b159: CPU-visible VRAM BOs in
-[352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, not booted yet.
+[352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, **booted 15:49 and verified**: desktop
+1440p240 HDR, `phx-fb-aper-len` 1073741824, self-test 1 (step 3's BAR0 read-back at 352 and 1023 MiB passed), hi pool
+`[1024, 24464)` MiB, CPU-visible pool `[352, 1024)` MiB. **The first boot attempt after the restart at 15:45 failed**
+(owner: "one restart didn't work, the second one did"): the shutdown was clean (logs to 15:45:02), the failed boot left
+no log at all (the next line is the good boot at 15:49:15), so it stopped before logd; what the screen showed: asked.
+Cause unknown (unverified whether b159, the 1 GiB BAR or a warm restart; b159's `start` only maps 1 GiB instead of 512 MiB).
 Check after the boot: accelerated desktop 1440p240 HDR + VRR; `ioreg -l | grep phx-fb-aper-len` 1073741824;
 `debug.phxbo_vram_selftest` 1 (now with step 3, the BAR0 read-back); `debug.phxbo_vram_stat` shows the hi pool from
 1024 MiB and a "CPU-visible pool" `[352, 1024)` MiB. Rollback: `EFI/OC.prev` = change 19 (copy in
