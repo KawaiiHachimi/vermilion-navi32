@@ -101,8 +101,7 @@ turned into plans.
 
 The kexts, the plugin and VermilionTrust build on the XTX machine's own macOS (Command Line Tools, x86_64), without
 the macbox VM. MacKernelSDK and Vulkan-Headers are in `~/src/vermilion/deps/`. RADV needs a Mesa checkout at
-`f5cb8ee0` with the patches; there was none on the Mac on 2026-11-23: set one up as in the macbox steps below
-(`~/src/mesa`) before a RADV build.
+`f5cb8ee0` with the patches: `~/src/vermilion/deps/mesa` since 2026-11-23 (set-up below).
 
 ```sh
 export MKSDK=$HOME/src/vermilion/deps/MacKernelSDK VULKAN_HEADERS=$HOME/src/vermilion/deps/Vulkan-Headers/include
@@ -112,6 +111,26 @@ PHXTRUST_KEEP=1 sh scripts/build/trust.sh        # last: it lists the cdhashes o
 
 Checked 2026-11-23 on `fork/main` `46bfd53`: `kext.sh` and `trust.sh` (with the list kept) rebuild VermilionBoot b150
 and VermilionTrust 1.0.3 byte for byte.
+
+RADV on the Mac (thread 02, 2026-11-23; ~3 minutes, the Mesa checkout ~560 MB and the build ~1 GB: check `df -h` first,
+the Data volume ran full once):
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --no-modify-path    # the system Python is 3.9, meson needs >= 3.10
+~/.local/bin/uv python install 3.12 && ~/.local/bin/uv venv -p 3.12 ~/src/venv
+~/.local/bin/uv pip install -p ~/src/venv/bin/python meson ninja mako pyyaml markupsafe packaging
+# glslang: the macOS release of KhronosGroup/glslang (gh release download 16.5.0 -p '*macos-universal-release.tar.gz'),
+# unpacked to ~/src/tools/glslang, plus a link bin/glslangValidator -> glslang
+mkdir -p ~/src/vermilion/deps/mesa && cd ~/src/vermilion/deps/mesa && git init -q \
+  && git remote add origin https://gitlab.freedesktop.org/mesa/mesa.git \
+  && git fetch --depth 1 origin f5cb8ee032adabef599ae892ec4e42d796b84da9 && git checkout -q FETCH_HEAD
+git -C ~/src/vermilion/deps/mesa am <checkout>/patches/mesa/*.patch       # an absolute path
+PATH=$HOME/src/tools/glslang/bin:$HOME/src/venv/bin:$PATH MESA_DIR=$HOME/src/vermilion/deps/mesa sh scripts/build/radv.sh
+```
+
+With 0001-0017 this rebuilt the then-installed RADV (`8054fbe4`) apart from the Mach-O UUID and the git id in the version
+string (36 bytes). Before installing a RADV build, measure it side-loaded: `VKBENCH_DRIVER=<dylib> vkbench ...`,
+`NVMTL_ICD_LIB=<dylib> metalbench ...` (the plugin's override; works in unhardened processes only).
 
 ## Build host (macOS VM via macbox) (2026-11-19, works; superseded by the Mac itself)
 

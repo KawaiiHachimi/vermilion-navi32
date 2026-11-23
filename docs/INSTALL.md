@@ -370,6 +370,7 @@ sudo chown root:wheel /usr/local/sbin/phxctl /usr/local/sbin/mesboot
 | `~/gpu/phxctl.bin` | `gfx_cg.sh`, `sdma_idle.sh`, `uclk.sh`, `b15_boot.sh` and its helpers, `m7_boot.sh`, `vcn_up.sh` |
 | `~/gpu/gfx_cg.sh`, `sdma_idle.sh`, `uclk.sh` (+ `smumetrics.py` for `uclk.sh show`), `ptwalk.sh` | the daemon's clock gating, SDMA idle, memory clock pin and hang dump |
 | `~/gpu/m7_boot.sh`, `m7_phase.sh` | the second monitor at boot (`m7_boot.sh` finds `phxctl.bin` and `m7_phase.sh` next to itself) |
+| `~/gpu/idle_dpm.sh`, `dalwm.sh`, `dal.sh`, `uclk.sh` | the one-display idle clocks (`phxboot-idledpm`); `idle_dpm.sh` refuses to run when one of the other three is missing |
 | `~/gpu/b15_boot.sh`, `wm144.sh`, `det.sh`, `dalwm.sh`, `dal.sh`, `hubp_dlg.sh`, `uclk.sh`, `p0prefetch.sh` | the display power recipe; `b15_boot.sh` refuses to run when one of the first six is missing |
 | `~/gpu/dispovr.sh` | the display overrides before the WindowServer restart |
 | `~/gpu/vcnup/vcn_up.sh` (executable) + `vcnup/vcn/` | the VCN bring-up |
@@ -495,6 +496,7 @@ stated.
 | `/Library/GPUBundles/nvmtl/ws-gpu-present` | before and after the restart | GPU present: the plugin flips the display itself (`debug.phxscan=1`) and the display pipe's copy is skipped |
 | `phxboot-wscdcopy` | before the restart | GPU present E3: `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1`, so the restarted WindowServer presents CoreDisplay's display surfaces instead of SkyLight's composite targets (fixes the flicker of redrawn regions; verified on the XTX machine at 1440p60). Needs `ws-gpu-present` and `/Library/GPUBundles/nvmtl/ws-gpu-present-async`, otherwise only logged |
 | `phxboot-waitstep` (value: microseconds, `20`-`1000`; empty = `200`) | before the restart | `debug.phxwait_step_us`: the timed step of a fence wait (the kext's default is 50). 200 cut WindowServer's wakeups on the XTX machine; only 50 and 200 were tried on hardware |
+| `phxboot-irqwait` | before the restart | fence waits by interrupt: `debug.phxih_vram`, `phxih`, `phxeopirq`, `phxirq`, `phxwait_irq` = 1 in that order, each read back (any refusal turns all five off again). On the XTX machine a short waited GPU job went from 265 to 114 us median, as on Linux, with a lower p99 |
 | `phxboot-autologin` (value: the user name) | before the restart | automatic login by the accelerated login window: the daemon writes loginwindow's `autoLoginUser` right before the WindowServer restart and removes it at start, at shutdown and at every revert. Needs `/etc/kcpassword` (made once by `sudo sysadminctl -autologin set`). macOS's own automatic login must stay off: it would log in before the arm, which refuses with a user logged in |
 | `phxboot-vcn` | after `done` | VCN 0 up (`vcnup/vcn_up.sh --run`, log `~/gpu/vcnup/boot.log`), then `debug.phxvcn=1` and `debug.phxmmvm=1`; needed for hardware video decode. Skipped on a boot whose second monitor came up out of phase |
 | `phxboot-hotplug` | after `done`, two monitors bound | `debug.phxhotplug=2`: the HDMI monitor's unplug / plug takes head 1 offline / online |
@@ -502,12 +504,14 @@ stated.
 | `phxboot-gamma` | after `done`, two monitors bound | `debug.phxgamma=1`: gamma tables for head 1 (only reach the kext when CoreDisplay's `useIOP_gamma_onAMD` is false) |
 | `phxboot-dpwatch` (value `1` or `2`; empty = `1`) | after `done`, desktop boot | `debug.phxdpwatch`: the DP stream watcher (2 = also the stuck-stream fix); its events go to the boot log |
 | `phxboot-b15` | after `done`, desktop boot | `b15_boot.sh`: the display power recipe (watermarks, DET, DAL watermark table, HUBP rate group, then memory self-refresh) with an underflow watchdog for the whole boot |
+| `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> 20-24 W at idle |
 | `phxboot-wsprefs` | before the restart | no longer used; the daemon only logs that it can be removed |
 
 Flags read by the helper scripts, not by the daemon itself:
 
 | Flag | Read by | Effect |
 |---|---|---|
+| `phxboot-idledpm-dcf` | `idle_dpm.sh` | also Linux's DCFCLK messages after each mode set: hard minimum 199 MHz, deep-sleep DCFCLK for the refresh rate, one display |
 | `phxboot-b15-dpm` | `b15_boot.sh` | memory and fabric clocks may drop at idle (UCLK unpinned, FCLK switch allowed) |
 | `phxboot-b15-2pipe`, `-2pipe-sr`, `-2pipe-dalwm`, `-2pipe-p0pf` | `b15_boot.sh` | the two-monitor variant of the recipe and its optional steps |
 | `phxboot-m7-rate` (`144`, `165` or `last`) | `m7_boot.sh` | the HDMI monitor's rate at boot (absent = 60 Hz) |
@@ -524,8 +528,8 @@ A reasonable first set on one monitor is `sdma`, `cg` and `uclk` (`456`); add `a
 (section 8).
 
 The LaunchDaemon can also pass `PHXBOOT_NO_SDMA=1`, `PHXBOOT_NO_CG=1`, `PHXBOOT_NO_UCLK=1`, `PHXBOOT_NO_AOC=1`,
-`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to skip a step regardless
-of the flags.
+`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
+skip a step regardless of the flags.
 
 ### 7.4 The login-window guard
 

@@ -25,7 +25,7 @@ rate, HDR, VRR), and what else is running. Measure idle at the desktop with noth
 ## 0. Setup (no root)
 
 ```sh
-cd ~/Projects/vermilion && git fetch fork && git checkout --detach fork/main     # or any checkout of fork/main
+cd ~/Projects/vermilion && git fetch fork && git checkout --detach fork/ownback/perf-power   # thread 02's branch (vkbench); fork/main once 02 merged
 OUT=~/vermilion-captures/linux-ref-$(date +%Y%m%d-%H%M); mkdir -p "$OUT"
 cc -O2 -o "$OUT/cpuclk" tools/sensors/cpuclk.c -lpthread
 uname -r > "$OUT/kernel.txt"; cat /sys/class/dmi/id/bios_version >> "$OUT/kernel.txt"   # expect 4005; Linux must be booted directly, not through OpenCore
@@ -63,9 +63,47 @@ What the macOS side needs from it:
 - GFXOFF residency.
 - The `pp_features` mask. Compare it with macOS's SMU feature masks `0x71ffffff` / `0x0003ebb8`.
 
-Under load: the same Mandelbrot shader through Vulkan isn't scripted yet. If a Vulkan benchmark is installed
-(`vkmark`, `vkcube`), run it for 60 s at 1440p while sampling `power1_average` and `pp_dpm_sclk` every second, and
-name the tool. Otherwise skip the load part.
+Also, once per mode (read-only, no root): `cat $D/pp_dpm_dcefclk $D/pp_od_clk_voltage $D/pp_power_profile_mode
+> "$OUT/gpu-extra-<mode>.txt" 2>&1`, and every second for 30 s `grep -H . $D/pp_dpm_mclk $D/pp_dpm_fclk` (does UCLK move
+at idle, or sit at one level?).
+
+### 1b. The same shader through Vulkan (added 2026-11-23, thread 02)
+
+`tools/vkbench/vkbench.c` is `metalbench`'s Mandelbrot loop as a Vulkan compute shader (the SPIR-V is checked in).
+macOS ran the same binary on RADV directly, so these numbers compare the drivers, not the shader compilers:
+
+```sh
+ls /usr/include/vulkan/vulkan.h || git clone --depth 1 -b v1.3.296 https://github.com/KhronosGroup/Vulkan-Headers "$OUT/vkh"
+VKH=$( [ -f /usr/include/vulkan/vulkan.h ] && echo /usr/include || echo "$OUT/vkh/include" )
+cc -O2 -I"$VKH" -o "$OUT/vkbench" tools/vkbench/vkbench.c -ldl -lm
+cd "$OUT"; for t in "compute 20 64" "compute 20 2000" "submit 10" "submit 10 200 512 512" "submit 10 2000 1024 1024" \
+  "bandwidth 10 256" "bandwidth 10 16"; do echo "== vkbench $t"; ./vkbench $t; sleep 5; done > vkbench.txt 2>&1
+```
+
+At 1440p 240 Hz SDR, nothing else running. During `compute 20 2000` sample `power1_average`, `pp_dpm_sclk` and
+`pp_dpm_mclk` every second into `vkbench-load.txt`. macOS (2026-11-23, b155, RADV directly): `compute 64` 0.41 ms GPU,
+`compute 2000` 3.95 ms GPU, `submit` median 34 us, `submit 200 512 512` median 265 us, `bandwidth 256` 44.7 GB/s.
+
+### 1c. The XTX's device profile for RADV (thread 02)
+
+RADV on macOS runs a canned device description (`patches/mesa/0016`, the XT's). The XTX's own comes from Linux:
+
+```sh
+cc -Wall -I/usr/include/libdrm -o "$OUT/gpuinfo" tools/capture/gpuinfo.c -ldrm_amdgpu
+for n in /dev/dri/renderD*; do readlink -f /sys/class/drm/${n##*/}/device; "$OUT/gpuinfo" $n; done > "$OUT/gpuinfo.txt" 2>&1
+RADV_DEBUG=info vulkaninfo --summary > "$OUT/radv-info.txt" 2>&1 || true   # if vulkaninfo is installed
+```
+
+`gpuinfo.txt` has no serials. Copy it whole into the findings note.
+
+Where Linux keeps its own things in VRAM (for the VRAM-backed buffers design), as root:
+
+```sh
+sudo -S -p '' sh -c 'for d in /sys/kernel/debug/dri/*; do [ -e $d/amdgpu_vram_mm ] && { echo "== $d"; head -c 20000 $d/amdgpu_vram_mm; }; done' < "$file" > "$OUT/vram_mm.txt" 2>&1
+sudo -S -p '' sh -c 'dmesg | grep -i -E "amdgpu.*(vram|tmr|reserv|stolen|discovery|fw_reserve|mem_train)"' < "$file" > "$OUT/vram-dmesg.txt"
+```
+
+Mask nothing there (no serials), but don't quote PCI bus addresses beyond the bus number.
 
 ## 2. CPU: clock, idle power, C-states (thread 02)
 
@@ -112,6 +150,7 @@ change it in this session.
 ## 4. Super I/O chip and sensors (thread 02)
 
 ```sh
+for h in /sys/class/hwmon/hwmon*; do echo "$h $(cat $h/name)"; done > "$OUT/hwmon.txt"
 sensors > "$OUT/sensors.txt" 2>&1
 sudo -S -p '' sh -c 'dmesg | grep -i -E "nct|it87|superio|asus.*ec|asus_wmi_sensors"' < "$file" > "$OUT/superio.txt"
 lsmod | grep -i -E 'nct|it87|asus' >> "$OUT/superio.txt"
@@ -124,6 +163,8 @@ whether fan readings on macOS are one EFI change away.
 
 1. Write the findings note: one table per block above. Mask serials and MACs. Commit only the note and push it
    (`git switch -c ownback/linux-reference fork/main`, commit, `git push fork ownback/linux-reference`).
+   Also copy the note and the raw files that carry no serials (everything except `dmesg` output) to the ESP, into
+   `vermilion/results-02/` (on Linux the ESP is mounted at `/boot`), so the macOS side has them without git.
 2. Tell the owner in one line: **shut down Linux (power off, not restart), power on, and macOS starts**. OpenCore
    is first in the boot order; pick Macintosh HD if the picker waits. Never a warm reboot into macOS: the GPU
    bring-up needs a cold GPU.

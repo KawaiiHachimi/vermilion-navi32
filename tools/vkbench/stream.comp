@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Vermilion contributors
+// vkbench bandwidth: read one buffer, write another, 16 bytes per thread (the same kernel as metalbench's `bw`).
+// Memory bound: the GB/s say where the buffers live (VRAM ~960 GB/s on Navi 31, system memory over PCIe 4.0 x16
+// at most ~32 GB/s). Compiled into vkbench_spv.h by tools/vkbench/genspv.sh.
+#version 450
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 1) readonly buffer A { vec4 a[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer B { vec4 b[]; };
+layout(push_constant) uniform P { uint iters; uint frame; float w; float h; uint n; } p;
+
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i < p.n) b[i] = a[i] * 1.0001 + vec4(float(p.frame & 1u));
+}

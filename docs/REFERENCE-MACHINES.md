@@ -35,7 +35,7 @@ and how well, is in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) "Machine state"
 | Wi-Fi | MediaTek MT7922 / AMD RZ616 (`14c3:0616`, subsystem `105b:e0cd`), behind the chipset switch (`GPP7.UP00.DP58`) | Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1 + boot-args `pci=0x8000000` (macOS must not enable 10-bit tags on the chipset root port) and `amtk_awdl_offchan=0` |
 | Bluetooth | MediaTek MT7922 over USB (`0489:e0e2`, Foxconn ID) | `MtkWirelessBT` 1.1.1 (same project) + BlueToolFixup |
 | Audio | ASUS USB audio (`0b05:1a5c`, Realtek USB codec) | Apple's USB audio (`usbaudiod`, UAC2); no HDA codec, so AppleALC doesn't apply |
-| Storage | One PCIe 5.0 NVMe, Corsair MP700 PRO 1 TB (Phison E26). macOS: an 83.8 GB APFS container plus a 22 GiB installer partition next to Linux | Apple's NVMe driver + NVMeFix |
+| Storage | One PCIe 5.0 NVMe, Corsair MP700 PRO 1 TB (Phison E26). macOS: a 107.4 GB APFS container next to Linux (the installer partition was deleted 2026-11-23) | Apple's NVMe driver + NVMeFix |
 | Firmware | UEFI, Secure Boot off, IOMMU on (the dGPU and its HDMI audio function each in their own IOMMU group), SVM on | |
 | Other OS | Linux (Arch-based) with Limine on the shared EFI partition | |
 

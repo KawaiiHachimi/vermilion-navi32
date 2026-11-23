@@ -15,81 +15,16 @@ Rules:
 
 ## Staged now
 
-Thread 01's machine changes, one per boot, in the order made (2026-11-23). **State at the end of thread 01:** `EFI/OC`
-= change 14 (VermilionBoot b155, stage `vermilion-trust`), `EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12
-(the NVRAM test, inconclusive); PhxAccel with the physical size; the daemon with the display check. No further EFI
-change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
+State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC` = change 14 (VermilionBoot b155),
+`EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12. Thread 01's per-change steps: git history of this file
+(`fork/main` `c9f132e`).
 
-1. **EFI change 9: VermilionBoot b151** (stage `vermilion-trust`, only the kext differs from change 8) **+ the boot
-   daemon with the display check** (`~/gpu/phxboot-navi31.sh`, not an EFI change; it only reads sysctls).
-   **Installed 2026-11-23 03:08** (owner's OK): `EFI/OC` = change 9 (VermilionBoot sha256 `a23a2766`), `EFI/OC.prev` =
-   change 8; change 7 kept as `~/vermilion-rollback/EFI-OC.change7-20261122`. **Booted 03:11:** b151 loaded (the `recovery:` line), the 240 HDR login switch DONE in 1 training attempt, daemon `SUCCESS`, no `DARK`, shutdown cause 5, VermilionTrust enforcing (`denied_unlisted=0`). Left: OWNER-TESTS "Login at 60 Hz HDR".
-   - Before: `~/vermilion-rollback/EFI-OC.change8-20261123` (a copy of the live `EFI/OC`) and
-     `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`; `efi/build.py install` turns change 8 into `EFI/OC.prev`.
-   - Check: `sysctl debug.phxp0odm_stat` has the `recovery:` line; `/var/log/phxboot.log` ends in `SUCCESS` with no
-     `DARK`; then OWNER-TESTS 01 "Login at 60 Hz HDR" (3 restarts).
-   - Rollback: boot trouble: `EFI/OC` and `EFI/OC.prev` swapped (PROJECT_KNOWLEDGE "Rollback of the EFI"); a daemon
-     problem: `sudo cp ~/vermilion-rollback/phxboot-navi31.sh.pre-thread01 ~/gpu/phxboot-navi31.sh`, restart.
-1b. **EFI change 10: VermilionBoot b152** (diagnostics only: every link window's attempts and timing, `train_wN` in
-   `debug.phxp0odm_stat`) **+ the daemon's per-boot engine record** (`engine run N` lines in `/var/log/phxboot.log`).
-   Why: the 03:28 boot's last link window trained at its 4th attempt. Owner's OK 2026-11-23 ~03:45. **Installed:** `EFI/OC` = change 10 (VermilionBoot `9ca53007`), `EFI/OC.prev` = change 9 (b151 `a23a2766`); daemon deployed.
-   - Before: `~/vermilion-rollback/VermilionBoot.kext.b151`; `EFI/OC.prev` becomes change 9.
-   - Check: `train_w` lines in the stat, `engine run` lines in the daemon log; 2-3 restarts at 1440p60 HDR.
-   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped; the daemon: `~/gpu/phxboot-navi31.sh` from git `47c4543`
-     (`git show 47c4543:tools/phxctl/phxboot-navi31.sh`).
-1c. **EFI change 11: VermilionBoot b153** (the eight HDR plans wait Linux's 100-180 ms before their second link
-   window; [finding](findings/2026-11-23-gpu-stability.md) section 6). Owner's OK 2026-11-23 ~03:55. **Installed:** `EFI/OC` = change 11 (`bd3f72fa`), `EFI/OC.prev` = change 10 (b152 `9ca53007`). **Booted 03:51-03:57:** 3 restarts landed; window 2 `since_prev` ~227 ms; tries 2 / 1 / 1 (the 2: no AUX answer at the first attempt) ([finding](findings/2026-11-23-gpu-stability.md) section 7).
-   - Before: `~/vermilion-rollback/VermilionBoot.kext.b152`; `EFI/OC.prev` becomes change 10.
-   - Check: 2-3 restarts at 1440p60 HDR; every `train_w3` of the daemon log's `engine run` lines `tries=1`, with
-     `since_prev_us` about 225000.
-   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped.
-2. **EFI change 12: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). Built on b153; owner's OK 2026-11-23 ~04:00; `~/gpu/phxboot-auto` created 04:00. For a hang: `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` tells Claude on Linux the swap (owner's wish; delete it once the change is verified). First
-   `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
-   the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
-   - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
-     `phxfb-squat re-armed ... read-back ok`; one more restart reaches the accelerated desktop (squat boot); then
-     `sudo nvram -d vermilion-test`.
-   - Rollback: a hang at boot or at shutdown: hold power, power on, F8 > Limine (Linux), rename `/boot/EFI/OC` to
-     `OC.bad` and `OC.prev` to `OC`, **power off fully**, power on. From macOS: the same renames under
-     `/Volumes/NO NAME/EFI`. Then `rm ~/gpu/phxboot-auto` (back to the stuck-squat setup of today).
-   - Worst case named by the old thread 02: a board that hangs on writes may need a CMOS clear (unverified).
-   - **Result: inconclusive** (the Linux rollback ran at an unknown time; see 4). Recorded at the time:
-     **Booted 04:06 and 04:10:** no hang at boot or shutdown, but the write did **not** persist: `vermilion-test` was
-     gone after the restart, `phxfb-squat` stayed in the firmware (squat boot), and
-     `nvram IONVRAM-FORCESYNCNOW-PROPERTY=...` returns "general error". Second test armed: `vermilion-test2=forced`,
-     checked after the next restart (with staged 3). If it is gone too: back to change 11 (`DisableVariableWrite` buys
-     nothing then) and find the real block from Linux (efivars).
-3. **PhxAccel with the physical size** (**booted 04:15:** loaded, `CGDisplayScreenSize` 591.1 x 332.5 mm; the black
-   screen of that boot was the LG after a training retry, not this: section 8 of the finding) (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
-   Privacy & Security before the restart).
-   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged ~04:12**
-     (`26685255`, `kmutil load -p`: "not approved"); the owner's Allow click rebuilt the AuxKC at 04:14, restart 04:15.
-   - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
-   - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
-4. **EFI change 13: VermilionBoot b154** (a switch whose last link window needed a retry runs once more from the
-   target; [finding](findings/2026-11-23-gpu-stability.md) section 8) on stage `vermilion-trust` (= change 11's
-   config, `DisableVariableWrite` true; only the kext differs from the live `EFI/OC`). Owner's OK 2026-11-23 ~04:30. **Installed** between the 04:33 build and the 04:36 boot: `EFI/OC` = change 13 (b154 `78f560cc`), `EFI/OC.prev` = change 11 (b153 `bd3f72fa`), config.plist byte-identical; `EFI/OC.bad` (change 12) left on the ESP. **Booted 04:36:** the login switch's last window retried (`rc=aux,ok`), the redo ran (`redone=1`; its own from plan's first window retried too, every later window first time), picture on (owner).
-   - Found before the install: the live `EFI/OC` was already change 11 (b153, `DisableVariableWrite` true), change 12 sat
-     in `EFI/OC.bad`, no `EFI/OC.prev`: the Linux rollback of 2 had been carried out, at a time not yet known (ask the
-     owner). So the NVRAM result of 2 is unsure: the boots 04:06 / 04:10 / 04:15 may all have run change 11.
-     In `EFI/OC` a FAT repair had turned `MtkWirelessBT.kext/Contents/Resources/google-libsbc-LICENSE.txt` into
-     `FSCK0000.000` (the same text; the kext's binary unchanged).
-   - Before: `~/vermilion-rollback/EFI-OC.change11-20261123` (a copy of the live `EFI/OC`) and
-     `~/vermilion-rollback/EFI-OC.change12-nvram-20261123` (`EFI/OC.bad`); `efi/build.py install` makes change 11
-     `EFI/OC.prev`; `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` removed (its swap would now undo b154).
-   - Check: `debug.phxp0odm_stat` `recovery:` line has `redone=`; at a login whose last window retried, `redone=1` and
-     a picture. 2-3 restarts at 1440p60 HDR.
-   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (from macOS under `/Volumes/NO NAME/EFI`, or from Linux under
-     `/boot/EFI`, then power off fully).
-5. **EFI change 14: VermilionBoot b155** (`f95b4baf`: drm's 32-try rule for the trainers' DPCD accesses, the
-   `dpcd_aux:` stat line, the live switch `debug.phxp0odm_dbuf`, 0 at boot) on stage `vermilion-trust`; only the kext
-   differs from change 13. **Installed ~04:49** (`EFI/OC` = b155 `f95b4baf`, `EFI/OC.prev` = change 13 b154 `78f560cc`, config identical). **Booted 04:52:** the login switch trained every window first time (`dpcd_aux: retried=0`); the `debug.phxp0odm_dbuf=1` test ran for the 1440p HDR plans; at the boot after the Linux session the LG NACKed all 32 tries twice and b154's redo ran ([finding](findings/2026-11-23-gpu-stability.md) sections 10-11).
-   - Before: `~/vermilion-rollback/VermilionBoot.kext.b154`; `efi/build.py install` makes change 13 `EFI/OC.prev`
-     (change 11 stays in `~/vermilion-rollback/EFI-OC.change11-20261123`).
-   - Check: `debug.phxp0odm_stat` has `dpcd_aux:`; the login switch's `train_w` lines; `redone=0` if the AUX misses
-     are gone. Then the live `debug.phxp0odm_dbuf=1` test (TODO 01, DRR double buffer).
-   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (macOS: `/Volumes/NO NAME/EFI`; Linux: `/boot/EFI`, then power off
-     fully).
+Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
+results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
+
+The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
+07:51 and is verified (PROJECT_KNOWLEDGE). Rollback: `rm ~/gpu/phxboot-irqwait ~/gpu/phxboot-idledpm
+~/gpu/phxboot-idledpm-dcf`; the previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-thread02`.
 
 ## 01 GPU stability
 
@@ -149,30 +84,40 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 02 GPU and CPU performance, power
 
-- [ ] **Linux reference capture** (one boot, read-only): [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md).
-      Results go into PROJECT_KNOWLEDGE's performance record
-- [ ] **CPU never above 5.15 GHz, idle package 40-50 W** (2026-11-23). Suspect: `HLT`-only idle, the firmware's `_CST`
-      C2 / C3 (`inb 0x414` / `0x415`) unused, so no CC6 *(unverified)*. If Linux reaches ~5.5 GHz and idles 15+ W
-      lower: a minimal `_CST` idle kext (never AMDRyzenCPUPowerManagement). BIOS C-state / CPPC settings first
-      ([OWNER-TESTS](OWNER-TESTS.md))
+- [-] CPU never above 5.15 GHz, idle ~40 W: Linux does the same (5.16 GHz, 37.8 W with CC6 98 %, BIOS all Auto), so
+      no `_CST` idle kext for ~2-3 W (decisions 2026-11-23; [perf finding](findings/2026-11-23-perf-power.md) 8)
 - [ ] Real-app test set: WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min, Minecraft (F3 renderer line)
-- [ ] XTX RADV profile chosen by PCI revision: 96 CU, 384-bit, the name "RX 7900 XTX"; fix the exact-name checks in
-      `patches/mesa/0016` / `0017` (the VCN shim). `RADV_DARWIN_CANNED=navi31` is **not** a safe quick test: the
-      VCN shim's name check would disable decode
-- [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`), together with the next item only
-- [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measure with a memory-bound
-      `metalbench` mode, then VRAM-backed BOs (weeks; a design note first)
-- [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`, off and unverified on the XTX): 101 us per waited
-      submit today, 6 us of it GPU
-- [ ] Idle power (62-70 W board; UCLK pinned at 456 MHz, FCLK 2301): only what Linux sends, after the Linux numbers
-- [ ] Fan readings: `SMCSuperIO` (in the pinned VirtualSMC 1.3.8 zip) once Linux names the Super I/O chip. One EFI
-      change
+- [x] XTX RADV profile chosen by PCI revision: `patches/mesa/0018` (Mesa's `navi31` for revision 0xc8; the name
+      checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5).
+      Installed with EFI change 15 (`profile navi31`, Metal "AMD Radeon RX 7900 XTX")
+- [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`): PR B, with the VRAM buffers (design note
+      step 6); raising it while buffers are system memory would let apps wire 24 GiB of RAM
+- [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measured: 44.7 GB/s buffer copy in
+      Metal and in RADV directly (PCIe); Linux 823 GB/s on the same `vkbench bandwidth`. Next: VRAM-backed BOs, M1 of
+      the [design note](findings/2026-11-23-vram-bo-design.md) (days of code; its own kext build and boot)
+- [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
+      storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
+      Quiet interleaved A/B (06:25): better in median and p99 everywhere. On at boot since 07:51 (`phxboot-irqwait`):
+      124 us vk / 207 us Metal median after the restart. Left: a day of use, then INSTALL's recommended set
+      ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
+- [~] **Idle power:** live 53.5 -> 23.5 W socket at 1440p240 HDR with Linux's messages, 0 underflows in 20 min, nothing
+      slower under load ([perf finding](findings/2026-11-23-perf-power.md) 9). On at boot since 07:51 (socket 23 W idle).
+      Left: a few days of use; other modes (60 / 120 / 144, SDR) only seen through the mock so far
+- [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip). Linux loads no Super I/O driver either; the board is in
+      `nct6775`'s ASUS-WMI list (the chip sits behind ACPI WMI methods, so direct port access may race the firmware).
+      Missing: the chip's name (`sudo modprobe nct6775; sensors` at the next Linux boot, owner's OK) and whether its
+      ports are safe to read beside the ACPI WMI methods; then one EFI change. Not in PR A
 - [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
-- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target; decode the SMU
-      feature masks (0x71ffffff / 0x0003ebb8) against Linux's header
-- [ ] The Mesa init line and `nvmtl-mesa ... Permission denied` on stderr of command-line Metal tools: from
-      `MESA_SHADER_CACHE_DIR` inherited from the T3 Code process (pointing at root's cache). Apps launched normally
-      have a cache. Find where T3 Code gets the variable; print the init line only in debug builds
+- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target. The SMU feature masks
+      (0x71ffffff / 0x0003ebb8) are decoded (`tools/phxctl/smufeatures.py`) and equal Linux's
+- [~] The Mesa init line and `nvmtl-mesa ... Permission denied` on stderr of command-line Metal tools. Found: loginwindow
+      runs as root with the plugin, which `setenv`s `MESA_SHADER_CACHE_DIR` (root's cache) and `NVRM_FLUSH_TIMEOUT_MS`;
+      the apps loginwindow reopens at login (T3 Code) inherit both, so they run without a Mesa disk cache. Fixed in the
+      plugin (unset once RADV is up) and patch 0019 (the init line to the unified log): change 15. Verified 07:22: no
+      `MESA_*` / `NVRM_*` in T3 Code's environment; the init line in the unified log only. Left: the `Permission denied`
+      line, if a tool still prints it
+- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): compare
+      with what the firmware macOS loads (`tools/firmware/fw.lock`) reports, and whether RADV keys anything off them
 
 ## 03 Graphics APIs and video
 
@@ -309,8 +254,9 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 10 ryzentosh
 
-- [ ] Installer partition `disk0s4`: keep it as the 26.7.1 reinstall path (Recovery would install the newest macOS),
-      or delete it and grow the container. The owner keeps it for now (2026-11-22); decide, then fix `efi/README.md`
+- [x] Installer partition `disk0s4`: deleted on the owner's request (2026-11-23, thread 02: the Data volume was full)
+      and the container grown to 107.4 GB. Left: a 26.7.1 reinstall path off the disk (Recovery would install the
+      newest macOS), and fix `efi/README.md`
 - [ ] NVMe shown as "external": `device_properties` in `efi/build.py` and the profile, `built-in = <01>` on
       `PciRoot(0x0)/Pci(0x1,0x2)/Pci(0x0,0x0)` (from ioreg, not checked with gfxutil); one EFI change (cosmetic)
 - [ ] Generators: DSDT NOP patches (`fix_dsdt.py resolve` emits the plan, the patches were copied by hand),

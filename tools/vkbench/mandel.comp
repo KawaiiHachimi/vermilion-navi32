@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Vermilion contributors
+// vkbench compute: the same Mandelbrot loop as tools/metaltest/metalbench.m's kernel `ck` (no early exit, every
+// pixel costs the same), writing an RGBA8 storage image. Compiled into vkbench_spv.h by tools/vkbench/genspv.sh.
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D outImg;
+layout(push_constant) uniform P { uint iters; uint frame; float w; float h; uint n; } p;
+
+vec4 mandel(vec2 uv, uint iters, uint frame) {
+  vec2 c = vec2(-0.743643887 + (uv.x - 0.5) * 0.004, 0.131825904 + (uv.y - 0.5) * 0.00225);
+  c += vec2(float(frame & 63u)) * 1e-7;
+  vec2 z = vec2(0.0); float acc = 0.0;
+  for (uint i = 0u; i < iters; i++) {
+    z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+    acc += 1.0 / (1.0 + dot(z, z));
+    z = clamp(z, vec2(-4.0), vec2(4.0));
+  }
+  float t = acc / float(iters);
+  return vec4(t, fract(t * 7.0), fract(t * 31.0), 1.0);
+}
+
+void main() {
+  uvec2 gid = gl_GlobalInvocationID.xy;
+  ivec2 sz = imageSize(outImg);
+  if (gid.x >= uint(sz.x) || gid.y >= uint(sz.y)) return;
+  imageStore(outImg, ivec2(gid), mandel(vec2(gid) / vec2(p.w, p.h), p.iters, p.frame));
+}

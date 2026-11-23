@@ -349,6 +349,22 @@ waitstep_boot(){ [ -e "$G/phxboot-waitstep" ] || return 0
   sysctl -n debug.phxwait_step_us >/dev/null 2>&1 || { echo "waitstep: PhxBringup without debug.phxwait_step_us: nothing set"; return 0; }
   out=$(sysctl -w debug.phxwait_step_us=$v 2>&1); rc=$?
   echo "waitstep: debug.phxwait_step_us=$v rc $rc, reads $(sysctl -n debug.phxwait_step_us 2>/dev/null) ($(echo "$out" | tail -1 | cut -c1-80))"; }
+# Fence waits by interrupt (2026-11-23, thread 02, the XTX machine): with $G/phxboot-irqwait, before the WindowServer
+# restart, the IH ring in VRAM (debug.phxih_vram, debug.phxih), the EOP interrupt (debug.phxeopirq), the MSI
+# (debug.phxirq), then WAITSEQ sleeping on it (debug.phxwait_irq), in that order, each read back. Measured live: a short
+# waited job 265 -> 114 us median (Linux 114), p99 lower too, 1.1 M MSIs without a storm (findings
+# 2026-11-23-perf-power.md, section 4). The kext keeps the timed steps when it sees a storm. Any step that doesn't read
+# back 1 turns all five off again (reverse order). The sysctls reset at every boot; without the flag nothing is written.
+irqwait_boot(){ [ -e "$G/phxboot-irqwait" ] || return 0
+  local o out rc on=""
+  sysctl -n debug.phxwait_irq >/dev/null 2>&1 || { echo "irqwait: PhxBringup without debug.phxwait_irq: polled waits stay"; return 0; }
+  for o in phxih_vram phxih phxeopirq phxirq phxwait_irq; do
+    out=$(sysctl -w debug.$o=1 2>&1); rc=$?
+    if [ $rc != 0 ] || [ "$(sysctl -n debug.$o 2>/dev/null)" != 1 ]; then
+      echo "irqwait: debug.$o=1 rc $rc, reads $(sysctl -n debug.$o 2>/dev/null) ($(echo "$out" | tail -1 | cut -c1-80)): all back to 0, polled waits stay"
+      for o in phxwait_irq phxirq phxeopirq phxih phxih_vram; do sysctl -w debug.$o=0 >/dev/null 2>&1; done; return 0; fi
+    on="$on $o"; done
+  echo "irqwait: on (debug.$(echo $on | sed 's/ /=1 debug./g')=1)"; }
 m7_light(){ [ -e "$G/phxboot-m7" ] || return 0
   [ -e "$G/m7_boot.sh" ] || { echo "m7: $G/m7_boot.sh missing"; return 0; }
   sh "$G/m7_boot.sh" light; r=$?
@@ -618,6 +634,7 @@ if [ $DESK = 1 ]; then
   [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
   ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
   waitstep_boot   # the fence wait's timed step for the restarted WindowServer (flag ~/gpu/phxboot-waitstep)
+  irqwait_boot    # fence waits by interrupt for the restarted WindowServer (flag ~/gpu/phxboot-irqwait)
   WS1=$(wspid)
   if [ -n "$WS0" ] && [ "$WS1" != "$WS0" ]; then echo "first WindowServer died before the restart (pid $WS0 -> ${WS1:-none}; usually no .ips)"
   else echo "first WindowServer survived to the restart (pid ${WS0:-none})"; fi
@@ -717,6 +734,17 @@ b15_boot(){
   [ -e "$G/b15_boot.sh" ] || { echo "b15: $G/b15_boot.sh missing"; return 0; }
   sh "$G/b15_boot.sh" & echo "b15: started (pid $!)"; }
 [ "${PHXBOOT_NO_B15:-0}" = 1 ] || [ $SAFE = 1 ] || b15_boot
+# 2026-11-23 (thread 02, the XTX machine): with $G/phxboot-idledpm, on a one-display desktop boot: memory and fabric clocks
+# free to drop at idle under an underflow watchdog for the whole boot (idle_dpm.sh; b15's step 6 for one display). Not
+# with b15 (its own recipe) and not after a pipe-1 boot (an SMU message then stalls the PMFW, above).
+idledpm_boot(){
+  [ -e "$G/phxboot-idledpm" ] || return 0
+  [ $DESK = 1 ] || { echo "idledpm: not a desktop boot: skip"; return 0; }
+  [ -e "$G/phxboot-b15" ] && { echo "idledpm: phxboot-b15 present (its own recipe): skip"; return 0; }
+  [ "$M7LIT" = 1 ] && [ "$M7PHASE" != 1 ] && { echo "idledpm: pipe 1 lit at boot: skip (UCLK stays pinned)"; return 0; }
+  [ -e "$G/idle_dpm.sh" ] || { echo "idledpm: $G/idle_dpm.sh missing"; return 0; }
+  PHXBOOT_G=$G sh "$G/idle_dpm.sh" & echo "idledpm: started (pid $!)"; }
+[ "${PHXBOOT_NO_IDLEDPM:-0}" = 1 ] || [ $SAFE = 1 ] || idledpm_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes

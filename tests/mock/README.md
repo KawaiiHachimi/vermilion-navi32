@@ -43,8 +43,9 @@ bash phxctl_serve_test.sh      # host test of `phxctl serve` (the read server; n
 ./run.sh -k                    # keep the work dirs (to debug a FAIL)
 ./run.sh happy user_logged     # only the named scenarios
 DAEMON=/path/other.sh ./run.sh # test another daemon (used for mutation tests)
-bash b15test.sh                # the idle-power display recipe script (must be 132/132 before deploying b15_boot.sh; 11-03 with the AOC-alone p0solo cases, the 16 rl_* Acer relight cases, the read-server srv_* cases and spawn_count = processes per poll)
+bash b15test.sh                # the idle-power display recipe script (must be 159/159 before deploying b15_boot.sh, 2026-11-23; 11-03 with the AOC-alone p0solo cases, the 16 rl_* Acer relight cases, the read-server srv_* cases and spawn_count = processes per poll)
 bash m7test.sh                 # the M7 second-monitor boot script m7_boot.sh (must be 8/8)
+bash idledpm_test.sh           # idle_dpm.sh (one-display idle clocks + underflow watchdog), stand-in tools (7/7, 2026-11-23)
 bash dettest.sh                # det.sh -p <pipe> show/clear/set/rollback (must be 11/11)
 bash b21guard_mut.sh           # 15 mutations of the login-window guard (b21_on / b21_off and their hooks), each CAUGHT by run.sh b21_* (11-04)
 ```

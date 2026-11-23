@@ -10,12 +10,17 @@
 //       (fill rate and ALU; no textures, no vertex load)
 //   metalbench compute [seconds=20] [iterations=64] [width=2560] [height=1440]
 //       the same loop as a compute kernel writing a texture
-//   metalbench submit  [seconds=10]
-//       tiny draws (a 16x16 target), one command buffer each, each waited for: the cost of a submit and a fence
-//       wait through the plugin, RADV and the kext (CPU bound)
+//   metalbench submit  [seconds=10] [iterations=0] [width=16] [height=16]
+//       one draw per command buffer, each waited for: the cost of a submit and a fence wait through the plugin, RADV
+//       and the kext. iterations 0 = a flat 16x16 draw (CPU bound); more runs the Mandelbrot loop, so the wait has
+//       a GPU job of a chosen length to wait for (the fence-wait path past its spin)
+//   metalbench bandwidth [seconds=10] [MiB=256]
+//       copy one private buffer into another, 16 bytes per thread (the same kernel as tools/vkbench's): GB/s read +
+//       written by GPU time, which says where the buffers live (VRAM ~960 GB/s on Navi 31; system memory over
+//       PCIe 4.0 x16 at most ~32 GB/s)
 //
-// render and compute keep at most 3 command buffers in flight. Output: frames, frames/s, the wall time per frame
-// (average, median, 99th percentile, longest) and, where the driver reports them, the GPU time per frame.
+// render, compute and bandwidth keep at most 3 command buffers in flight. Output: frames, frames/s, the wall time per
+// frame (average, median, 99th percentile, longest) and, where the driver reports them, the GPU time per frame.
 // Exit codes: 0 ok, 1 no Metal device, 2 shader compile failed, 3 pipeline failed, 4 GPU error.
 // Build: scripts/build/metalbench.sh.
 #import <Metal/Metal.h>
@@ -26,7 +31,7 @@
 static NSString *const kSrc =
     @"#include <metal_stdlib>\n"
      "using namespace metal;\n"
-     "struct P { uint iters; uint frame; float w; float h; };\n"
+     "struct P { uint iters; uint frame; float w; float h; uint n; };\n"
      "static float4 mandel(float2 uv, uint iters, uint frame) {\n"
      "  float2 c = float2(-0.743643887 + (uv.x - 0.5) * 0.004, 0.131825904 + (uv.y - 0.5) * 0.00225);\n"
      "  c += float2(frame & 63u) * 1e-7;\n"
@@ -50,9 +55,13 @@ static NSString *const kSrc =
      "               uint2 gid [[thread_position_in_grid]]) {\n"
      "  if (gid.x >= out.get_width() || gid.y >= out.get_height()) return;\n"
      "  out.write(mandel(float2(gid) / float2(p.w, p.h), p.iters, p.frame), gid);\n"
+     "}\n"
+     "kernel void bw(device const float4 *a [[buffer(1)]], device float4 *b [[buffer(2)]], constant P &p [[buffer(0)]],\n"
+     "               uint i [[thread_position_in_grid]]) {\n"
+     "  if (i < p.n) b[i] = a[i] * 1.0001 + float4(float(p.frame & 1u));\n"
      "}\n";
 
-typedef struct { uint32_t iters, frame; float w, h; } Params;
+typedef struct { uint32_t iters, frame; float w, h; uint32_t n; } Params;
 
 static double now_s(void) {
   static mach_timebase_info_data_t tb;
@@ -72,22 +81,28 @@ static void report(const char *what, double *v, long n) {
 int main(int argc, char **argv) {
   @autoreleasepool {
     const char *mode = argc > 1 ? argv[1] : "render";
-    BOOL isCompute = !strcmp(mode, "compute"), isSubmit = !strcmp(mode, "submit");
-    if (!isCompute && !isSubmit && strcmp(mode, "render")) {
-      fprintf(stderr, "usage: metalbench render|compute [seconds] [iterations] [width] [height] | submit [seconds]\n");
+    BOOL isCompute = !strcmp(mode, "compute"), isSubmit = !strcmp(mode, "submit"), isBw = !strcmp(mode, "bandwidth");
+    if (!isCompute && !isSubmit && !isBw && strcmp(mode, "render")) {
+      fprintf(stderr, "usage: metalbench render|compute [seconds] [iterations] [width] [height] | submit [seconds] [iterations] [width] [height] | bandwidth [seconds] [MiB]\n");
       return 64;
     }
-    double secs = argc > 2 ? atof(argv[2]) : (isSubmit ? 10 : 20);
-    uint32_t iters = argc > 3 ? (uint32_t)atoi(argv[3]) : 64;
+    double secs = argc > 2 ? atof(argv[2]) : (isSubmit || isBw ? 10 : 20);
+    uint32_t iters = !isBw && argc > 3 ? (uint32_t)atoi(argv[3]) : isSubmit ? 0 : 64;
+    uint64_t bwBytes = (uint64_t)(isBw && argc > 3 ? atoi(argv[3]) : 256) << 20;
+    uint32_t nvec = (uint32_t)(bwBytes / 16);
     int W = argc > 4 ? atoi(argv[4]) : 2560, H = argc > 5 ? atoi(argv[5]) : 1440;
-    if (isSubmit) { W = 16; H = 16; }
+    if (isSubmit) { W = argc > 4 ? W : 16; H = argc > 5 ? H : 16; }
 
     id<MTLDevice> dev = nil;
     for (id<MTLDevice> d in MTLCopyAllDevices())
       if ([d.name containsString:@"Radeon"] || [d.name containsString:@"7900"]) dev = d;
     if (!dev) dev = MTLCreateSystemDefaultDevice();
     if (!dev) { fprintf(stderr, "NO METAL DEVICE\n"); return 1; }
-    printf("device: %s; mode %s, %dx%d, %u iterations, %.0f s\n", dev.name.UTF8String, mode, W, H, iters, secs);
+    if (isBw)
+      printf("device: %s; mode bandwidth, 2 x %llu MiB buffers, %.0f s\n", dev.name.UTF8String,
+             (unsigned long long)(bwBytes >> 20), secs);
+    else
+      printf("device: %s; mode %s, %dx%d, %u iterations, %.0f s\n", dev.name.UTF8String, mode, W, H, iters, secs);
 
     NSError *err = nil;
     id<MTLLibrary> lib = [dev newLibraryWithSource:kSrc options:nil error:&err];
@@ -102,12 +117,18 @@ int main(int argc, char **argv) {
 
     id<MTLRenderPipelineState> rps = nil;
     id<MTLComputePipelineState> cps = nil;
-    if (isCompute) {
-      cps = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"ck"] error:&err];
+    id<MTLBuffer> bufA = nil, bufB = nil;
+    if (isBw) {
+      bufA = [dev newBufferWithLength:bwBytes options:MTLResourceStorageModePrivate];
+      bufB = [dev newBufferWithLength:bwBytes options:MTLResourceStorageModePrivate];
+      if (!bufA || !bufB) { fprintf(stderr, "PIPELINE FAILED: no %llu MiB buffers\n", (unsigned long long)(bwBytes >> 20)); return 3; }
+    }
+    if (isCompute || isBw) {
+      cps = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:isBw ? @"bw" : @"ck"] error:&err];
     } else {
       MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
       pd.vertexFunction = [lib newFunctionWithName:@"vs"];
-      pd.fragmentFunction = [lib newFunctionWithName:isSubmit ? @"fs_flat" : @"fs"];
+      pd.fragmentFunction = [lib newFunctionWithName:isSubmit && !iters ? @"fs_flat" : @"fs"];
       pd.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
       rps = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
     }
@@ -125,10 +146,18 @@ int main(int argc, char **argv) {
     while (now_s() - t0 < secs && n < cap) {
       @autoreleasepool {
         dispatch_semaphore_wait(inflight, DISPATCH_TIME_FOREVER);
-        Params p = {iters, (uint32_t)n, (float)W, (float)H};
+        Params p = {iters, (uint32_t)n, (float)W, (float)H, nvec};
         id<MTLCommandBuffer> cb = [q commandBuffer];
         id<MTLTexture> tex = target[n % 3];
-        if (isCompute) {
+        if (isBw) {
+          id<MTLComputeCommandEncoder> e = [cb computeCommandEncoder];
+          [e setComputePipelineState:cps];
+          [e setBuffer:bufA offset:0 atIndex:1];
+          [e setBuffer:bufB offset:0 atIndex:2];
+          [e setBytes:&p length:sizeof p atIndex:0];
+          [e dispatchThreadgroups:MTLSizeMake((nvec + 255) / 256, 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+          [e endEncoding];
+        } else if (isCompute) {
           id<MTLComputeCommandEncoder> e = [cb computeCommandEncoder];
           [e setComputePipelineState:cps];
           [e setTexture:tex atIndex:0];
@@ -142,7 +171,7 @@ int main(int argc, char **argv) {
           rp.colorAttachments[0].storeAction = MTLStoreActionStore;
           id<MTLRenderCommandEncoder> e = [cb renderCommandEncoderWithDescriptor:rp];
           [e setRenderPipelineState:rps];
-          if (!isSubmit) [e setFragmentBytes:&p length:sizeof p atIndex:0];
+          if (!isSubmit || iters) [e setFragmentBytes:&p length:sizeof p atIndex:0];
           [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
           [e endEncoding];
         }
@@ -170,6 +199,10 @@ int main(int argc, char **argv) {
     printf("frames %ld in %.2f s = %.1f frames/s; GPU errors %ld\n", done, total, done / total, nerr);
     report("wall per frame", wall, n);
     report("GPU per frame ", gpu, ngpu);
+    if (isBw && ngpu) {   // report() sorted gpu[]
+      printf("bandwidth GB/s (read + write, by GPU time): median %.1f best %.1f\n",
+             2.0 * bwBytes / gpu[ngpu / 2] / 1e9, 2.0 * bwBytes / gpu[0] / 1e9);
+    }
     return nerr ? 4 : 0;
   }
 }

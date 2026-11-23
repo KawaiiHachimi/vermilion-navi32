@@ -65,3 +65,7 @@ PATH=$HOME/.local/bin:$PATH python3 efi/build.py build --stage vermilion-trustlo
   Third-party apps lose `CS_PLATFORM_BINARY` (T3 Code `0x26014201` -> `0x22014201`).
 - 1.0.3 (2026-11-23): same code; the list has 6 entries, the plugin with the Music readback fix and the previous
   plugin (`PHXTRUST_KEEP=1`).
+- 1.0.4 (2026-11-23, thread 02): same code; 8 entries: the plugin that doesn't hand its environment to child
+  processes, RADV with the XTX profile (patches 0018-0019), and the installed plugin and RADV as `-previous`
+  (`PHXTRUST_KEEP=1` with the new files given as arguments, so the order of the EFI and the file install doesn't
+  matter).

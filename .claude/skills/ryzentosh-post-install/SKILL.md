@@ -83,6 +83,21 @@ sudo python3 efi/build.py install --esp "/Volumes/<ESP>"    # guardrail 2 and 3:
   `sysctl debug.phxp0odm_stat`, and ask before any further restart. Never write `debug.phxp0odm` (root) to "fix" it:
   every value runs register writes.
 
+## 5b. Performance and power checks — thread 02, verified on the reference machine
+
+- RADV picked the right profile: `/usr/bin/log show --last 30m --predicate 'eventMessage CONTAINS "radv-darwin: native"'`
+  ends in `profile navi31` on an XTX (PCI revision `0xc8`) and `profile navi31_xt` on an XT (`0xcc`); `system_profiler
+  SPDisplaysDataType` names the card (needs patch 0018 / VermilionTrust 1.0.4 or later).
+- Benchmarks, light (seconds each; ask the user first, they load the GPU): `scripts/build/metalbench.sh` and
+  `scripts/build/vkbench.sh` build them; `vkbench compute 3`, `vkbench submit 3 200 512 512`, `vkbench bandwidth 3`.
+  Compare with PROJECT_KNOWLEDGE's performance record (Linux and macOS columns). Expected on macOS today: shader speed
+  as Linux, buffer bandwidth ~45 GB/s (every buffer is system memory; Linux 823).
+- Power: `SMU_CLOCKS=1 sudo -E python3 ~/gpu/smumetrics.py 4 1` (socket / board W, UCLK, FCLK, DCEFCLK). The reference
+  machine idles at ~51 W socket at 1440p240 HDR with UCLK pinned at 456 (the daemon's `phxboot-uclk` flag) and at
+  ~23 W with `phxboot-idledpm` and `phxboot-idledpm-dcf` (UCLK 96, FCLK 1000, DCEFCLK 200); Linux 35 W.
+- CPU: `python3 tools/sensors/cpusensors.py`; ~40 W idle package and a 5.1-5.2 GHz single-thread ceiling are what
+  Linux shows too on this board with the BIOS at Auto. No CPU power-management kext.
+
 ## 6. System settings — to be filled by threads 05 and 09
 
 Today, on the reference machine:

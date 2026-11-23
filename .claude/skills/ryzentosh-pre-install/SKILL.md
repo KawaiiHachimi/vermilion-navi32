@@ -39,7 +39,10 @@ Today, by hand: GPU PCI id `1002:744c` and revision (`lspci -nn -d 1002:744c`, `
 /sys/bus/pci/devices/*/revision`): `0xcc` is the XT, `0xc8` the XTX. Board and BIOS version
 (`/sys/class/dmi/id/board_name`, `bios_version`). The CPU. Linux booted directly from the firmware, **not through
 OpenCore** (`/sys/class/dmi/id/bios_vendor` must not be `Acidanthera`). TODO: a script that checks all of it and the
-BIOS settings (dGPU as boot display, Above 4G + ReBAR on, CSM off) against a supported list.
+BIOS settings (dGPU as boot display, Above 4G + ReBAR on, CSM off) against a supported list. CPU power settings
+(Global C-state Control, CPPC, Power Supply Idle Control, PBO, ECO mode) stay at **Auto**: Linux on the reference
+machine reaches CC6 and 5.16 GHz with them so (thread 02). Optional, while still on Linux: a reference capture for later
+comparison ([HANDOFF-LINUX-REFERENCE.md](../../../.agents/HANDOFF-LINUX-REFERENCE.md), read-only).
 
 ## 2. Machine profile — to be filled by thread 10
 
