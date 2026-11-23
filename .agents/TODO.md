@@ -37,7 +37,8 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 Thread 02 part C: **EFI change 21** (stage `vermilion-trust-bar1g`): VermilionBoot **b160** (the parking of mapped
 CPU-visible BOs can't run out) and **VermilionTrust rebuilt for a new NVMTLDriver** (app CAMetalLayer drawables drawn
 TILED, copied to their pages at present: `NVMTL_DRAWABLE_TILED`, on by default outside WindowServer). Installed
-2026-11-23, not booted yet. Check after the boot: accelerated desktop 1440p240 HDR + VRR; `sysctl debug.phxtrust_stat`
+2026-11-23, **booted 16:40 on the first try** (verbose text, no Apple logo): `phxtrust_stat` enforce, denied_unlisted 0;
+self-test 1; desktop survived the daemon's watch; the plugin logs "drawables: TILED". Drawable check with an app: below. Check after the boot: accelerated desktop 1440p240 HDR + VRR; `sysctl debug.phxtrust_stat`
 `mode=enforce`, `denied_unlisted=0`; `debug.phxbo_vram_selftest` 1; `/tmp/nvmtl.log` has "CAMetalLayer drawable drawn
 TILED" for a Metal app and its window looks right (Horizon; a Chromium/Electron app). Rollbacks, smallest first:
 (1) a broken app window: `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off` and relaunch the app (no restart);
