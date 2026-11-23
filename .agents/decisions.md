@@ -503,3 +503,11 @@ in efi/build.py; any other error still fails the build).
 **Replaces:** "2026-11-18: `ResizeAppleGpuBars = 0`, Resizable BAR stays on" for the vermilion-trust-bar1g stage; the
 default stage stays at 0 until the stage is verified.
 **Revisit:** if macOS fails PCI configuration or the desktop with 1 GiB; when sleep gets a resume path.
+
+### 2026-11-23: thread 02 part C merges in milestones
+**Choice:** one PR per systemic fix, merged once it is measured against a Linux twin (C1: GPU timing, aperture, BAR0
+1 GiB, CPU-visible VRAM BOs; then e.g. shader / translator cost, the present path, per-submit overhead). After each,
+ROADMAP row 02 says what is left, so it is clear when 03 can start. Translator shader-quality work stays in 02 while
+it is the top cause. Each branch is pushed to `fork` under its own name (`git push -u fork <branch>`), never left local.
+**Why:** coordination thread, 2026-11-23: one long branch is hard to review and loses work if the machine fails.
+**Revisit:** if a fix can't be measured on its own.
