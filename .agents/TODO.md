@@ -42,6 +42,14 @@ Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each change
 - [ ] `doBoCreate`: the b156 and b159 blocks duplicate the free-handle search and the scalar outputs.
 - [ ] `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
 
+Thread 02 part C: **EFI change 22** (stage `vermilion-trust-bar1g`): VermilionTrust rebuilt for an NVMTLDriver whose
+tiled drawable also copies at the end of every command buffer that drew a drawable never presented with
+`-presentDrawable:` (MoltenVK presents with `-[CAMetalDrawable present]` itself: Minecraft's black window). Installed
+2026-11-23, not booted yet. After the boot: remove `/Library/GPUBundles/nvmtl/drawable-tiled-off`, then Minecraft
+(Vulkan) draws, Horizon still logs "drawn TILED" and runs ~290 fps; `phxtrust_stat` enforce, denied_unlisted 0.
+Rollbacks: the switch file back (no restart); the previous plugin `~/vermilion-rollback/NVMTLDriver.drawtiled-v1-20261123`
+(.new + mv; trusted as `-previous`); EFI `EFI/OC.prev` = change 21 (copy `~/vermilion-rollback/EFI-OC.change21-20261123`).
+
 Thread 02 part C, from Minecraft (2026-11-23 17:20, finding horizon-present-cost, "Minecraft"):
 - [ ] **The tiled drawable leaves MoltenVK windows black** (Minecraft Vulkan). Off switch
   `/Library/GPUBundles/nvmtl/drawable-tiled-off` is set (every new window takes the old path, Horizon too). Trace a
