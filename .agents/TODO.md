@@ -23,8 +23,9 @@ Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOW
 results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
 
 Thread 02 part B, **EFI change 16: VermilionBoot b156** (`d8f5948a`, VRAM-backed BOs, off at boot), VermilionTrust
-1.0.4 unchanged; built in `~/src/vermilion/build-02b/` (its `efi/` holds serials: delete it after the install). Diff
-against the live `EFI/OC`: only `VermilionBoot` (plus the known FSCK artefact in MtkWirelessBT).
+1.0.4 unchanged; built in `~/src/vermilion/build-02b/kexts/`. Diff against the live `EFI/OC`: only `VermilionBoot`
+(plus the known FSCK artefact in MtkWirelessBT). **Installed 2026-11-23 08:51** (owner's "Okey"): `EFI/OC` = change 16
+(diff against the build: none), `EFI/OC.prev` = change 15; the build's `efi/` deleted. Not booted yet.
    - Before: copy the live `EFI/OC` to `~/vermilion-rollback/EFI-OC.change15-20261123`; `efi/build.py install` makes
      change 15 `EFI/OC.prev`.
    - Check after the boot: accelerated desktop, `SUCCESS` in `phxboot.log`, `sysctl debug.phxbo_vram_stat` reads
