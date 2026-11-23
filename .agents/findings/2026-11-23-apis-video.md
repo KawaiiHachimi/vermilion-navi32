@@ -111,7 +111,105 @@ fails for the original too (the plugin is signed as a binary without sealed reso
   12.2 s of 2026-11-23 was the cold first run; no gap. (The file is 9.3 MB now; the inventory noted 21-25 MB, likely a
   different file.)
 
-## Not done in this session (owner away, no restart, no GPU load)
+## 7. The owner's by-eye results, triaged (2026-11-23 evening)
 
-Zink / OpenGL for LWJGL apps, OpenCL on the GPU per app (rusticl), Safari playback and WebGL / WebGPU by eye, Photos
-and video wallpaper by use, the Fable clean-up pass.
+Owner: boot clean; the WebGPU `workloadSimulator` sample (useGl) fine; some webgpu-samples error, glitch or are slow;
+4K YouTube in Safari stutters and has glitches. The coordination thread's call: continue 03, classify both first.
+
+**4K decode is correct.** The YouTube stream was AV1 3840x2160 59.94 fps 10-bit BT.2020 PQ (format 701,
+`av01.0.13M.10`), decoded by our decoder in `com.apple.WebKit.GPU` (log: decode 6.45, VCN wait 4.03, transfer 2.81 ms
+per frame, synchronous; VideoToolbox's stats: mean 14 ms, max 64 ms). 10 s of the same stream from a public 4K demo
+video (40 MB range download, remuxed to MP4 / IVF with the minimal FFmpeg CLI, now built with the IVF / OBU / WebM
+muxers): `vtdec_test` through VideoToolbox on VCN (`vcn submits` +65 for 60 frames) gives per-frame I420 MD5s
+**identical to dav1d 1.5.4 for 600 / 600 frames**. A 4K HEVC Main10 clip (`mkclip.swift`, 60 frames) on VCN is
+identical to Apple's software decoder (`phxdec-off` for the reference run, VCN counter unchanged) for **60 / 60**. So
+the glitch is presentation or timing, not decode: thread 13 (TODO 13 item 11), with the speed work (frames in flight,
+decode into the IOSurface without the copy).
+
+**What Safari tells YouTube** (`webprobe`, new media section; Media Capabilities, MSE, 60 fps, 20 Mbit/s):
+
+| Codec | MSE | supported | smooth | powerEfficient |
+|---|---|---|---|---|
+| AV1 2160p60 10-bit | yes | yes | yes | yes |
+| AV1 1440p60 10-bit | yes | **no** | no | no |
+| VP9 2160p60 (8 and 10-bit) | yes | yes | no | no |
+| HEVC 2160p60 | no | no | no | no |
+| H.264 1080p60 | yes | yes | yes | no |
+
+`VTCopyAV1DecoderCapabilitiesDictionary` reports profiles 0-2 hardware, 8 / 10-bit, max decode level 19, max playback
+level 17 (6.1), max HDR playback level 16, values our bundle does not set (its matching info has only codec types,
+`VTIsHardwareAccelerated`, `VTRating`). Why WebKit says AV1 1440p60 is unsupported was not looked into. **Stopgap not
+shipped:** making YouTube serve VP9 at 4K means AV1 advertised only up to a lower level, which needs the bundle on the
+system volume or the plugin's registration to change: a restart either way (the coordination thread's rule: skip,
+record). Whether VideoToolbox reads a per-decoder `VTMaxPlaybackLevel` from the bundle is (unverified).
+
+**WebGPU samples** (`tools/metaltest/wgsamples.m`, new: each deployed sample 6-7 s in an on-screen 800x600 WKWebView,
+page errors + uncaptured WebGPU errors + the plugin's log, window captures in `~/vermilion-captures/thread03/wgsamples*`).
+43 deployed samples (the `main` branch has 10 more that are not deployed; they gave 404 in the first pass). Failing:
+
+| Sample | Kind | First error (page / plugin log) |
+|---|---|---|
+| a-buffer | error | Fragment function failed creation / translator: graph walk `opcode=tail`; unknown SSA value `%.cast` |
+| animometer | error, slow (29 fps) | render bundle path: `vsICB` / `vsUshortICB`: unrecognized AIR intrinsic `air.draw_indexed_primitives_render_command`; device destroyed |
+| renderBundles | error, slow (16 fps, then 0.6) | same ICB intrinsics; `newIndirectCommandBufferWithDescriptor` -> nil; `newTextureWithDescriptor` failed |
+| cornell | error | createComputePipeline failed / translator: `ImageQuerySizeLod` contract; unknown SSA value; sampler operand |
+| cubemap, deferredRendering, normalMap, shadowMapping, samplerParameters | error | Fragment function failed creation / translator: unknown SSA value |
+| imageBlur, particles | error | createComputePipeline failed / translator: unknown SSA value |
+| points, textRenderingMsdf, wireframe | error | Fragment function failed creation / translator: graph walk `opcode=tail` |
+| videoUploading, videoUploadingWebCodecs | error | Fragment function failed creation / translator: unknown SSA value |
+| texturedCube, cameras, generateMipmap, timestampQuery | glitch | no error; the textured cubes draw black (host-pointer imports are refused by the kext in these, but `newBufferWithBytesNoCopy` falls back to a copy, so that alone does not explain it) |
+| primitivePicking | not supported | needs the `primitive-index` feature (not offered) |
+
+**Render bundles crash Safari's GPU process:** four `com.apple.WebKit.GPU` crash reports (22:16 and 22:17 from the
+owner's Safari, 22:50 and 22:53 from `wgsamples`), all `EXC_BREAKPOINT` in
+`WebGPU::Device::icbCommandClampFunction` <- `RenderBundleEncoder::splitICB` <- `RenderBundleEncoder::finish`: WebKit
+traps when the indirect-command-buffer path is not there (the ICB clamp pipeline fails to build: the
+`air.draw_indexed_primitives_render_command` intrinsic). A crash takes every tab's WebGL / WebGPU / video with it until
+WebKit restarts the process.
+
+The other 22 draw correctly at about 60 fps (`multipleCanvases` 46 fps). None of the failures is a small missing feature
+or validation fix (translator bugs in several places, indirect command buffers not built, the black textures not
+understood), so all go to thread 13 (TODO 13 item 12; ROADMAP row 13 now takes the GPU robustness leftovers too).
+
+## 8. OpenGL on the GPU: `AppleMetalOpenGLRenderer`
+
+macOS 26.7.1 ships `/System/Library/Extensions/AppleMetalOpenGLRenderer.bundle` with an x86_64 slice: Apple's OpenGL
+over Metal (Apple silicon's OpenGL). OpenGL.framework picks a hardware renderer from an IOAccelerator's
+`IOGLBundleName`. `NMXAccel` publishes `MetalPluginName` from its personality but no `IOGLBundleName`: upstream sets it
+only in `onCountGrewLocked`, on the NVIDIA display path, which the `PHX_FB` flow never runs. Hence the Apple Software
+Renderer for every OpenGL app (section 6). `IORegistryEntrySetCFProperty` from user space returns success but changes
+nothing. **Built, not installed:** `debug.phxgl` in VermilionAccel (default 0; 1 publishes
+`IOGLBundleName=AppleMetalOpenGLRenderer`, 0 removes it; only processes started afterwards see the change). The
+branch's source rebuilt the installed kext byte-identically first (UUID `0D8DC116`), so the new build differs only by
+this.
+
+**Verified (installed 23:05, booted 23:18, `debug.phxgl=1` at 23:25):** `apiprobe` before: accelerated pixel format
+refused, "Apple Software Renderer"; after: vendor `AMD`, renderer "AMD Radeon RX 7900 XTX (RADV NAVI31) (NVMTL over
+...)", version "4.1 Metal - 90.5" (4.1 core, accelerated only) and "2.1 Metal - 90.5" (legacy). An offscreen GL 4.1
+test (FBO, one shaded triangle, three pixels read back) gives the same pixels as the software renderer (one channel
+off by 1 in the clear colour, rounding); 200 draws + `glFinish`: 0.82 ms vs 158.34 ms. Minecraft 26.3 (Prism
+Launcher, plain instance, owner at the machine): F3 "OpenGL 4.1 Metal", 40-80 fps, no crash report, java ~190 % CPU.
+Daemon flag `phxboot-gl` (mock-tested) sets it at every boot.
+Zink is the fallback, not the plan: on macOS Mesa's GL front ends are GLX (XQuartz) and EGL, not CGL / NSOpenGL, so
+LWJGL / GLFW apps can't load it as is.
+
+## 9. OpenCL on the GPU; Blender
+
+With `debug.phxgl=1`, Apple's OpenCL lists a second device (`apiprobe`): "AMD Radeon RX 7900 XTX (RADV NAVI31) (NVMTL
+over ...)", type GPU, OpenCL 1.2, 96 compute units, 6144 MiB global memory. On Intel Macs OpenCL finds GPUs through the
+same `IOGLBundleName` path as OpenGL; nothing else was changed. A check (`y = a*x + y; y += sin(y)/2` on 4,194,304
+floats, verified on the CPU): **0 mismatches**, max abs error 7.6e-6 (the GPU's `sin`); 1.44 ms per run after the
+first (the CPU device: 1.45 ms). The buffers sit in system memory (the process is not in `phxbo_vram_proc`): speed is
+thread 13's.
+
+**Blender Cycles** lists only the CPU because of Blender, not the driver: `intern/cycles/device/metal/util.mm`
+(`MetalInfo::get_usable_devices`, current `main`) accepts a Metal device only if its name contains "Apple" and not
+"AMD" / "Intel", and it has unified memory. Blender 4.2 dropped AMD and Intel GPUs on macOS; a real Intel Mac with an
+AMD GPU is CPU-only there too. Renaming our device to pass that check would mislead every other app and is not done.
+Blender 4.1 and older had an AMD Metal path (unverified on this machine). EEVEE and the viewport use Metal (not
+checked here).
+
+## Not done yet
+
+Photos and video wallpaper by use, the AV1
+fallback, H.264 on VCN, the Fable clean-up pass.

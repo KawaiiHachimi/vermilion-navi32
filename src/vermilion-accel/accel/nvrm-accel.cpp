@@ -106,6 +106,9 @@ SYSCTL_INT(_debug, OID_AUTO, nvaccel_igpu, CTLFLAG_RW | CTLFLAG_LOCKED | CTLFLAG
 // ready, like an eGPU hotplug). Shared global in this one kext: NMXAccel owns the sysctl, PhxAMDFB reads the global.
 int gPhxFbGo = 0;   // backing value for debug.phxfb_go; the SYSCTL_PROC handler (phxfb_go_sysctl, after the class) also
                     // publishes/clears the "phxfb-go" property on the IOPCIDevice so PhxAMDFB matches + takes the panel.
+#ifdef PHX_FB
+static int gPhxGl = 0;   // debug.phxgl (thread 03): 1 = IOGLBundleName published on NMXAccel (NVAccel::publishGl)
+#endif
 
 extern "C" kern_return_t _start(kmod_info_t *ki, void *d); extern "C" kern_return_t _stop(kmod_info_t *ki, void *d);
 #ifdef NMX_ACCEL
@@ -713,6 +716,21 @@ public:
         } else {
             gAccel->fPCI->removeProperty("phxfb-go");
             ALOG("phxfb-go cleared on %s", gAccel->fPCI->getName());
+        }
+    }
+    // OpenGL on the GPU (thread 03): OpenGL.framework picks a hardware renderer from the IOGLBundleName property of an
+    // IOAccelerator. AppleMetalOpenGLRenderer.bundle (x86_64 slice present on macOS 26.7.1) runs OpenGL on the
+    // accelerator's Metal device. The NVIDIA path publishes it in onCountGrewLocked; the PHX_FB flow never got there,
+    // so every OpenGL app drew with the Apple Software Renderer. Published / removed by debug.phxgl, so it can be
+    // turned off without a restart; running processes keep the renderer they started with.
+    static void publishGl(int on) {
+        if (!gAccel) { ALOG("sysctl debug.phxgl=%d but no NVAccel is running", on); return; }
+        if (on) {
+            gAccel->setProperty("IOGLBundleName", "AppleMetalOpenGLRenderer");
+            ALOG("IOGLBundleName=AppleMetalOpenGLRenderer -- OpenGL processes started from now get OpenGL over Metal");
+        } else {
+            gAccel->removeProperty("IOGLBundleName");
+            ALOG("IOGLBundleName removed -- OpenGL processes started from now get the Apple Software Renderer");
         }
     }
 #ifdef PHX_FB
@@ -1571,6 +1589,21 @@ static int phxfb_go_sysctl SYSCTL_HANDLER_ARGS
 SYSCTL_PROC(_debug, OID_AUTO, phxfb_go, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED | CTLFLAG_KERN,
             NULL, 0, phxfb_go_sysctl, "I",
             "1 = Metal confirmed; publish phxfb-go on the GPU so PhxAMDFB takes the panel (set by the phxboot daemon)");
+// debug.phxgl (default 0): 1 = publish IOGLBundleName=AppleMetalOpenGLRenderer on this accelerator (OpenGL over Metal for
+// OpenGL processes started afterwards), 0 = remove it. See NVAccel::publishGl.
+static int phxgl_sysctl SYSCTL_HANDLER_ARGS
+{
+    int v = gPhxGl;
+    int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || req->newptr == 0) return err;
+    if (v != 0 && v != 1) return EINVAL;
+    gPhxGl = v;
+    NVAccel::publishGl(gPhxGl);
+    return 0;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxgl, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED | CTLFLAG_KERN,
+            NULL, 0, phxgl_sysctl, "I",
+            "1 = OpenGL over Metal (IOGLBundleName=AppleMetalOpenGLRenderer) for OpenGL processes started afterwards, 0 = off");
 // Terminate the coexisting firmware IONDRVFramebuffer so PhxAMDFB is the SOLE display. The IONDRV framebuffer poisons
 // CoreDisplay's display<->pipe topology: CoreDisplay binds its vsync clock to the IONDRV display (the recurring "Unable to
 // find display pipe for IOFB service / regID <IONDRV>" error) and so WindowServer never issues set_pipe_index/request_notify
@@ -1869,6 +1902,7 @@ static void nvaccelInstallSysctl(void)
 #ifdef PHX_FB
     sysctl_register_oid(&sysctl__debug_phxfb_go);   // the daemon sets this once Metal is live; PhxAMDFB waits on it
     sysctl_register_oid(&sysctl__debug_phxfb_kill_iondrv);   // terminate the coexisting IONDRV so PhxAMDFB is the sole display
+    sysctl_register_oid(&sysctl__debug_phxgl);   // thread 03: OpenGL over Metal, off until written
 #endif
     sysctl_register_oid(&sysctl__debug_nvaccel_vm_alloc);       sysctl_register_oid(&sysctl__debug_nvaccel_vm_alloc_bytes);
     sysctl_register_oid(&sysctl__debug_nvaccel_vm_dealloc);     sysctl_register_oid(&sysctl__debug_nvaccel_vm_dealloc_bytes);

@@ -534,6 +534,19 @@ an AV1 session our decoder refuses fails instead of falling back, so AV1 stays o
 **Revisit:** if a way to load an ad-hoc decoder from the Data volume early enough turns up (thread 09's sealed-system
 goal), or once the bundle can be signed.
 
+## 2026-11-23: the unsealed system volume is a 09 blocker; system-volume changes need the owner's OK
+
+**Decision:** keep `PhxVideoDecoder.bundle` on the system volume for now (system-wide hardware decode is a Mac
+feature), and record the unsealed volume as a blocker for thread 09 (ROADMAP row 09, TODO 09). From now on every
+change to the system volume is asked for first; it is no longer a routine reversible step.
+**Why:** the seal was broken because only a bundle VideoToolbox reads at registry time is used, and the one location
+that keeps the seal, `/Library/Video/Plug-Ins`, drops ad-hoc bundles (decision above). That collides with 09's goals
+(sealed system, SIP towards `0x0`, Apple Secure Boot) and the update path.
+**Cost:** macOS offers only full updates (no delta updates) and the Mac no longer boots a sealed snapshot; an update
+also removes the bundle. **Undo:** `sudo bless --mount / --last-sealed-snapshot` and a restart (Apple's sealed
+snapshot `com.apple.os.update-590AC978...` is kept); set `phxdec-off` first, or AV1 sessions fail.
+**Revisit:** when 09 finds a seal-keeping route (TODO 09 lists the candidates).
+
 ## 2026-11-23: the plugin lives under CoreTypes.bundle (firmlink), symlinked from /Library/GPUBundles
 
 **Decision:** `relocate_gpubundle.sh` on the reference machine: `NVMTLDriver.bundle` and `nvmtl/` in
@@ -552,3 +565,14 @@ standard ICD folders, not to `/Library/GPUBundles/nvmtl/`.
 apps that work today; that switch, and the swapchain's speed (a host copy plus a Metal blit per frame), are thread
 13's (TODO 13 item 6). The plugin looks for `libvulkan.dylib` / `radeon_icd.json` in `nvmtl/`, so nothing goes there.
 Patch 0020 is under `VK_USE_PLATFORM_METAL_EXT`, so the plugin's RADV build stays the same code.
+
+## 2026-11-23: OpenGL through Apple's OpenGL-over-Metal renderer, on by default; Zink not pursued
+
+**Decision:** OpenGL apps use `AppleMetalOpenGLRenderer.bundle` (shipped with macOS 26.7.1, x86_64 slice) on our
+Metal device: VermilionAccel publishes `IOGLBundleName` when `debug.phxgl=1`, and the boot daemon sets it with the flag
+`~/gpu/phxboot-gl` (set on the reference machine). Zink stays unbuilt.
+**Why:** it is what a real Mac does (OpenGL on Apple silicon is this renderer), every OpenGL app gets it with no
+per-app setup, and it worked on the first try: correct pixels, ~190x the software renderer on a small draw test,
+Minecraft 26.3 playable (thread 03 finding section 8). Mesa's Zink has no CGL / NSOpenGL front end on macOS.
+**Cost:** OpenGL speed and correctness now depend on our Metal plugin (its gaps show up in OpenGL apps too).
+**Undo:** `sudo sysctl -w debug.phxgl=0` (new processes) and `rm ~/gpu/phxboot-gl` (from the next boot).

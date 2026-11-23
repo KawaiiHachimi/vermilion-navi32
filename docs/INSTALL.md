@@ -518,6 +518,7 @@ stated.
 | `phxboot-b15` | after `done`, desktop boot | `b15_boot.sh`: the display power recipe (watermarks, DET, DAL watermark table, HUBP rate group, then memory self-refresh) with an underflow watchdog for the whole boot |
 | `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> 20-24 W at idle |
 | `phxboot-bovram` (value: comma-separated process names) | after `done`, desktop boot | VermilionBoot b156's VRAM-backed buffers for those processes: the kext's self-test, then `debug.phxbo_vram_proc` and `debug.phxbo_vram=1`. Names as the kernel keeps them (`ps -o comm` without the path, cut at 16 characters); `WindowServer` is refused. On the XTX machine: buffer bandwidth 42.9 -> 840.9 GB/s |
+| `phxboot-gl` | after `done`, desktop boot | OpenGL over Metal: `debug.phxgl=1` (VermilionAccel publishes `IOGLBundleName=AppleMetalOpenGLRenderer`), read back. OpenGL apps started afterwards get the GPU instead of the Apple Software Renderer; `sudo sysctl -w debug.phxgl=0` turns it off for new apps without a restart. Verified on the XTX machine 2026-11-23 |
 | `phxboot-wsprefs` | before the restart | no longer used; the daemon only logs that it can be removed |
 
 Flags read by the helper scripts, not by the daemon itself:

@@ -48,7 +48,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 | Other LG modes | fixed rates only (1080p60/120, 1280x1024@75, 1024x768, 800x600, 640x480), no VRR / HDR (owner's choice, decisions 2026-11-22) | same | 01 |
 | Display identity, scaling | reports 591 x 332 mm since 2026-11-23 04:15 (PhxAccel gives every mode the EDID's size; before: 903 x 508 mm = 2560 x 1440 at 72 dpi). macOS lists no HiDPI / scaled modes | [GPU stability](../.agents/findings/2026-11-23-gpu-stability.md) sections 3 and 8 | 01 |
 | Failed DP link training | once on b150 (2026-11-22 20:19, login switch to 1440p60 HDR): black screen, switching locked until reboot; the daemon still said `SUCCESS`. Since 2026-11-23 (b151-b155): Linux's training retries, a failed from plan runs once more, a switch whose last link window needed a retry runs again, and the daemon reports `DARK` for a latched engine; about a dozen login switches at 1440p60 HDR landed. The LG still misses the first AUX access after D3 at times (the retry and the re-switch cover it) | [Bluetooth finding, "Boots"](../.agents/findings/2026-11-22-bluetooth.md) (seen during that boot), [GPU stability](../.agents/findings/2026-11-23-gpu-stability.md) | 01 |
-| OpenGL / OpenCL / Vulkan | OpenGL: Apple Software Renderer; OpenCL: CPU only. Vulkan: an opt-in Khronos loader + RADV ICD with a window surface (patch 0020) in `/usr/local/lib/vermilion` since 2026-11-23 (`VK_DRIVER_FILES=/usr/local/share/vermilion/vulkan/icd.d/radeon_icd.json`; no app uses it by default) | [APIs / video](../.agents/findings/2026-11-23-apis-video.md) | 03 |
+| OpenGL / OpenCL / Vulkan | OpenGL: **on the GPU** since 2026-11-23 23:25 through Apple's `AppleMetalOpenGLRenderer` (OpenGL 4.1 over our Metal device; VermilionAccel `debug.phxgl=1`, daemon flag `phxboot-gl`; Minecraft 26.3 runs on it, 40-80 fps by eye); before: Apple Software Renderer. OpenCL: **CPU and GPU** since the same switch (Apple's OpenCL finds the GPU through `IOGLBundleName`; device "AMD Radeon RX 7900 XTX (RADV NAVI31) ...", OpenCL 1.2, 96 CUs, 6144 MiB; a 4M-element kernel matches the CPU). Vulkan: an opt-in Khronos loader + RADV ICD with a window surface (patch 0020) in `/usr/local/lib/vermilion` since 2026-11-23 (`VK_DRIVER_FILES=/usr/local/share/vermilion/vulkan/icd.d/radeon_icd.json`; no app uses it by default) | [APIs / video](../.agents/findings/2026-11-23-apis-video.md) | 03 |
 | WebGL / WebGPU | Safari's GPU process maps the plugin since 2026-11-23 18:07 (`relocate_gpubundle.sh`; before: sandbox-blocked, WebGL contexts lost, no WebGPU adapter): WebGL 1 / 2 and a WebGPU `amd` adapter in a WKWebView; Safari by eye not checked yet | same | 03 |
 | Video decode | HEVC (8 / 10-bit) and AV1 decode on VCN through VideoToolbox system-wide since 2026-11-23 18:21 (VCN up at boot, `PhxVideoDecoder.bundle` on the system volume): bit-exact against Apple's decoder and the AOM conformance MD5s; `VTIsHardwareDecodeSupported` HEVC / AV1 true. H.264 and HEIC still on the CPU; an AV1 session our decoder refuses does not fall back | [APIs / video](../.agents/findings/2026-11-23-apis-video.md) | 03 |
 | Shader cache | apps started normally have Mesa's disk cache (`~/.cache/mesa_shader_cache` fills). Processes started from T3 Code inherit a `MESA_SHADER_CACHE_DIR` pointing at root's cache and get `Permission denied` | thread 00.1's final report (2026-11-23) | 02 |
@@ -68,7 +68,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 | Shutdown / restart | clean: 15 boots with previous-shutdown cause 5, SMART "Unsafe Shutdowns" unchanged over 6+ restarts (cold shutdown not checked); restart to accelerated desktop ~67 s | same | 11 |
 | Panics | one at a restart (2026-11-19 22:44), cause unknown; no report is ever saved (`DisableVariableWrite` blocks the NVRAM panic log: from the config, not watched failing) | [flicker / heat](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) | 01 |
 | NVRAM | read-only from macOS (`DisableVariableWrite`, against the Ryzen 7000 installer hang) | efi/machines | 01 |
-| SIP / AMFI / Gatekeeper | SIP custom `0x0A03` (system volume still sealed). **AMFI enforcing** since 2026-11-22 23:45: no `amfi=0x80`; VermilionTrust lets only Vermilion's cdhashes through (`debug.phxtrust_stat`: `mode=enforce list=6 denied_unlisted=0`); third-party apps no longer platform binaries. AMFIPass still loaded (need unknown). Gatekeeper on (status only; no app assessed). XProtect data updates on (`ConfigDataInstall = 1`); macOS and Rapid Security Responses pinned | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 09 |
+| SIP / AMFI / Gatekeeper | SIP custom `0x0A03`. System volume **not sealed** since 2026-11-23 18:20 (the video decoder bundle; APFS row; seal-keeping route: TODO 09). **AMFI enforcing** since 2026-11-22 23:45: no `amfi=0x80`; VermilionTrust lets only Vermilion's cdhashes through (`debug.phxtrust_stat`: `mode=enforce list=6 denied_unlisted=0`); third-party apps no longer platform binaries. AMFIPass still loaded (need unknown). Gatekeeper on (status only; no app assessed). XProtect data updates on (`ConfigDataInstall = 1`); macOS and Rapid Security Responses pinned | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) | 09 |
 | Privacy prompts (TCC) | the Screen Recording prompt appeared and was granted (2026-11-23); camera / microphone prompts untested | macOS integration | 09 |
 | iServices | APNs connected; iMessage and FaceTime **registered** (IDS HTTP 200; nothing sent or called yet); iCloud signed in; SMBIOS well-formed (MacPro7,1), ROM = the I225-V's MAC; `en0` built-in Ethernet since 2026-11-23 00:01 | Apple services / security | 09 |
 | DRM | Apple Music (FairPlay 1.x) plays full songs since 2026-11-23 (it needed a built-in `en0`); the Music crash in the plugin is fixed (plugin `33b9a186`, owner: plays "consistently"). Apple TV films and Safari FairPlay video fail (`-12906`, no decoder for the protected stream): a known limit (ROADMAP). Widevine untested | same | 09 |
@@ -148,9 +148,10 @@ add each change here with the thread's number.
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
 - **Outside the EFI:**
-  - VermilionAccel with mode id 18 and the EDID's physical size in every mode (thread 01) in `/Library/Extensions`
-    (AuxKC; sha256 `26685255`, since 2026-11-23 04:15). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`
-    (`c6341e87`), then `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
+  - VermilionAccel with `debug.phxgl` (thread 03: OpenGL over Metal, off until written) in `/Library/Extensions`
+    (AuxKC; sha256 `2578b185`, UUID `2B25514A`, since 2026-11-23 23:18 boot; otherwise thread 01's build: mode id 18,
+    the EDID's physical size). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123` (thread 01's,
+    sha256 `26685255`), then `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`), then `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
     the kext": the **Allow** click rebuilds the AuxKC, not the restart).
   - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver cdhash `344c621f` (sha256 `cf531a38`) since
     EFI change 22 (thread 02 C2: app `CAMetalLayer` drawables drawn into a tiled image and copied to their pages, once
@@ -182,12 +183,12 @@ add each change here with the thread's number.
     Remove: `sudo rm -r /usr/local/lib/vermilion /usr/local/share/vermilion`.
   - mesboot `/usr/local/sbin/mesboot` (sha256 `0fb1feb1`) with the GFXHUB system aperture from FB_LOCATION (24 GiB on
     the XTX) since EFI change 17. Rollback: `~/vermilion-rollback/mesboot.pre-aperture`.
-  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo apart from two comments
-    of the pre-merge clean-up, thread 02 part C, with `ws_tiled` and `bovram_boot`), flags `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`,
+  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo since 2026-11-23 23:35,
+    thread 03, with `gl_boot`), flags `gl` (thread 03: OpenGL over Metal), `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`,
     `wscdcopy`, `waitstep` (200), `vrrmin` (60), `irqwait`, `idledpm`, `idledpm-dcf` (thread 02, since 2026-11-23
     07:51), `bovram` (`horizon-client,java`: the processes whose BOs live in VRAM), `autologin`, `auto` (re-arms
     `phxfb-squat` at SUCCESS). `wstiled` is absent on purpose (C3 measured worse). Previous daemons:
-    `~/vermilion-rollback/phxboot-navi31.sh.pre-wstiled`, `.pre-bovram`, `.pre-thread02`, `.pre-thread01`,
+    `~/vermilion-rollback/phxboot-navi31.sh.pre-gl`, `.pre-wstiled`, `.pre-bovram`, `.pre-thread02`, `.pre-thread01`,
     `~/gpu/phxboot-navi31.sh.prev`.
   - `/Library/GPUBundles/nvmtl/ws-gpu-present` and `ws-gpu-present-async` (GPU present on).
   - Network: `NetworkInterfaces.plist` / `preferences.plist` with Ethernet `en0`, Wi-Fi `en1` (2026-11-23; backup
@@ -381,8 +382,8 @@ after the self-test), in one run at 09:45-09:47. GPU time per frame, median. Lin
 | `metalbench bandwidth 10` | Metal | 44.0 GB/s | **836.9 GB/s** | no twin (Vulkan 823 / 837) |
 | **Horizon** (Minecraft Java 26.3 in Rust, nightly 2026-11-13; fullscreen 2560x1440, render distance 12, Immediate present; `horizon-ctl bench 20`) | Metal (wgpu) | 93.1 / 83.3 fps avg (off before / after); p50 10.8 / 11.5 ms; 1 % low 61 / 53 fps | **158.0 fps** (1.7-1.9x); p50 6.3 ms; 1 % low 118 fps. With b159-b160 and the tiled drawable (2026-11-23 16:43, `horizon-ctl bench 15`): **292 fps**, p50 3.41 ms, p99 4.13 ms (drawable on its pages: 172 fps, p50 5.82 ms) | 4370 fps, p50 0.22 ms ([finding](../.agents/findings/2026-11-23-linux-horizon.md)) |
 | clpeak (`metal:0`, `coreml:0`) | Metal, MPS | **hung the GPU** in its MPS pass (VRAM off; [finding](../.agents/findings/2026-11-23-clpeak-hang.md)): out of the set | not run | - |
-| OpenGL (any app, Minecraft Java) | OpenGL | CPU fallback: Apple Software Renderer, not measured | same (VRAM BOs don't apply) | - |
-| OpenCL, Blender Cycles | OpenCL / Metal | CPU fallback (Cycles lists only the CPU), not measured | same | - |
+| OpenGL (any app, Minecraft Java) | OpenGL | GPU through `AppleMetalOpenGLRenderer` since 2026-11-23 (thread 03): 200 small draws 0.82 ms vs 158 ms on the software renderer; Minecraft 26.3 40-80 fps by eye | same (VRAM BOs don't apply) | - |
+| OpenCL, Blender Cycles | OpenCL / Metal | OpenCL on the GPU since 2026-11-23 (thread 03; 4M-element kernel 1.44 ms, system-memory buffers); Cycles stays on the CPU (Blender 4.2+ takes only Apple-silicon GPUs) | same | - |
 
 VRAM pass: 48 BOs allocated and freed, peak 565 MiB, 48 clears (2287 MiB, avg 6.1 ms, max 29.8 ms), no fallback,
 no leak, no failed clear. No error in either pass; WindowServer stayed up.
@@ -427,7 +428,7 @@ XTX machine, VermilionBoot b160, 1440p240 HDR, thread 02 daemon (idle DPM, inter
   underflow and no loss under load (perf / power section 9); `phxboot-idledpm` makes it a boot step (thread 02).
 - RADV ran the XT's canned profile on the XTX (84 CU, XT name) until EFI change 15: patch 0018 picks Mesa's `navi31`
   for revision 0xC8 (pixel shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
-- OpenGL apps run on the CPU (Apple Software Renderer).
+- OpenGL apps run on the GPU through Apple's OpenGL-over-Metal renderer since 2026-11-23 (`phxboot-gl`); their speed is thread 13's.
 - Debug boot settings (verbose boot, OpenCore logging) cost boot time *(unmeasured)*.
 - Storage: random 4 KiB I/O is CPU-bound in Apple's NVMe stack (~9 us of kernel CPU per I/O). Every barrier / full
   fsync is a ~1.5 ms cache flush (the drive has no barrier support). APFS copy-on-write fragments randomly overwritten

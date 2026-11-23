@@ -4,7 +4,9 @@
 // webprobe: what a WebKit page gets on this machine, through the same WebKit GPU process (and sandbox) Safari uses.
 // Loads an inline page in an off-screen WKWebView and prints, as JSON: the WebGL 1 / WebGL 2 renderer and vendor
 // (WEBGL_debug_renderer_info), a few limits, whether WebGPU gives an adapter (and its info), and how long a small WebGL
-// draw loop takes (100 full-viewport draws of a 512x512 canvas, read back once). Draws only into its own canvas.
+// draw loop takes (100 full-viewport draws of a 512x512 canvas, read back once), and what MSE / Media Capabilities say
+// about AV1, VP9, HEVC and H.264 at the sizes YouTube serves (what a site picks its stream from). Draws only into its
+// own canvas.
 // Build: xcrun clang -arch x86_64 -fobjc-arc -O1 -o webprobe tools/metaltest/webprobe.m -framework Cocoa -framework WebKit
 // Run:   ./webprobe [timeout seconds, default 20]
 //        ./webprobe <timeout> <movie>   plays <movie> muted in a <video> element for 2 s and prints the frames WebKit
@@ -38,6 +40,14 @@ static NSString *const kPage = @"<!doctype html><html><body><canvas id=c width=5
 "  const t0=performance.now();for(let i=0;i<100;i++){g.uniform1f(u,i);g.drawArrays(g.TRIANGLES,0,3);}\n"
 "  g.readPixels(0,0,1,1,g.RGBA,g.UNSIGNED_BYTE,px);r.draw100ms=+(performance.now()-t0).toFixed(2);r.pixel=[...px];}\n"
 " catch(e){r.draw='error '+e;}\n"
+" post('step media');try{const cs={'av1-2160p60':['video/mp4; codecs=\"av01.0.13M.10\"',3840,2160],\n"
+"  'av1-1440p60':['video/mp4; codecs=\"av01.0.12M.10\"',2560,1440],'vp9-2160p60-10':['video/webm; codecs=\"vp09.02.51.10\"',3840,2160],\n"
+"  'vp9-2160p60':['video/webm; codecs=\"vp09.00.51.08\"',3840,2160],'hevc-2160p60':['video/mp4; codecs=\"hvc1.2.4.L153.B0\"',3840,2160],\n"
+"  'h264-1080p60':['video/mp4; codecs=\"avc1.64002A\"',1920,1080]};r.media={};\n"
+"  for(const[k,[t,w,h]] of Object.entries(cs)){const e={mse:self.MediaSource?MediaSource.isTypeSupported(t):null};\n"
+"   try{const i=await navigator.mediaCapabilities.decodingInfo({type:'media-source',video:{contentType:t,width:w,height:h,\n"
+"    framerate:60,bitrate:20000000}});e.supported=i.supported;e.smooth=i.smooth;e.powerEfficient=i.powerEfficient;}\n"
+"   catch(x){e.error=''+x;}r.media[k]=e;}}catch(e){r.media='error '+e;}\n"
 " post(JSON.stringify(r));}\n"
 "probe();</script></body></html>";
 

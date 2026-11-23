@@ -83,13 +83,18 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 Since 2026-11-23 (thread 03): Safari's GPU process has the Metal plugin, and HEVC / AV1 decode on the GPU (VCN). Quit
 and reopen Safari once before these tests (a Safari that was open before 18:07 keeps the old GPU process).
 
-- [ ] **WebGL and WebGPU in Safari:** load the WebGL Aquarium and a WebGPU sample (for example from
-      webgpu.github.io/webgpu-samples). Does it draw, is it smooth, does anything crash?
+- [x] **WebGL and WebGPU in Safari** (2026-11-23): `workloadSimulator` fine; some samples error, glitch or are slow.
+      Triaged by 03 (finding section 7: translator failures, render bundles, black textures): thread 13 fixes them.
+- [ ] **WebGL Aquarium** in Safari: does it draw, is it smooth?
 - [ ] **The same in a Chromium browser** (Chrome, Brave, Edge).
 - [ ] **Minecraft:** start it in Prism Launcher, press F3, and read the renderer line and the frame rate.
-- [ ] **4K video:** play a 4K video in Safari (YouTube 4K: AV1 or VP9) and an HEVC `.mov` in QuickTime, and watch
-      CPU use in Activity Monitor. Expected now: low for HEVC / AV1 (hardware decode); smooth, no blocks or colour
-      faults. Note anything odd and the time.
+- [x] **4K YouTube in Safari** (2026-11-23): stutters and glitches. Decode is bit-exact at 4K (03 checked), so the
+      cause is presentation / timing; thread 13 fixes it (TODO 13 item 11).
+- [ ] **YouTube at 1440p meanwhile:** play the same 4K video, set the quality to 1440p60 in the gear menu, right-click
+      the video > "Stats for nerds", and after a minute send the "Codecs" line and "Dropped Frames" (also at 2160p60
+      for comparison). Smooth at 1440p?
+- [ ] **An HEVC video in QuickTime:** any iPhone video (HEVC) copied to the Mac, opened in QuickTime. Smooth, no
+      blocks or colour faults? Activity Monitor's CPU use for QuickTime Player.
 - [ ] **Quick Look:** open `/System/Library/Desktop Pictures` in Finder's Gallery view, press Space on a `.heic`
       file and on a video file, and note how long each preview takes.
 - [ ] **Video wallpaper:** System Settings > Wallpaper, pick a moving (Aerial) wallpaper. Does it play? Note Activity
