@@ -25,6 +25,14 @@ results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean a
 Thread 02 part B: **EFI change 16** (VermilionBoot b156, VRAM-backed BOs, off at boot) booted 08:54 and is verified
 (PROJECT_KNOWLEDGE). Rollback: `EFI/OC.prev` = change 15, copy in `~/vermilion-rollback/EFI-OC.change15-20261123`.
 
+Thread 02 part C: **EFI change 17** (VermilionBoot b157: GPU time per context, off by default) **plus mesboot with
+the system aperture from FB_LOCATION** (24 GiB on the XTX, `0x00217fbf`; the XT keeps `0x00213fbf`), installed together
+2026-11-23 for one boot. Check after the boot: accelerated desktop at 1440p240 HDR; `phxctl regs 0x28DE` reads
+`0x00217fbf`; `debug.phxbo_vram_stat` pool `[512, 24464)` MiB and `debug.phxbo_vram_selftest` 1 (it now tests the
+pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.prev` = change 16 (copy in
+`~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
+/usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
+
 Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
 
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
