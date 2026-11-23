@@ -22,9 +22,7 @@ State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC
 Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
 results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
 
-Thread 02 part B (2026-11-23 08:08): **ESP** `<ESP>/vermilion/LINUX-THREAD02B.md` for the next Linux session (fan chip
-via `nct6775`, firmware versions, VRAM reservations, optional UCLK under a VRAM load); it writes `results-02b/`.
-Afterwards copy them off and delete both from the ESP.
+Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
 
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
 07:51 and is verified (PROJECT_KNOWLEDGE). Rollback: `rm ~/gpu/phxboot-irqwait ~/gpu/phxboot-idledpm
@@ -107,10 +105,10 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
 - [~] **Idle power:** live 53.5 -> 23.5 W socket at 1440p240 HDR with Linux's messages, 0 underflows in 20 min, nothing
       slower under load ([perf finding](findings/2026-11-23-perf-power.md) 9). On at boot since 07:51 (socket 23 W idle).
       Left: a few days of use; other modes (60 / 120 / 144, SDR) only seen through the mock so far
-- [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip). Linux loads no Super I/O driver either; the board is in
-      `nct6775`'s ASUS-WMI list (the chip sits behind ACPI WMI methods, so direct port access may race the firmware).
-      Missing: the chip's name (`sudo modprobe nct6775; sensors` at the next Linux boot, owner's OK) and whether its
-      ports are safe to read beside the ACPI WMI methods; then one EFI change. Not in PR A
+- [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip; knows the NCT6799D). Chip named 2026-11-23: **NCT6799D at
+      0x2e:0x290**, fan2 1046 RPM ([linux-02b](findings/2026-11-23-linux-02b.md)). Linux reads it through ASUS's ACPI WMI
+      methods; SMCSuperIO uses the ports directly (nothing on macOS calls those methods; a clash unverified). Its own EFI
+      change (one per boot): owner's call when, not bundled with the VRAM kext boot
 - [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
 - [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target. The SMU feature masks
       (0x71ffffff / 0x0003ebb8) are decoded (`tools/phxctl/smufeatures.py`) and equal Linux's
@@ -120,8 +118,9 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       plugin (unset once RADV is up) and patch 0019 (the init line to the unified log): change 15. Verified 07:22: no
       `MESA_*` / `NVRM_*` in T3 Code's environment; the init line in the unified log only. Left: the `Permission denied`
       line, if a tool still prints it
-- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): compare
-      with what the firmware macOS loads (`tools/firmware/fw.lock`) reports, and whether RADV keys anything off them
+- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790, all versions
+      in [linux-02b](findings/2026-11-23-linux-02b.md)): compare with what the firmware macOS loads (`tools/firmware/fw.lock`)
+      reports, and whether RADV keys anything off them
 
 ## 03 Graphics APIs and video
 

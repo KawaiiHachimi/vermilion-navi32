@@ -43,7 +43,9 @@ clear, and the life cycle.
 | 256 - 352 MiB | large scan slots (1440p GPU present) | `PhxScanLayout.h` |
 | top of VRAM | firmware: PSP TMR, **19 MiB at MC 0x85_fc00_0000** (Linux dmesg 2026-11-23), DMUB regions, "firmware above 24560 MiB" | XTX.md, linux-reference; `amdgpu_vram_mm` prints no per-range reserved list, so the DMUB ranges stay to be read from dmesg / debugfs |
 
-The pool for client BOs: **[512 MiB, top - Linux's reserved regions - a margin)**, about 23 GiB. 352-512 MiB stays
+The pool for client BOs: **[512 MiB, top - Linux's reserved regions - a margin)**, about 23 GiB. Linux (2026-11-23,
+[linux-02b](2026-11-23-linux-02b.md)): VRAM MC 0x80_0000_0000 - 0x85_FEFF_FFFF (24560 MiB), the PSP TMR at offsets
+24512-24531 MiB, DMUB in ordinary buffers; on Linux UCLK rises to 1249 MHz within 0.5 s of a VRAM load (837 GB/s). 352-512 MiB stays
 free as headroom for the fixed regions.
 
 ## Design
