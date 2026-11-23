@@ -128,6 +128,10 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       in [linux-02b](findings/2026-11-23-linux-02b.md)): compare with what the firmware macOS loads (`tools/firmware/fw.lock`)
       reports, and whether RADV keys anything off them
 
+- [ ] **A fixed cost per presented frame** (Horizon fullscreen 1440p ~160 fps vs >3x on Linux by the owner's report;
+      a 1280x720 window gives 328 fps): the app's drawable IOSurface in system memory plus WindowServer's composite,
+      ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). Next: per-context GPU time in
+      the kext; a Linux twin of the Horizon run; then drawables in VRAM / a direct fullscreen path / Resizable BAR.
 - [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault; WindowServer
       starved, daemon reverted to GOP: [finding](findings/2026-11-23-clpeak-hang.md)). Find the MPS kernel that does
       not finish (clpeak's `metal:0` runs MPSMatrix, `coreml:0` MPSNDArray); keep clpeak out of the benchmark set until then.
