@@ -236,6 +236,10 @@ pending (2026-11-23, thread 00).
       instead of the fixed tables
 - [ ] One boot log line with the PCI revision, DMCUB version, OTG0 totals, DP link rate / lanes, BAR0 length, VRAM
 - [ ] Split `nvmtl_vk.c`, `NVMTLObjects.m`, `nvrm-accel.cpp` where reviews get easier, in separate commits
+- [ ] Mock tests: five suites that already failed before thread 00 (`phxctl_serve_test.sh` 1 failed;
+      `b21guard_mut.sh` 1 bad, `bootflags_mut.sh` 2 bad, `bootrate_mut.sh` 4 missed + 1 bad, `wsprefs_mut.sh` 1 bad);
+      a first run on a real Linux machine
+      ([finding](findings/2026-11-18-mock-tests-on-linux.md))
 - [ ] Upstream PRs to leolivm (VermilionTrust first, the XTX profile and detection, derived apertures, portable tests)
 
 ## Later: virtualization (after the series)

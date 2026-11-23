@@ -7,7 +7,8 @@
 #   bash tests/mock/relight_mut.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=$HERE/../../tools/phxctl/b15_boot.sh
-TMP=$(mktemp -d /private/tmp/relight-mut.XXXXXX)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+TMP=$(mktemp -d "$MOCKTMP/relight-mut.XXXXXX")
 . "$HERE/mutlib.sh"   # PAR mutations at once (default 2)
 # mut <name> <B15ONLY glob: the rl_* scenarios that exercise the mutated step> <old> <new>. RLALL=1: every mutation against all
 # rl_* (the pre-11-04 check: each stops at its first FAIL anyway, but runs the scenarios before it)

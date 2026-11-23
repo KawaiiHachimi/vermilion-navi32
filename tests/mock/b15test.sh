@@ -9,6 +9,7 @@
 # server: srv_* = with / without it / gone mid-watch, *gen_skip, spawn_count = processes per poll). Exit 0 iff all pass.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); B15=${B15:-$HERE/../../tools/phxctl/b15_boot.sh}
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 PASSN=0; FAILN=0; IDX=0
 # PAR=<n>: the scenarios are split round-robin over n copies of this script run at once (B15SHARD=<k>/<n>, the same shell),
 # each scenario's lines are collected and printed in scenario order, then one RESULT. Default 2 for a full run, 1 with
@@ -16,7 +17,7 @@ PASSN=0; FAILN=0; IDX=0
 case "${B15ONLY:-}${B15STOP:-}" in '') PAR=${PAR:-2} ;; *) PAR=${PAR:-1} ;; esac
 if [ -z "${B15SHARD:-}" ] && [ "$PAR" -gt 1 ]; then
   case ":${SHELLOPTS:-}:" in *:posix:*) SHB=sh ;; *) SHB=bash ;; esac
-  PD=$(mktemp -d /private/tmp/b15par.XXXXXX); k=0; pids=""
+  PD=$(mktemp -d "$MOCKTMP/b15par.XXXXXX"); k=0; pids=""
   while [ $k -lt "$PAR" ]; do B15SHARD=$k/$PAR B15PARDIR=$PD B15=$B15 $SHB "$0" > "$PD/shard.$k" 2>&1 & pids="$pids $!"; k=$((k + 1)); done
   bad=0; k=0; for p in $pids; do wait $p; grep -q '^RESULT: [0-9]* passed' "$PD/shard.$k" || { bad=1; echo "SHARD $k/$PAR did not finish:"; cat "$PD/shard.$k"; }; k=$((k + 1)); done
   for i in $(ls "$PD" | grep -E '^[0-9]+$' | sort -n); do [ -e "$PD/$i.pre" ] && cat "$PD/$i.pre"; cat "$PD/$i"
@@ -29,7 +30,7 @@ mk() {   # mk <name>: fresh fake ~/gpu with GOP register state
   NAME=$1; SKIP=0; IDX=$((IDX + 1)); case "$NAME" in ${B15ONLY:-*}) ;; *) SKIP=1 ;; esac
   [ -n "${B15SHARD:-}" ] && [ $(( (IDX - 1) % ${B15SHARD#*/} )) -ne ${B15SHARD%/*} ] && SKIP=1
   if [ $SKIP = 1 ] && [ -n "$SKIPW" ]; then W=$SKIPW; G=$W/gpu; R=$W/regs; return 0; fi
-  W=$(mktemp -d /private/tmp/b15mock.XXXXXX); G=$W/gpu; R=$W/regs; mkdir -p "$G" "$R"; [ $SKIP = 1 ] && SKIPW=$W
+  W=$(mktemp -d "$MOCKTMP/b15mock.XXXXXX"); G=$W/gpu; R=$W/regs; mkdir -p "$G" "$R"; [ $SKIP = 1 ] && SKIPW=$W
   echo 0x00001002 > "$R/0x39BC"; echo 0x00000000 > "$R/0x4F8A"; echo 0x00000000 > "$R/0x3AB3"; echo 0x00000807 > "$R/0x4FEA"
   # serve = phxctl.bin's read server (one reply line per item: a register's value, @<sysctl> = the value with newlines as
   # blanks; the two engine-state sysctls through PHXB15_SWSTAT / PHXB15_SW0STAT when set, as sw / sw0); SIM_NOSERVE=1 = an
@@ -64,7 +65,7 @@ case "$1" in
           esac; echo "${x//$'\n'/ }"; done; done ;;
 esac
 EOF
-  sed -i '' "s|@R@|$R|" "$G/phxctl.bin"
+  mock_sedi "s|@R@|$R|" "$G/phxctl.bin"
   for s in wm144 det dalwm dal hubp_dlg uclk; do printf '#!/bin/sh\necho "%s $*" >> %s/calls; exit ${SIM_FAIL_%s:-0}\n' "$s" "$W" "$s" > "$G/$s.sh"; done
   chmod +x "$G"/*; }
 swstub() {   # swstub <busy> <gen>: the switch-state sysctl; each call also sets the OPTC1 underflow sticky (the switch's own mark)
@@ -463,7 +464,7 @@ case "$1" in
 esac
 exit 0
 EOS
-  sed -i '' "s|@R@|$R|; s|@W@|$W|" "$W/sysctl" "$G/cgmode"
+  mock_sedi "s|@R@|$R|; s|@W@|$W|" "$W/sysctl" "$G/cgmode"
   printf '#!/bin/sh\nIFS= read -r g < %s/gen; IFS= read -r m < %s/p1mode\necho "busy=${SWBUSY:-0} gen=$g mode=$m head1=1 last=done stage=7 why=done"\n' "$W" "$W" > "$W/swstat"
   printf '#!/bin/sh\necho "busy=${SW0BUSY:-0} gen=4 enable=1 mode=144 last=done"\n' > "$W/sw0"
   printf '#!/bin/sh\nIFS= read -r u < %s/uid && echo "$u"\n' "$W" > "$W/console"; printf '#!/bin/sh\nshift 5\nexec "$@"\n' > "$W/asuser"; echo 501 > "$W/uid"

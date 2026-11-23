@@ -1,10 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # recovery_install_test.sh: tools/phxctl/recovery_install.sh against a fake Data volume (no root, no chown). Runs on
-# macOS (PlistBuddy, plutil). Uses a stub payload, so it needs no build.
+# macOS (PlistBuddy, plutil), or Linux with the lib/bin shims. Uses a stub payload, so it needs no build.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); R=$HERE/../..; S=$R/tools/phxctl/recovery_install.sh
-T=$(mktemp -d "${TMPDIR:-/tmp}/rinst.XXXXXX"); PASSN=0; FAILN=0; PB=/usr/libexec/PlistBuddy
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+T=$(mktemp -d "${TMPDIR:-/tmp}/rinst.XXXXXX"); PASSN=0; FAILN=0; PB=$MOCK_PB
 payload() { P=$T/payload; mkdir -p "$P/build/VermilionAccel.kext/Contents/MacOS" "$P/tools/phxctl" "$P/fw/navi31"
   for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib phxctl mesboot metaltest spirv-val; do echo "$f" >"$P/build/$f"; done
   echo kext >"$P/build/VermilionAccel.kext/Contents/MacOS/VermilionAccel"; echo fw >"$P/fw/navi31/smu_13_0_0.bin"
@@ -17,7 +18,7 @@ data() {   # data <user>...: a fake Data volume with those users (uid 501, 502, 
           -c "Add :home:0 string /Users/$u" "$D/private/var/db/dslocal/nodes/Default/users/$u.plist" >/dev/null
     mkdir -p "$D/Users/$u"; id=$((id+1)); done
   "$PB" -c "Add :uid array" -c "Add :uid:0 string 0" "$D/private/var/db/dslocal/nodes/Default/users/root.plist" >/dev/null; }
-run() { VERMILION_PAYLOAD="$T/payload" VERMILION_DATA="$T/data" VERMILION_NOCHOWN=1 "$@" sh "$S" >"$T/out" 2>&1; echo $? >"$T/rc"; }
+run() { VERMILION_PAYLOAD="$T/payload" VERMILION_DATA="$T/data" VERMILION_NOCHOWN=1 VERMILION_PLISTBUDDY="$PB" "$@" sh "$S" >"$T/out" 2>&1; echo $? >"$T/rc"; }
 check() { local name=$1 ok=1 c; shift
   for c in "$@"; do eval "$c" || { ok=0; echo "    failed: $c"; }; done
   if [ $ok = 1 ]; then PASSN=$((PASSN+1)); echo "PASS  $name"; else FAILN=$((FAILN+1)); echo "FAIL  $name"; sed 's/^/    /' "$T/out"; fi; }

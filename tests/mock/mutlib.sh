@@ -8,7 +8,8 @@
 #   mut_end                           waits for the rest; CAUGHT / MISSED / BAD = the counts of those lines
 # PAR=1 = one mutation after the other (the old behaviour). The runners give the mock they call PAR=1 themselves, so
 # PAR jobs is the most that ever runs.
-MUTD=$(mktemp -d /private/tmp/mutlib.XXXXXX); MUTI=0; MUTO=1; MUTP=""
+[ -n "${MOCKTMP:-}" ] || . "$HERE/lib/portable.sh"
+MUTD=$(mktemp -d "$MOCKTMP/mutlib.XXXXXX"); MUTI=0; MUTO=1; MUTP=""
 mut_make() {
   python3 -c 'import sys; s=open(sys.argv[1]).read(); o=sys.argv[3]; n=sys.argv[4]
 if s.count(o) != 1: sys.exit(1)

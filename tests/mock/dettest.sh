@@ -6,9 +6,10 @@
 # live pipe and allowed on a blanked pipe 2, --lock uses OTG1's lock 0x50CA, rollback per pipe, stuck CURRENT -> rollback.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); DETSH=${DETSH:-$HERE/../../tools/phxctl/det.sh}
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 PASSN=0; FAILN=0
 mk() {
-  W=$(mktemp -d /private/tmp/detmock.XXXXXX); R=$W/regs; mkdir -p "$R" "$W/gpu"
+  W=$(mktemp -d "$MOCKTMP/detmock.XXXXXX"); R=$W/regs; mkdir -p "$R" "$W/gpu"
   for a in 0x397B 0x397C 0x397D 0x397E; do echo 0x00000303 > "$R/$a"; done
   echo 0x00000202 > "$R/0x397A"; echo 0x00001002 > "$R/0x39BC"
   echo 0x00000000 > "$R/0x3AB3"; echo 0x00000000 > "$R/0x3B8F"; echo 0x00000001 > "$R/0x3C6B"; echo 0x00000001 > "$R/0x3D47"

@@ -10,6 +10,7 @@
 # the lock-not-acknowledged path, the flip re-enable and the dead-script guard. Exit 0 iff all pass.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); S=${P0PF:-$HERE/../../tools/phxctl/p0prefetch.sh}
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 DUMP=${P0PF_DUMP:-$HERE/fixtures/p0prefetch-regs.txt}
 # The register dump (one "0xADDR: 0xVALUE" line per register, read on the box with PhxBringup loaded) is not shipped:
 # it is a capture of one machine. Without it this test is skipped (exit 77).
@@ -19,7 +20,7 @@ LINUXW='0x0504A 0x00000001,0x05046 0x0000002C,0x05047 0x006A0226,0x05048 0x00000
 GOPW='0x0504A 0x00000001,0x05046 0x0000000D,0x05047 0x01400226,0x05048 0x0000012C,0x039EE 0x84610000,0x03B04 0x00001136,0x03B06 0x00000000,0x03B07 0x28080000,0x03B09 0x00000301,0x0504A 0x00000000,'
 ALLOWED=' 0x0504A 0x05046 0x05047 0x05048 0x039EE 0x03B04 0x03B06 0x03B07 0x03B09 '
 mk() {   # mk <name>: fresh fake ~/gpu with the dump's register state
-  W=$(mktemp -d /private/tmp/p0pfmock.XXXXXX); G=$W/gpu; R=$W/regs; mkdir -p "$G" "$R"
+  W=$(mktemp -d "$MOCKTMP/p0pfmock.XXXXXX"); G=$W/gpu; R=$W/regs; mkdir -p "$G" "$R"
   while read -r a v; do a=${a%:}; printf '0x%08X\n' "$((v))" > "$R/$(printf 0x%05X "$((a))")"; done < "$DUMP"
   echo 1 > "$W/flip"
   cat > "$G/phxctl.bin" <<EOF

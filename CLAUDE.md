@@ -69,9 +69,10 @@ only the owner can do: [`.agents/OWNER-TESTS.md`](.agents/OWNER-TESTS.md).
 - **A plugin, translator or RADV install is also a VermilionTrust + EFI change** (new cdhashes):
   `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, rebuild and install the EFI, one boot
   ([runbooks](.agents/runbooks.md), "Deploying a plugin, translator or RADV build").
-- Linux *can* run the mock tests, but today they hardcode `/private/tmp` and BSD tools (`stat -f`, PlistBuddy, ...).
-  Making them portable is on the TODO list. Until then, run `bash tests/mock/run.sh` and
-  `bash tests/mock/b15test.sh` on macOS before deploying a daemon or script change.
+- Before deploying a daemon or script change, run `bash tests/mock/run.sh` and `bash tests/mock/b15test.sh`. The mock
+  suites take their temp dir and stand-ins for the macOS tools from `tests/mock/lib/portable.sh`, so they are meant to
+  run on Linux too. That is checked on a Mac with GNU tools first on PATH, not yet on a real Linux machine
+  (unverified; [`tests/mock/README.md`](tests/mock/README.md), "Running on Linux").
 - After a kext change: bump `PHX_KEXT_BUILD` (`src/vermilion-boot/PhxBringup.cpp`) and add a line at the top of
   `src/vermilion-boot/CHANGELOG.md`. Nothing enforces it (`kext.sh` doesn't check): do it by hand.
 - On Linux, the XTX is live under amdgpu. Read-only queries (libdrm ioctls, sysfs) are fine. Register dumps and traces

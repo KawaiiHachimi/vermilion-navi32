@@ -8,12 +8,14 @@
 # Exit 0 iff no scenario differs.   bash tests/mock/b15diff.sh old.sh tools/phxctl/b15_boot.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); OLD=${1:?old b15_boot.sh}; NEW=${2:?new b15_boot.sh}; shift 2
-T=$(mktemp -d /private/tmp/b15diff.XXXXXX)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+T=$(mktemp -d "$MOCKTMP/b15diff.XXXXXX")
+MOCKTMP_RE=$(printf '%s' "$MOCKTMP" | sed -e 's/[][\\.*^$#+?(){}|]/\\&/g')   # the mock's temp dir as an ERE (/private/tmp on macOS)
 B15KEEP=$T/old B15=$OLD bash "$HERE/b15test.sh" > "$T/old.txt" 2>&1
 ( for kv in "$@"; do export "$kv"; done; B15KEEP=$T/new B15=$NEW bash "$HERE/b15test.sh" ) > "$T/new.txt" 2>&1
 norm() {   # norm <scenario world dir> <out dir>: text copies with the run-specific parts replaced
   mkdir -p "$2"; ( cd "$1" && find . -type f ! -name phxctl.bin ) | while read -r f; do mkdir -p "$2/$(dirname "$f")"
-    sed -E -e 's#/private/tmp/b15mock\.[A-Za-z0-9]+#W#g; s#[0-9]{2}:[0-9]{2}:[0-9]{2}#T#g; s#pid [0-9]+#pid P#g' \
+    sed -E -e "s#$MOCKTMP_RE/b15mock\\.[A-Za-z0-9]+#W#g"'; s#[0-9]{2}:[0-9]{2}:[0-9]{2}#T#g; s#pid [0-9]+#pid P#g' \
       -e '/^b15: watchdog reads/d' "$1/$f" > "$2/$f"; done; }
 same=0; diffn=0
 for d in "$T"/old/*/; do n=$(basename "$d")

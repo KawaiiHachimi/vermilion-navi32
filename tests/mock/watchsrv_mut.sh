@@ -7,7 +7,8 @@
 #   bash tests/mock/watchsrv_mut.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=${B15SRC:-$HERE/../../tools/phxctl/b15_boot.sh}
-TMP=$(mktemp -d /private/tmp/watchsrv-mut.XXXXXX)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+TMP=$(mktemp -d "$MOCKTMP/watchsrv-mut.XXXXXX")
 . "$HERE/mutlib.sh"   # PAR mutations at once (default 2); each one's b15test.sh stops at its first FAIL (B15STOP)
 # mut <name> <B15ONLY glob> <old> <new>
 mut() {

@@ -7,8 +7,9 @@
 #   PAR=1 nice -n 19 bash tests/mock/b21guard_mut.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 SRC=${DAEMON:-$HERE/../../tools/phxctl/phxboot-navi31.sh}
-TMP=$(mktemp -d /private/tmp/b21guard-mut.XXXXXX)
+TMP=$(mktemp -d "$MOCKTMP/b21guard-mut.XXXXXX")
 . "$HERE/mutlib.sh"   # PAR mutations at once (default 2), each one's run.sh serial (PAR=1) on the named scenarios only
 # mut <name> <scenarios> <python replace: old> <new>
 mut() {

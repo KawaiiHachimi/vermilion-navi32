@@ -1,0 +1,16 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# md5 for the mock suites off macOS (tests/mock/lib/portable.sh puts it on PATH), on GNU md5sum:
+#   md5 -q <file>      the hash
+#   md5 -r <file>...   "<hash> <file>" per file
+#   md5 <file>...      "MD5 (<file>) = <hash>" per file
+q=0; r=0
+while [ $# -gt 0 ]; do case "$1" in -q) q=1; shift ;; -r) r=1; shift ;; --) shift; break ;; *) break ;; esac; done
+command -v md5sum >/dev/null 2>&1 || { echo "md5 (mock shim): needs md5sum" >&2; exit 127; }
+rc=0
+for f in "$@"; do
+  h=$(md5sum < "$f") || { echo "md5: $f: No such file or directory" >&2; rc=1; continue; }
+  h=${h%% *}
+  if [ $q = 1 ]; then echo "$h"; elif [ $r = 1 ]; then echo "$h $f"; else echo "MD5 ($f) = $h"; fi
+done
+exit $rc

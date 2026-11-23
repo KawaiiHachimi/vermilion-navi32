@@ -1,9 +1,10 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # espflags_test.sh: tools/phxctl/esp_flags.sh (the phxboot pre-hook that takes flags staged on the EFI partition)
-# against a fake diskutil and fake EFI partitions. No root, no disks touched. Runs on macOS (BSD stat).
+# against a fake diskutil and fake EFI partitions. No root, no disks touched. macOS, or Linux through lib/portable.sh.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); S=$HERE/../../tools/phxctl/esp_flags.sh
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 T=$(mktemp -d "${TMPDIR:-/tmp}/espflags.XXXXXX"); PASSN=0; FAILN=0
 fake() {   # fake <mounted 0|1>: one EFI partition disk9s1, its contents in $T/esp; mount = a symlink
   mkdir -p "$T/bin" "$T/esp/vermilion/flags" "$T/gpu"; rm -f "$T/mounted" "$T/calls" "$T/mc" "$T/mfail"; [ "$1" = 1 ] && echo "$T/esp" >"$T/mounted"
@@ -19,7 +20,7 @@ case "\$1" in
 esac
 EOF
   chmod +x "$T/bin/diskutil"; }
-run() { ESPF_DONE="$T/done" ESPF_TRIES=${ESPF_TRIES:-3} ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
+run() { ESPF_STAT="$MOCK_STAT" ESPF_DONE="$T/done" ESPF_TRIES=${ESPF_TRIES:-3} ESPF_DISKUTIL="$T/bin/diskutil" ESPF_MNT="$T/mnt" bash "$S" "$T/gpu" >"$T/out" 2>&1; }
 check() {   # check <name> <cond> ...: every cond (a shell test) must hold
   local name=$1 ok=1 c; shift
   for c in "$@"; do eval "$c" || { ok=0; echo "    failed: $c"; }; done
@@ -40,7 +41,7 @@ fake 0; rmdir "$T/esp/vermilion/flags"; run
 check no_flags_dir 'grep -q "no vermilion/flags" "$T/out"' 'grep -q "^unmount" "$T/calls"' '[ -z "$(ls -A "$T/gpu")" ]'
 
 # info prints a non-path Mount Point value for an unmounted partition: treated as unmounted
-fake 0; sed -i '' 's|echo "   Mount Point:               "; ;;|echo "   Mount Point:               Not mounted"; ;;|' "$T/bin/diskutil"; : >"$T/esp/vermilion/flags/phxboot-desktop"; run
+fake 0; mock_sedi 's|echo "   Mount Point:               "; ;;|echo "   Mount Point:               Not mounted"; ;;|' "$T/bin/diskutil"; : >"$T/esp/vermilion/flags/phxboot-desktop"; run
 check notmounted_text '[ -e "$T/gpu/phxboot-desktop" ]' 'grep -q "^mount" "$T/calls"'
 
 # the first two mounts fail (diskarbitrationd not up yet): retried
@@ -48,7 +49,7 @@ fake 0; echo 2 >"$T/mfail"; rm -f "$T/mc"; : >"$T/esp/vermilion/flags/phxboot-de
 check mount_retry '[ -e "$T/gpu/phxboot-desktop" ]' '[ "$(wc -l <"$T/mc" | tr -d " ")" = 3 ]'; rm -f "$T/mc" "$T/mfail"
 
 # no EFI partition ever listed: gives up after ESPF_TRIES
-fake 0; sed -i '' 's|  list) printf|  list) exit 0; printf|' "$T/bin/diskutil"; ESPF_TRIES=2 run
+fake 0; mock_sedi 's|  list) printf|  list) exit 0; printf|' "$T/bin/diskutil"; ESPF_TRIES=2 run
 check no_efi_listed 'grep -q "no EFI partition listed after 2s" "$T/out"'
 
 # run-once.sh: moved off the EFI partition, then run with the vermilion dir and <G>; it can set flags for this boot
