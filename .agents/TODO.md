@@ -150,20 +150,28 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 ## 02 GPU and CPU performance, power
 
 - [ ] **Linux reference capture** (one boot, read-only): [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md).
-      Results go into PROJECT_KNOWLEDGE's performance record
+      Results go into PROJECT_KNOWLEDGE's performance record. Staged 2026-11-23 06:06: `<ESP>/vermilion/LINUX-THREAD02.md`
+      (instructions for the Linux agent; it copies results to `<ESP>/vermilion/results-02/`). Afterwards copy them off
+      and delete both from the ESP
 - [ ] **CPU never above 5.15 GHz, idle package 40-50 W** (2026-11-23). Suspect: `HLT`-only idle, the firmware's `_CST`
       C2 / C3 (`inb 0x414` / `0x415`) unused, so no CC6 *(unverified)*. If Linux reaches ~5.5 GHz and idles 15+ W
       lower: a minimal `_CST` idle kext (never AMDRyzenCPUPowerManagement). BIOS C-state / CPPC settings first
       ([OWNER-TESTS](OWNER-TESTS.md))
 - [ ] Real-app test set: WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min, Minecraft (F3 renderer line)
-- [ ] XTX RADV profile chosen by PCI revision: 96 CU, 384-bit, the name "RX 7900 XTX"; fix the exact-name checks in
-      `patches/mesa/0016` / `0017` (the VCN shim). `RADV_DARWIN_CANNED=navi31` is **not** a safe quick test: the
-      VCN shim's name check would disable decode
+- [x] XTX RADV profile chosen by PCI revision: `patches/mesa/0018` (Mesa's `navi31` for revision 0xc8; the name
+      checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5)
+- [ ] **Install RADV with 0018:** `libvulkan_radeon.dylib` from `~/src/vermilion/build-02/` to `/Library/GPUBundles/nvmtl/`,
+      `PHXTRUST_KEEP=1 trust.sh`, EFI rebuild and install (one EFI change, one boot; rollback: `EFI/OC.prev` + the old
+      dylib `8054fbe4` kept in `~/vermilion-rollback/`). Bundle with the other 02 boot items. Check `gpuCoreCount` = 96
+      in an app afterwards
 - [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`), together with the next item only
-- [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measure with a memory-bound
-      `metalbench` mode, then VRAM-backed BOs (weeks; a design note first)
-- [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`, off and unverified on the XTX): 101 us per waited
-      submit today, 6 us of it GPU
+- [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measured: 44.7 GB/s buffer copy in
+      Metal and in RADV directly (PCIe; VRAM ~960). Next: the Linux number, then VRAM-backed BOs (weeks; design note
+      first: `.agents/findings/2026-11-23-vram-bo-design.md`)
+- [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
+      storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
+      Left: an interleaved A/B on an idle desktop (owner's OK: GPU load), the tail's cause, a daemon flag
+      ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
 - [ ] Idle power (62-70 W board; UCLK pinned at 456 MHz, FCLK 2301): only what Linux sends, after the Linux numbers
 - [ ] Fan readings: `SMCSuperIO` (in the pinned VirtualSMC 1.3.8 zip) once Linux names the Super I/O chip. One EFI
       change

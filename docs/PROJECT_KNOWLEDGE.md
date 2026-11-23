@@ -291,6 +291,10 @@ No Linux reference exists yet for any row: [HANDOFF-LINUX-REFERENCE.md](../.agen
 | 2026-11-22 | Security / iServices daemons | 39 min after boot, b150, idle desktop; `ps -axo time,comm` | ~37 s CPU in total (trustd 9.7, cloudd 7.1, tccd 6.0, identityservicesd 2.7 s): ~1.6 % of one thread | [Apple services / security](../.agents/findings/2026-11-22-apple-services-security-inventory.md) |
 | 2026-11-23 | Quick Look / image decode | 13 min after boot, b150, 1440p240; `qlmanage -t -s 512` vs `sips -Z 512` of a 6016x6016 HEIC; no hardware decoder | Quick Look 12.2 s (11.4 s CPU); sips 1.6 s. **One run each, Quick Look first on a cold cache**: the gap is not established | [macOS integration](../.agents/findings/2026-11-23-macos-integration-inventory.md) |
 | 2026-11-23 | CPU clock | 20-30 min after boot, change 8, 1440p240 30-bit; `tools/sensors/cpuclk.c` | 1 thread median 5.02 GHz (max 5.12); 2 threads on separate L3s 5.12 (max 5.14); 12 threads 4.97; 24 threads 4.77 (min 3.72, max 5.02) at Tctl 65 C | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) |
+| 2026-11-23 | Metal vs RADV directly | b155, 1440p240 HDR, quiet desktop; `metalbench` / `vkbench` (same Mandelbrot loop) | compute 2000 iterations: 4.24 / 3.95 ms GPU; waited submit median 89 / 34 us (the plugin adds ~55 us) | [perf / power](../.agents/findings/2026-11-23-perf-power.md) |
+| 2026-11-23 | Buffer bandwidth | same; `metalbench` / `vkbench bandwidth 8 256` | **44.7 GB/s** read + write in both: system memory over PCIe (VRAM ~960 GB/s) | same |
+| 2026-11-23 | Waited short job | `vkbench submit 8 200 512 512` (GPU 51 us) | poll: median 265 us, p99 0.92 ms; interrupt waits (live test, reverted): median 115 us, p99 2.4 ms | same |
+| 2026-11-23 | RADV XTX profile | patch 0018 side-loaded, A/B interleaved | `metalbench render 2000`: 4.86 -> 3.93 ms GPU per frame; compute, Vulkan and bandwidth unchanged | same |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
@@ -299,11 +303,13 @@ No Linux reference exists yet for any row: [HANDOFF-LINUX-REFERENCE.md](../.agen
 - CPU: no clock above 5.15 GHz on either CCD and 40-50 W idle package power. Suspect: `HLT`-only idle, never CC6
   *(unverified until the Linux comparison)*. Per-core clocks only through `cpuclk.c`.
 - Buffer objects live in system memory, not VRAM (`phx_client.cpp` allocates every BO as an
-  `IOBufferMemoryDescriptor`). The cost for memory-bound loads is unmeasured. One data point doesn't fit the
-  expectation: a 1440p target written at 3446 frames/s, ~50 GB/s uncompressed (unexplained).
-- Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits exist but are off and unverified on the XTX.
+  `IOBufferMemoryDescriptor`): a buffer copy runs at 44.7 GB/s (PCIe), against ~960 GB/s for VRAM. The 1440p target
+  written at ~50 GB/s (2026-11-22) is probably DCC compression *(unverified)*.
+- Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits work on the XTX (live test 2026-11-23) but stay
+  off: better median, worse p99 so far.
 - The UCLK hard minimum of 456 MHz is never released, and FCLK stays at 2301 MHz. Whether Linux idles lower is unknown.
-- RADV runs the XT's canned profile on the XTX (84 CU, XT name); the Metal working set is a fixed 6 GiB.
+- RADV runs the XT's canned profile on the XTX (84 CU, XT name): fixed in patch 0018, not installed yet (pixel
+  shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
 - OpenGL apps run on the CPU (Apple Software Renderer).
 - Debug boot settings (verbose boot, OpenCore logging) cost boot time *(unmeasured)*.
 - Storage: random 4 KiB I/O is CPU-bound in Apple's NVMe stack (~9 us of kernel CPU per I/O). Every barrier / full
