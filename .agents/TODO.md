@@ -125,9 +125,15 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 - [~] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
       "Revisit"), then re-verify every plan. **b155** adds `debug.phxp0odm_dbuf` (live, 0 at boot): after the b155
       boot, set 1 and run session switches through every 1440p rate (SDR / HDR), post checks and the owner's eye; if
-      all land, make 1 the default in a later build
-- [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from the old thread 07's
-      inventory. Rollback: Apple menu > Restart
+      all land, make 1 the default in a later build. **2026-11-23 04:56:** HDR 144, 240 (ODM + DSC), 120, 60 under
+      mode 2: all DONE, first-attempt training, no underflow, owner saw every one land. Left: the SDR plans and the
+      1080p / small modes under mode 2
+- [~] Display sleep: **tested 2026-11-23 04:58 (b155)**: `pmset displaysleepnow` puts PhxAMDFB in power state 0, but
+      OTG0, the link and the stream stay up (lanes locked, frames counting): the LG shows black and never goes to
+      standby (owner). Wake (`caffeinate -u`) works, the picture comes back at once. A real Mac stops the signal; for
+      the OLED that also means no standby-time panel care. Next: a Linux capture of DPMS off / on on this card (the
+      sequence Linux sends: stream off, blank, `dp_disable_link_phy`; then link up and unblank), turned into two replay
+      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the

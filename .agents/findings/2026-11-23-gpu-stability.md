@@ -171,3 +171,14 @@ just before the vblank) could save up to ~11 ms at 60 Hz (idea only).
 Tearing: HUBPREQ0 DCSURF_FLIP_CONTROL (0x3ADB) sampled 40000 times while the cursor moved: 0x04100000 or 0x04100100
 (bit 8 = an update pending for the vblank), bit 1 (immediate) never set. A flip cannot tear then; what the owner saw
 as tearing (2026-11-19) needs the phone video (OWNER-TESTS 01).
+
+## 10. b155 on the box (04:52-05:00): the DPCD retry rule, Linux's double buffer, display sleep
+
+- Login switch (1440p60 HDR): every window first time, `dpcd_aux: calls=141 ok=141 retried=0`: no AUX miss this boot,
+  so whether drm's retry rule catches the LG's first-access miss is not shown yet.
+- `debug.phxp0odm_dbuf=1` (OTG_DRR_TIMING_DBUF_UPDATE_MODE 2, as Linux): session switches 60 HDR -> 144 -> 240 (ODM 2:1 +
+  DSC) -> 120 -> 60, all DONE, post checks first time, no underflow (`post_retries=0`), every window `tries=1`; the
+  owner saw each switch land. 0x501B read 0x02000000 after each run. SDR and the non-1440p plans not run under it yet.
+- Display sleep (`pmset displaysleepnow`): PhxAMDFB `CurrentPowerState` 0, but OTG0 enabled and counting frames, HUBP0
+  scanning, DPCD lanes `77 77` aligned: the stream never stops. Owner: the LG stayed on showing black (no standby, no
+  "no signal"). `caffeinate -u` woke it: power state 1, picture back, OTG0 still at 60 Hz, no engine run needed.
