@@ -289,20 +289,20 @@ int PhxBringup::vramSelftest() {
     // address, the CPU reads it back through the kernel's BAR0 map (proves BAR offset == VRAM offset above 256 MiB),
     // then the GPU zeroes it and the CPU checks again
     IOLockLock(vramLock);
-    const bool vup = vispool && vispool->used == 0;
-    const uint64_t vat[2] = {vup ? vispool->base : 0, vup ? vispool->end - (1ull << 20) : 0};
+    const bool visUp = vispool && vispool->used == 0;
+    const uint64_t visAt[2] = {visUp ? vispool->base : 0, visUp ? vispool->end - (1ull << 20) : 0};
     IOLockUnlock(vramLock);
-    for (int k = 0; vup && k < 2; k++) {
-        const volatile uint32_t *p = reinterpret_cast<const volatile uint32_t *>(barKva(vat[k]));
-        if (!p || !barKva(vat[k] + (1ull << 20) - 4))
+    for (int k = 0; visUp && k < 2; k++) {
+        const volatile uint32_t *p = reinterpret_cast<const volatile uint32_t *>(barKva(visAt[k]));
+        if (!p || !barKva(visAt[k] + (1ull << 20) - 4))
             return -31;
-        if (vramFill(vat[k], 1ull << 20, 0xC3C33C3Cu, nullptr) != kIOReturnSuccess)
+        if (vramFill(visAt[k], 1ull << 20, 0xC3C33C3Cu, nullptr) != kIOReturnSuccess)
             return -26 - 10 * k;
         hdpFlush();
         for (uint32_t i = 0; i < 64; i++)
             if (p[i * 4096] != 0xC3C33C3Cu)
                 return -27 - 10 * k;
-        if (vramFill(vat[k], 1ull << 20, 0, nullptr) != kIOReturnSuccess)
+        if (vramFill(visAt[k], 1ull << 20, 0, nullptr) != kIOReturnSuccess)
             return -28 - 10 * k;
         hdpFlush();
         for (uint32_t i = 0; i < 64; i++)
@@ -314,7 +314,7 @@ int PhxBringup::vramSelftest() {
 
 int PhxBringup::vramStat(char *b, size_t cap) {
     uint64_t base = 0, end = 0, used = 0, peak = 0, fr = 0, big = 0, allocs = 0, frees = 0, fails = 0, lost = 0;
-    uint64_t vb = 0, ve = 0, vu = 0, vp = 0, va = 0, vf = 0, vfl = 0, vz = 0;
+    uint64_t visBase = 0, visEnd = 0, visUsed = 0, visPeak = 0, visAllocs = 0, visFrees = 0, visFails = 0, visHeld = 0;
     uint32_t ext = 0;
     if (vramLock) {
         IOLockLock(vramLock);
@@ -325,8 +325,8 @@ int PhxBringup::vramStat(char *b, size_t cap) {
         }
         if (vispool && vispool->end) {   // b159
             visReapLocked();   // b160: the stat shows what is still held, not what went at the last exit
-            vb = vispool->base; ve = vispool->end; vu = vispool->used; vp = vispool->peak; va = vispool->allocs;
-            vf = vispool->frees; vfl = vispool->fails; vz = visZn;
+            visBase = vispool->base; visEnd = vispool->end; visUsed = vispool->used; visPeak = vispool->peak;
+            visAllocs = vispool->allocs; visFrees = vispool->frees; visFails = vispool->fails; visHeld = visZn;
         }
         IOLockUnlock(vramLock);
     }
@@ -344,7 +344,8 @@ int PhxBringup::vramStat(char *b, size_t cap) {
         c, static_cast<uint64_t>(gVramClearBytes) >> 20, c ? static_cast<uint64_t>(gVramClearNs) / c / 1000 : 0,
         static_cast<uint64_t>(gVramClearMaxNs) / 1000, (long long)gVramClearFails, (long long)gVramFallbacks,
         (long long)gVramNoSpace, (long long)gVramCpuMapRefused, (long long)gVramScanRefused, (long long)gVramLeaked,
-        fbBarLen >> 20, vb >> 20, ve >> 20, vu >> 20, vp >> 20, va, vf, vfl, vz, (long long)gVramVisBos);
+        fbBarLen >> 20, visBase >> 20, visEnd >> 20, visUsed >> 20, visPeak >> 20, visAllocs, visFrees, visFails, visHeld,
+        (long long)gVramVisBos);
 }
 
 // Is the calling process one of debug.phxbo_vram_proc, with VRAM BOs on?

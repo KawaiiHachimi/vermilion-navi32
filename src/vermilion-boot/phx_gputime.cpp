@@ -8,6 +8,8 @@
 
 static int gGpuTimeOn = 0;
 
+static_assert(phxgputime::kAreaBytes <= PHX_GPUTIME_SIZE, "the timestamp slots fit their VRAM area");
+
 void PhxBringup::gpuTimeAccount(GpuQueue &q, uint32_t idx) {
     const uint16_t c = q.fctx[idx & 63];
     if (c == phxgputime::kNoCtx || c > kMaxCtx || !fbAper)
@@ -40,7 +42,7 @@ uint64_t PhxBringup::goldenTsc() const {
 int PhxBringup::gpuTraceSet(int on) {
     if (!gpuLock)
         return ENXIO;
-    TraceRec *fresh = on ? static_cast<TraceRec *>(IOMallocZero(sizeof(TraceRec) * kTraceN)) : nullptr;
+    TraceRec *fresh = on ? static_cast<TraceRec *>(IOMallocZero(kTraceBytes)) : nullptr;
     if (on && !fresh)
         return ENOMEM;
     IOLockLock(gpuLock);
@@ -52,7 +54,7 @@ int PhxBringup::gpuTraceSet(int on) {
     traceN = 0;
     IOLockUnlock(gpuLock);
     if (old)
-        IOFree(old, sizeof(TraceRec) * kTraceN);
+        IOFree(old, kTraceBytes);
     return 0;
 }
 
@@ -61,7 +63,7 @@ char *PhxBringup::gpuTraceDump(size_t *len) {
     *len = 0;
     if (!gpuLock)
         return nullptr;
-    TraceRec *snap = static_cast<TraceRec *>(IOMalloc(sizeof(TraceRec) * kTraceN));
+    TraceRec *snap = static_cast<TraceRec *>(IOMalloc(kTraceBytes));
     if (!snap)
         return nullptr;
     IOLockLock(gpuLock);
@@ -75,21 +77,22 @@ char *PhxBringup::gpuTraceDump(size_t *len) {
     const size_t cap = 96 + static_cast<size_t>(n) * 112;
     char *b = static_cast<char *>(IOMalloc(cap));
     if (!b) {
-        IOFree(snap, sizeof(TraceRec) * kTraceN);
+        IOFree(snap, kTraceBytes);
         return nullptr;
     }
     const uint64_t t0 = n ? snap[0].start : 0;
-    auto rel = [t0](uint64_t t) -> long long { return t ? (static_cast<long long>(t) - static_cast<long long>(t0)) / 100 : 0; };
+    constexpr long long kPerUs = static_cast<long long>(phxgputime::kTicksPerUs);
+    auto rel = [t0](uint64_t t) -> long long { return t ? (static_cast<long long>(t) - static_cast<long long>(t0)) / kPerUs : 0; };
     int o = snprintf(b, cap, "records %u (of %u); q ctx pid name | sub start end (us from first start) | dur us | ib dw | ibs\n", n, traceN);
     for (uint32_t i = 0; i < n && o > 0 && static_cast<size_t>(o) < cap; i++) {
         const TraceRec &r = snap[i];
         const bool closed = r.ctx >= kMaxCtx;
         o += snprintf(b + o, cap - static_cast<size_t>(o), "%u %u %d %s | %lld %lld %lld | %lld | %u | %u\n", r.q,
                       closed ? 0 : r.ctx + 1, closed ? 0 : ctxPid[r.ctx], closed ? "-" : ctxName[r.ctx], rel(r.sub),
-                      rel(r.start), rel(r.end), (r.start && r.end >= r.start) ? static_cast<long long>((r.end - r.start) / 100) : -1LL,
+                      rel(r.start), rel(r.end), (r.start && r.end >= r.start) ? static_cast<long long>(phxgputime::ticksToUs(r.end - r.start)) : -1LL,
                       r.dw, r.nib);
     }
-    IOFree(snap, sizeof(TraceRec) * kTraceN);
+    IOFree(snap, kTraceBytes);
     *len = cap;
     if (o < 0) o = 0;
     if (static_cast<size_t>(o) >= cap) o = static_cast<int>(cap) - 1;

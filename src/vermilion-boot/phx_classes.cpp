@@ -198,6 +198,7 @@ private:
     uint64_t gpuTimeResetAbs{0}, gpuTimeLost{0};
     struct TraceRec { uint64_t sub, start, end; uint32_t dw; uint16_t ctx; uint8_t q, nib; };   // b158
     static constexpr uint32_t kTraceN = 4096;
+    static constexpr size_t kTraceBytes = sizeof(TraceRec) * kTraceN;
     TraceRec *trace{nullptr};
     uint32_t traceN{0};   // records written (the ring holds the last kTraceN)
 public:

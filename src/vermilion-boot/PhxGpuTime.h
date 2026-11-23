@@ -20,6 +20,7 @@
 namespace phxgputime {
 
 constexpr uint64_t kHz = 100000000ull;
+constexpr uint64_t kTicksPerUs = kHz / 1000000ull;
 constexpr uint32_t kQueues = 3, kSlots = 64, kSlotBytes = 16;   // per slot: start (8 bytes), end (8 bytes)
 constexpr uint32_t kAreaBytes = kQueues * kSlots * kSlotBytes;
 constexpr uint32_t kStartDw = 6, kEndDw = 8;
@@ -67,6 +68,6 @@ inline uint64_t account(uint64_t &lastEnd, uint64_t start, uint64_t end) {
     return b;
 }
 
-constexpr uint64_t ticksToUs(uint64_t t) { return t / (kHz / 1000000ull); }
+constexpr uint64_t ticksToUs(uint64_t t) { return t / kTicksPerUs; }
 
 } // namespace phxgputime
