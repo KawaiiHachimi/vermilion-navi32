@@ -128,6 +128,7 @@ add each change here with the thread's number.
   | 16 | 2026-11-23 08:51 (booted 08:54, verified: desktop, self-test 1) | 02 B | VermilionBoot b156 (`d8f5948a`): VRAM-backed BOs, opt-in per process, off at boot |
   | 17 | 2026-11-23 10:27 (booted 10:29, verified: desktop, aperture, self-test 1) | 02 C | VermilionBoot b157 (`5110437b`): GPU time per context (`debug.phxgpu_time`, off at boot). Same boot, outside the EFI: mesboot with the system aperture from FB_LOCATION (24 GiB) |
   | 18 | 2026-11-23 ~10:55 (booted 10:57, verified: desktop, trace) | 02 C | VermilionBoot b158: per-submission GPU trace (`debug.phxgpu_trace`, off at boot) |
+  | 19 | 2026-11-23 ~11:07 (booted 11:09, verified: BAR0 1 GiB, desktop, self-test 1) | 02 C | stage `vermilion-trust-bar1g`: `ResizeAppleGpuBars` 10 (BAR0 1 GiB for macOS); kext unchanged |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).

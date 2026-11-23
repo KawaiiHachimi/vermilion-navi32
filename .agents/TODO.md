@@ -35,7 +35,10 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
 Thread 02 part C: **EFI change 19** (stage `vermilion-trust-bar1g`: OpenCore `ResizeAppleGpuBars` 0 -> 10, BAR0 1 GiB
-for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, restart pending the owner's OK.
+for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, **booted 11:09 and verified**: `phx-bar0-len`
+1073741824, `phx-fb-aper-len` 536870912, desktop 1440p240 HDR + VRR, VRAM self-test 1. New on this boot (owner): an
+Apple logo with a progress bar instead of the verbose text (`-v` is in the boot-args), and no password prompt;
+cause not looked into (unverified whether it comes from the BAR change).
 Check after the boot: the machine boots to the accelerated desktop 1440p240 HDR; `ioreg -l | grep phx-bar0-len` reads
 1073741824 (or the largest size the card supports up to 1 GiB); `phx-fb-aper-len` 536870912 (kFbAperMapMax); the
 VRAM self-test 1. Rollback: `EFI/OC.prev` = change 18 (copy in `~/vermilion-rollback/EFI-OC.change18-20261123`); if
