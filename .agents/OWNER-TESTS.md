@@ -24,17 +24,26 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       hex digit 0 or 1).
 - [ ] **10-bit banding:** turn HDR on, open a dark grey-to-black gradient full screen (any "gradient test" image) and
       look for steps. Then turn HDR off and compare.
-- [ ] **Login at 60 Hz HDR** (after staged change 1, VermilionBoot b151): in System Settings > Displays pick HDR at
+- [x] **Login at 60 Hz HDR:** 2026-11-23, about a dozen restarts on b151-b155, every one landed (one needed the
+      b154 re-switch). Kept for the record:
+      in System Settings > Displays pick HDR at
       60 Hz, then Apple menu > Restart. Repeat 3 times. If the screen stays black after login, wait 2 minutes: the
       daemon should restart the Mac once by itself. If it stays black after that too, run `sysctl debug.phxp0odm_stat`
       (from T3 Code on the phone) and send it. Then set your usual mode back.
-- [ ] **NVRAM test boot** (staged change 2; I run the commands, you only restart and say whether the Mac came back):
-      one restart into the new EFI, then one more restart. If it hangs at boot or at shutdown, hold power, then the
-      rollback in TODO "Staged now" 2.
-- [ ] **Allow click** (staged change 3, PhxAccel): System Settings > Privacy & Security > **Allow** when asked, then
-      restart. Afterwards: does System Settings > Displays offer more sizes than before?
-- [ ] **Display sleep** (later, after the three changes): `pmset displaysleepnow` in Terminal, wait 10 s, press a key.
-      Does the picture come back? If not: Apple menu > Restart from the phone (T3 Code: `sudo shutdown -r now`).
+- [ ] **NVRAM test boot:** inconclusive on 2026-11-23 (the change may never have booted); redone with the Linux
+      session (TODO 01 "Panic reports").
+- [x] **Allow click** (PhxAccel with the physical size): done 2026-11-23; size now 591 x 332 mm.
+- [x] **Display sleep:** 2026-11-23, the picture comes back; the LG stays on showing black instead of standby (owner).
+      The fix moved to thread 05.
+- [ ] **Watch: a power-on after Linux that does not reach macOS** (seen once, 2026-11-23 05:09, the first power-on
+      after a Linux session; the second power-on booted). This is the cold-boot hazard: keep watching, it is not
+      closed as a one-off. If it happens again, before powering off:
+      1. Photograph the screen (verbose text: the last 10 lines; or the Apple logo / black, and whether the progress
+         bar moved).
+      2. Note: how long since Linux was powered off, whether the power-off was full (not a restart), and the time.
+      3. Power off fully, power on, boot macOS, and tell the active thread. It collects the OpenCore log of the failed
+         boot (`<ESP>/opencore-<date>-<UTC time>.txt`, named one hour behind CET), `log show` for that time, and
+         `/var/log/phxboot.log` (is there an entry for the failed boot?).
 - [ ] **Tearing:** at a fixed 60 Hz, drag a window quickly left and right. Film it with the phone (slow motion if
       possible) and note where on screen it tears.
 - [ ] **Input lag:** System Settings > Mouse: "Pointer acceleration" off. Compare the cursor at 60 Hz with 240 Hz:

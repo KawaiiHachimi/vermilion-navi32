@@ -15,8 +15,10 @@ Rules:
 
 ## Staged now
 
-Thread 01's three machine changes, one per boot, in this order. Nothing is installed until the owner says when to
-restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
+Thread 01's machine changes, one per boot, in the order made (2026-11-23). **State at the end of thread 01:** `EFI/OC`
+= change 14 (VermilionBoot b155, stage `vermilion-trust`), `EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12
+(the NVRAM test, inconclusive); PhxAccel with the physical size; the daemon with the display check. No further EFI
+change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 1. **EFI change 9: VermilionBoot b151** (stage `vermilion-trust`, only the kext differs from change 8) **+ the boot
    daemon with the display check** (`~/gpu/phxboot-navi31.sh`, not an EFI change; it only reads sysctls).
@@ -51,7 +53,8 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      `OC.bad` and `OC.prev` to `OC`, **power off fully**, power on. From macOS: the same renames under
      `/Volumes/NO NAME/EFI`. Then `rm ~/gpu/phxboot-auto` (back to the stuck-squat setup of today).
    - Worst case named by the old thread 02: a board that hangs on writes may need a CMOS clear (unverified).
-   - **Booted 04:06 and 04:10:** no hang at boot or shutdown, but the write did **not** persist: `vermilion-test` was
+   - **Result: inconclusive** (the Linux rollback ran at an unknown time; see 4). Recorded at the time:
+     **Booted 04:06 and 04:10:** no hang at boot or shutdown, but the write did **not** persist: `vermilion-test` was
      gone after the restart, `phxfb-squat` stayed in the firmware (squat boot), and
      `nvram IONVRAM-FORCESYNCNOW-PROPERTY=...` returns "general error". Second test armed: `vermilion-test2=forced`,
      checked after the next restart (with staged 3). If it is gone too: back to change 11 (`DisableVariableWrite` buys
@@ -103,10 +106,12 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 - [x] The daemon reported `SUCCESS` during that black screen: `disp_check` (`DARK`, the engines' state in
       `/var/log/phxdark-*.txt`, one restart) for a failed engine; deployed 03:08. Its limit: the 04:15 kind of black
       (link locked, frames presented) reads as healthy; b154 covers that case at the source
-- [~] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
-      config; not watched failing here). Stage `vermilion-trust-nvram` (staged 2). If writes work and nothing hangs,
-      make it the default stage. Then a deliberate test panic is the only way to prove a report is saved (owner's
-      call). Needed first for the restart panic of 2026-11-19 22:44 (cause unknown)
+- [ ] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
+      config; not watched failing here). The NVRAM test (change 12) is **inconclusive**: change 12 was rolled back from
+      Linux at an unknown time, so the boots 04:06 / 04:10 / 04:15 may all have run change 11 (writes blocked). Open
+      for the Linux session: read the firmware's variables from Linux (efivars) and redo the test as its own EFI
+      change. Then a deliberate test panic is the only way to prove a report is saved (owner's call). Needed first for
+      the restart panic of 2026-11-19 22:44 (cause unknown)
 - [x] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm: every mode's
       `imageWidth / imageHeight` was 0 ([finding](findings/2026-11-23-gpu-stability.md) section 3). PhxAccel with the
       EDID's size installed 2026-11-23 04:15: `CGDisplayScreenSize` 591.1 x 332.5 mm
@@ -128,12 +133,8 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       all land, make 1 the default in a later build. **2026-11-23 04:56:** HDR 144, 240 (ODM + DSC), 120, 60 under
       mode 2: all DONE, first-attempt training, no underflow, owner saw every one land. Left: the SDR plans and the
       1080p / small modes under mode 2
-- [~] Display sleep: **tested 2026-11-23 04:58 (b155)**: `pmset displaysleepnow` puts PhxAMDFB in power state 0, but
-      OTG0, the link and the stream stay up (lanes locked, frames counting): the LG shows black and never goes to
-      standby (owner). Wake (`caffeinate -u`) works, the picture comes back at once. A real Mac stops the signal; for
-      the OLED that also means no standby-time panel care. Next: a Linux capture of DPMS off / on on this card (the
-      sequence Linux sends: stream off, blank, `dp_disable_link_phy`; then link up and unblank), turned into two replay
-      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off). **Capture staged 05:00:** `tools/capture/linux_display_capture.py --dpms` (v5) and `<ESP>/vermilion/DPMS-CAPTURE-FOR-LINUX-CLAUDE.md`; result lands in `<ESP>/vermilion/capture/` (copy off, then delete both from the ESP). **Captured 05:05** (Linux 7.2.15, all 8 steps): `~/vermilion-captures/dpms/display-20261123-050500`; ESP cleaned. DPMS off: 549-2409 writes, OTG0 master enable off (`OTG0_CONTROL 0x00001200`, no frames); on: a full enable (3778-10310 writes, 502-2127 DMUB commands). p0odm_from_trace.py needs a DPMS mode (its burst detection refuses both traces)
+- [x] Display sleep: tested 2026-11-23 (b155): the signal stays up while macOS's display sleeps; the LG never goes to
+      standby. Linux's DPMS sequence captured; the fix moved to **05 Sleep and wake** (coordination thread, owner's OK)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
@@ -188,6 +189,21 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 05 Sleep and wake
 
+- [ ] **Display sleep (DPMS), from thread 01.** Today `pmset displaysleepnow` puts PhxAMDFB in power state 0, but
+      OTG0, the link and the stream stay up (DPCD lanes locked, frames counting): the LG shows black and never goes to
+      standby (owner, 2026-11-23 04:58, b155); wake (`caffeinate -u`) brings the picture back at once. A real Mac stops
+      the signal; for the OLED that also means no standby-time panel care.
+      - Capture (done 2026-11-23 05:05, Linux 7.2.15, capture v5 `tools/capture/linux_display_capture.py --dpms`):
+        `~/vermilion-captures/dpms/display-20261123-050500` (not in git; no serials), every 1440p rate SDR and HDR:
+        `trace-dpms-off.txt` (549-2409 writes; while off `OTG0_CONTROL 0x00001200`, no frames), `regs-off.txt`,
+        `dpcd-off-*`, `trace-dpms-on.txt` (3778-10310 writes, 502-2127 DMUB commands: a full stream enable with link
+        training). Finding: [2026-11-23-gpu-stability.md](findings/2026-11-23-gpu-stability.md) sections 10-11.
+      - Plan: (1) a DPMS mode for `tools/capture/p0odm_from_trace.py` (its burst detection refuses both traces today:
+        "no OTG0 unlock", "fewer than 2 bursts"); generate `phx_p0odm_<mode>_dpmsoff/_dpmson.inc` per 1440p mode;
+        (2) replay engine: a `dark` state (off plan from the current mode, on plan back to it; b154's retry rule and
+        the redo apply to the on plan's link windows); (3) PhxAccel: run them at power state 0 / 1 (IOFramebuffer
+        power), with GPU present yielding the plane while OTG0 is off; (4) host tests, then one boot + the Allow click.
+        Other resolutions: fixed rates today, keep the signal (or capture them too)
 - [ ] Platform S3 test on a `-phxbringupoff` boot (one EFI change, `disablesleep 0` for that boot): wake by keyboard,
       mouse, power button; then USB, NVMe, Wi-Fi, Bluetooth, audio
 - [ ] GPU resume path (the driver assumes a cold GPU today), after the S3 test
