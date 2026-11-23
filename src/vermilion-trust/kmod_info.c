@@ -12,7 +12,7 @@ extern kern_return_t VermilionTrust_kern_start(kmod_info_t *, void *);
 extern kern_return_t VermilionTrust_kern_stop(kmod_info_t *, void *);
 
 __attribute__((visibility("default")))
-KMOD_EXPLICIT_DECL(org.vermilion.trust, "1.0.3", _start, _stop)
+KMOD_EXPLICIT_DECL(org.vermilion.trust, "1.0.4", _start, _stop)
 
 __private_extern__ kmod_start_func_t *_realmain = VermilionTrust_kern_start;
 __private_extern__ kmod_stop_func_t  *_antimain = VermilionTrust_kern_stop;
