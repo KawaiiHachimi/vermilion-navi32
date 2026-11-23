@@ -322,6 +322,7 @@ class PhxAMDFB : public IOFramebuffer {
     // M6 step 2: the EDID getDDCBlock serves, chosen once in start() (loadEdid): the monitor's own, read live by
     // PhxBringup, when it validates; else kPhxEDID as before.
     uint8_t fEdid[256] = {};
+    uint16_t fImgWmm = 0, fImgHmm = 0;   // the panel's image size from fEdid (phxhead::edidImageMm), every mode's imageWidth / Height
     uint32_t fEdidLen = 0;
     IOMemoryMap *fSurfMap = nullptr;   // write-combined CPU view of the scan-out surface through the BAR
     // The same surface through its system-RAM address: the 780M's VRAM is a carve-out of system memory, and amdgpu maps
@@ -873,6 +874,8 @@ public:
         const phxhead::HeadMode *hm = fNModes ? phxhead::headMode(fHead, (uint32_t)mode) : nullptr;
         const uint32_t mhz = hm ? hm->milliHz : fRefreshMilliHz;
         info->refreshRate = (IOFixed1616)(((uint64_t)mhz << 16) / 1000); info->flags = modeFlags(mode);
+        // the panel's physical size for every mode (a smaller mode is scaled by the monitor to the whole panel)
+        info->imageWidth = fImgWmm; info->imageHeight = fImgHmm;
         return kIOReturnSuccess;
     }
     UInt64 getPixelFormatsForDisplayMode(IODisplayModeID, IOIndex) override { return 0; }
@@ -1010,6 +1013,8 @@ public:
         fEdidLen = (uint32_t)phxedid::choose(why, live, len, fallback, aoc ? sizeof phxhead::kAocEdid : sizeof kPhxEDID, fEdid, &why);
         if (second) { gHead1EdidSrc = phxddc::validSource(src) ? (int)src : -1; gHead1EdidWhy = why; }
         if (OSData *d = OSData::withBytes(fEdid, fEdidLen)) { setProperty("phx-edid", d); d->release(); }
+        phxhead::edidImageMm(fEdid, fEdidLen, &fImgWmm, &fImgHmm);
+        setProperty("phx-image-mm", (unsigned long long)fImgWmm << 16 | fImgHmm, 32);
         setProperty("phx-edid-live", why == phxedid::kLive ? kOSBooleanTrue : kOSBooleanFalse);
         setProperty("phx-edid-why", (unsigned long long)why, 32);
         setProperty("phx-edid-rc", (unsigned long long)(uint32_t)rc, 32);
