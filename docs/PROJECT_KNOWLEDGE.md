@@ -136,8 +136,9 @@ add each change here with the thread's number.
   - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver sha256 `6840fbe3`, cdhash `33b9a186`
     (the old thread 05's Music fix on top of b149). Rollback: `~/vermilion-rollback/plugin-20261123/` (b149), then
     `NVMTLDriver.b139`.
-  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; differs from the repo in comments only), flags
-    `sdma`, `cg`, `uclk` (456), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`, `auto` (re-arms
+  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo, thread 02), flags
+    `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin`
+    (60), `irqwait`, `idledpm`, `idledpm-dcf` (thread 02, since 2026-11-23 07:51), `autologin`, `auto` (re-arms
     `phxfb-squat` at SUCCESS; created 2026-11-23 for the NVRAM test). Thread 01's version (display check `DARK`, one
     restart; an `engine run` record per run). Previous daemon: `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`,
     `~/gpu/phxboot-navi31.sh.prev`, `~/vermilion-rollback/phxboot-navi31.sh.pre-vrrmin`.
@@ -303,6 +304,7 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 | 2026-11-23 | **Linux:** NVMe raw read | same boot, `fio --readonly` | 6.8 GB/s, 4 KiB QD1 21.3 k IOPS (macOS 7.0 GB/s, ~20 k) | same |
 | 2026-11-23 | GPU idle, Linux's PMFW messages (live) | b155, 1440p240 HDR, light desktop use; `idletest.sh` | socket / board 53.5 / 67.1 W pinned -> 30.2 / 39.9 W (UCLK unpinned, FCLK switch) -> **23.5 / 31.8 W** (+ DCFCLK messages); UCLK 96, FCLK 1000, DCEFCLK 200; 0 underflows in 20 min | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
 | 2026-11-23 | Same, under load | `vkbench bandwidth / compute`, `metalbench bandwidth`, 5 s each, pinned vs free | 44.1 / 43.7 GB/s, 0.407 / 0.405 ms, 44.2 / 43.8 GB/s; board at 100 % 206-304 / 172-270 W; UCLK stays 96 (buffers are system memory) | same |
+| 2026-11-23 | After the restart with the thread 02 daemon | 07:55, 4 min after boot, idle desktop | socket / board 23 / 31 W (UCLK 96, FCLK 1000, DCEFCLK 200), no underflow; `vkbench submit 5 200 512 512` median 124 us, p99 0.46 ms; `metalbench` same 207 us, p99 0.66 ms; IH 89 k IVs, 0 overflow | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
