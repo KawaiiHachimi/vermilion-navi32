@@ -108,6 +108,10 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxmmvm);
         sysctl_register_oid(&sysctl__debug_phxmmvm_stat);
         sysctl_register_oid(&sysctl__debug_phxbo_stats);
+        sysctl_register_oid(&sysctl__debug_phxbo_vram);            // b156
+        sysctl_register_oid(&sysctl__debug_phxbo_vram_proc);
+        sysctl_register_oid(&sysctl__debug_phxbo_vram_selftest);
+        sysctl_register_oid(&sysctl__debug_phxbo_vram_stat);
         sysctl_register_oid(&sysctl__debug_phxwait_step_us);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped_stat);
@@ -220,6 +224,15 @@ bool IOAccelPhxNativeClient::start(IOService *provider) {
 void IOAccelPhxNativeClient::freeAll() {
     if (!bos)
         return;
+    // b156: a VRAM BO's maps go before its range can go to another process (system pages need no such care: they
+    // are not handed out again by us, and the context is torn down right after)
+    for (int i = 0; maps && i < kMaxMaps; i++)
+        if (maps[i].used && bos[maps[i].handle].vram) {
+            if (maps[i].unmapSeq) { maps[i].unmapSeq = 0; deferred--; }
+            maps[i].used = false;
+            if (vmid && owner)
+                owner->vmUnmap(vmid, maps[i].va, maps[i].size);
+        }
     for (uint32_t h = 1; h < PHXN_MAX_BOS; h++)
         if (bos[h].md) {
             const Bo &b = bos[h];
@@ -283,6 +296,11 @@ IOReturn IOAccelPhxNativeClient::clientMemoryForType(UInt32 type, IOOptionBits *
     if (!b) {
         IOLockUnlock(lock);
         return kIOReturnNotFound;
+    }
+    if (b->vram) {   // b156: its bytes are VRAM the CPU cannot reach; the anchor page is not them
+        OSIncrementAtomic64(&gVramCpuMapRefused);
+        IOLockUnlock(lock);
+        return kIOReturnNotPermitted;
     }
     b->md->retain();
     *memory = b->md;
@@ -475,6 +493,33 @@ IOReturn IOAccelPhxNativeClient::doBoCreate(IOExternalMethodArguments *a) {
 
     uint32_t domain, bits;
     uint64_t *pool;
+    // b156 (thread 02 part B, M1): real VRAM for an opted-in process's NO_CPU_ACCESS BO, cleared on the GPU before the
+    // handle exists (phx_vram.cpp). Counted against the hi budget as before. Any failure: system memory as before.
+    if (phxBoVramWanted(d, f) && hiUsed + size <= kHiTotal) {
+        uint32_t hv = 1;
+        while (hv < PHXN_MAX_BOS && bos[hv].md)
+            hv++;
+        const uint64_t off = hv < PHXN_MAX_BOS ? owner->vramPoolAlloc(size) : 0;
+        if (off) {
+            IOBufferMemoryDescriptor *anchor = nullptr;
+            if (owner->vramClear(off, size) != kIOReturnSuccess) {
+                OSIncrementAtomic64(&gVramLeaked);   // the GPU may not have finished with the range: never handed out again
+            } else if ((anchor = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task, kIODirectionInOut, 4096, PAGE_SIZE))) {
+                hiUsed += size;
+                OSAddAtomic64(static_cast<SInt64>(size), &gBoBytes[1]);
+                bos[hv] = Bo{anchor, size, 4, PHXN_PLACED_HI_POOL | PHXN_PLACED_ZEROED, nullptr, false};
+                bos[hv].vram = off;
+                a->scalarOutput[0] = hv;
+                a->scalarOutput[1] = size;
+                a->scalarOutput[2] = 4;
+                a->scalarOutput[3] = PHXN_PLACED_HI_POOL | PHXN_PLACED_ZEROED;
+                return kIOReturnSuccess;
+            } else {
+                owner->vramPoolFree(off, size);
+            }
+        }
+        OSIncrementAtomic64(&gVramFallbacks);
+    }
     if (d & PHX_AMDGPU_GEM_DOMAIN_VRAM) {
         if (visUsed + size <= kVisTotal) {
             domain = 4;
@@ -665,6 +710,15 @@ bool IOAccelPhxNativeClient::settleOverlaps(uint64_t va, uint64_t size) {
 }
 
 void IOAccelPhxNativeClient::boRelease(Bo &b) {
+    // b156: the range goes back to the pool only once the GPU retired everything that could touch it (the BO's free
+    // seqno, or the client's last submission); finishFree and freeAll unmapped it first. Otherwise (free() without the
+    // close's wait) it is never handed out again in this boot.
+    if (b.vram && owner) {
+        if (owner->gpuRetired() >= (b.freeSeq ? b.freeSeq : lastSeq))
+            owner->vramPoolFree(b.vram, b.size);
+        else
+            OSIncrementAtomic64(&gVramLeaked);
+    }
     if (b.host)
         b.md->complete();
     b.md->release();
@@ -755,6 +809,7 @@ IOReturn IOAccelPhxNativeClient::doGemVa(IOExternalMethodArguments *a) {
         maps[freei] = Map{true, v->handle, va, v->map_size, v->offset_in_bo, v->flags};
         if (owner->gpuReady()) {
             const IOReturn r = !ensureVmid() ? kIOReturnNoResources
+                             : b->vram ? owner->vmMapVram(vmid, va, b->vram + v->offset_in_bo, v->map_size)   // b156
                              : b->scanSlot ? owner->vmMapVram(vmid, va, b->scanVram + v->offset_in_bo, v->map_size)
                              : owner->vmMap(vmid, va, b->md, v->offset_in_bo, v->map_size);
             if (r != kIOReturnSuccess) {

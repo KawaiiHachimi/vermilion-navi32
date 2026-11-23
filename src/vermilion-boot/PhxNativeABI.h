@@ -170,6 +170,14 @@ enum {
  * stays for mesboot's GART table and rings. */
 #define PHX_VRAM_PT_OFF   0xA400000ull
 #define PHX_VRAM_PT_SIZE  0x4C00000ull
+/* b156 (thread 02 part B): VRAM-backed client BOs. The clear's IB (CP DMA fill packets, PhxCpDma.h) at 148 MiB and the
+ * self-test's 1 MiB at 150 MiB, both in the free gap [146 MiB, 160 MiB) inside BAR0; the BO pool from 512 MiB up to
+ * the top of VRAM minus 112 MiB (phx_vram.cpp), past every fixed region and the large scan slots (end 352 MiB). */
+#define PHX_VRAM_CLEARIB_OFF   0x9400000ull
+#define PHX_VRAM_CLEARIB_SIZE  0x200000ull
+#define PHX_VRAM_SELFTEST_OFF  0x9600000ull
+#define PHX_VRAM_SELFTEST_SIZE 0x100000ull
+#define PHX_VRAM_POOL_BASE     0x20000000ull
 
 /* n48n_info.flags */
 #define PHXN_INFO_HUNG         (1u << 0)

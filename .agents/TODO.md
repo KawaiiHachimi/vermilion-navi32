@@ -22,6 +22,20 @@ State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC
 Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
 results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
 
+Thread 02 part B, **EFI change 16: VermilionBoot b156** (`d8f5948a`, VRAM-backed BOs, off at boot), VermilionTrust
+1.0.4 unchanged; built in `~/src/vermilion/build-02b/` (its `efi/` holds serials: delete it after the install). Diff
+against the live `EFI/OC`: only `VermilionBoot` (plus the known FSCK artefact in MtkWirelessBT).
+   - Before: copy the live `EFI/OC` to `~/vermilion-rollback/EFI-OC.change15-20261123`; `efi/build.py install` makes
+     change 15 `EFI/OC.prev`.
+   - Check after the boot: accelerated desktop, `SUCCESS` in `phxboot.log`, `sysctl debug.phxbo_vram_stat` reads
+     `mode=0 ... selftest=0`, idle clocks and interrupt waits as before (`idledpm: ... on`, `irqwait: on`).
+   - Then, with the owner's OK, in this order: `sudo sysctl debug.phxbo_vram_selftest=1` (must read 1; it runs
+     the kext's first own GPU work: CP DMA fills of 1 MiB at 150 MiB, 512 MiB and the pool top); `vkbench zerocheck`
+     and `vkbench bandwidth` / `metalbench bandwidth` without the switch (baseline), then with
+     `debug.phxbo_vram_proc=vkbench,metalbench` and `debug.phxbo_vram=1`.
+   - Rollback: `debug.phxbo_vram=0` (live; BOs already in VRAM stay until their process exits). Boot trouble:
+     `EFI/OC` and `EFI/OC.prev` swapped (macOS: `/Volumes/NO NAME/EFI`; Linux: `/boot/EFI`, then power off fully).
+
 Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
 
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
