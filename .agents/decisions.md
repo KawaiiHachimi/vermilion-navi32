@@ -476,3 +476,14 @@ and 53.5 -> 23.5 W socket; under load nothing got slower. `idle_dpm.sh` (flag `p
 desktop settled and keeps upstream's watchdog for the whole boot: the first underflow re-pins 456 for the rest of the
 boot. Not combined with `b15` (the XT's own recipe) and not after a pipe-1 boot. Every message is one Linux sends on this
 card. Evidence: [perf finding](findings/2026-11-23-perf-power.md) section 9.
+
+## 2026-11-23: GPU work targets Linux parity in every workload, not single apps
+
+**Decision:** thread 02 part C and later GPU work rank fixes by how many apps they speed up: the present path (app
+frames in system memory, WindowServer's composite), per-submission overhead in the plugin, VRAM BOs for every
+process (M3), the 6 GiB heap and working set, CPU-visible VRAM (Resizable BAR), OpenGL / OpenCL on the GPU.
+Cross-platform workloads with a Linux twin (Horizon's `horizon-ctl bench`, vkbench / metalbench, later browser
+WebGL / WebGPU and others) are the measuring sticks.
+**Why:** the owner wants macOS "just as performant as Linux in any game, application, workload" (2026-11-23); Horizon
+was installed only to compare (160 fps on macOS vs 4370 on Linux, same view).
+**Revisit:** when a measuring stick disagrees with the others (a cause that only one app hits).

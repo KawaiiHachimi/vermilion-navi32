@@ -55,10 +55,10 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 ## 02 GPU and CPU performance, power
 
 - [x] Linux reference boot and BIOS photos: done 2026-11-23 06:41-07:10 (results in the perf finding, section 8).
-- [~] **VRAM buffers for a real app** (thread 02 part B): **Horizon** has them since 2026-11-23 10:10
-      (`~/gpu/phxboot-bovram` = `horizon-client`; measured 88 -> 158 fps at 1440p, PROJECT_KNOWLEDGE). Left: play it
-      for a few days and report anything odd (stutter, wrong blocks or textures, a freeze). Off again:
-      `rm ~/gpu/phxboot-bovram` and restart. Browsers and WindowServer stay off for now.
+- [ ] **VRAM buffers in daily use** (thread 02 part B): Horizon was only a measuring stick (the owner rarely plays
+      it). Before VRAM buffers become the default for every app (M3), they go to the apps used every day; the
+      agent picks them from what runs on the machine. Report anything odd (stutter, wrong rendering, a freeze).
+      Off again: `rm ~/gpu/phxboot-bovram` and restart.
 - [ ] **A Metal game or benchmark** you own: run it for 20 minutes. Report the frame rate, stutter, wrong rendering,
       and whether the fans behave.
 
