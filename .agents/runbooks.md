@@ -97,13 +97,29 @@ numbers differ from the VBIOS's.
 Never write to `amdgpu_regs`. Captures go to a local directory outside git, unless they contain no serials and are
 turned into plans.
 
-## Build host (macOS VM via macbox) (2026-11-19, works)
+## Building on the Mac itself (since 2026-11-22, works)
+
+The kexts, the plugin and VermilionTrust build on the XTX machine's own macOS (Command Line Tools, x86_64), without
+the macbox VM. MacKernelSDK and Vulkan-Headers are in `~/src/vermilion/deps/`. RADV needs a Mesa checkout at
+`f5cb8ee0` with the patches; there was none on the Mac on 2026-11-23: set one up as in the macbox steps below
+(`~/src/mesa`) before a RADV build.
+
+```sh
+export MKSDK=$HOME/src/vermilion/deps/MacKernelSDK VULKAN_HEADERS=$HOME/src/vermilion/deps/Vulkan-Headers/include
+sh scripts/build/kext.sh          # VermilionBoot; also accel.sh, plugin.sh, translator.sh, tools.sh, metaltest.sh
+PHXTRUST_KEEP=1 sh scripts/build/trust.sh        # last: it lists the cdhashes of the installed code (see below)
+```
+
+Checked 2026-11-23 on `fork/main` `46bfd53`: `kext.sh` and `trust.sh` (with the list kept) rebuild VermilionBoot b150
+and VermilionTrust 1.0.3 byte for byte.
+
+## Build host (macOS VM via macbox) (2026-11-19, works; superseded by the Mac itself)
 
 The macbox VM runs macOS 26.7.3 (x86_64) with Xcode. Set up once (everything in `~/src` on the guest):
 
 ```sh
 macbox up && ssh macbox
-git clone -b ownback/explore-7900xtx-efi-passthrough https://github.com/ownback/vermilion.git ~/src/vermilion
+git clone https://github.com/ownback/vermilion-xtx.git ~/src/vermilion
 cd ~/src/vermilion/deps && git clone --depth 1 https://github.com/acidanthera/MacKernelSDK.git \
   && git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git
 curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-host x86_64-apple-darwin
@@ -138,6 +154,11 @@ bare metal. The mock suites run there too (`bash tests/mock/run.sh`, `b15test.sh
 against a fake Data volume.
 
 ## Installing Vermilion without the desktop (XTX machine, 2026-11-19)
+
+*Historical: the first install, before macOS had an accelerated desktop. `esp_stage.sh` leaves a payload of
+binaries on the ESP; delete `vermilion/payload/`, `install.sh` and `MD5SUMS` once the install has worked (thread 00
+did on 2026-11-23). The everyday paths are "Deploying a plugin, translator or RADV build" and "Building and installing
+the EFI on the Mac itself".*
 
 From Linux (root):
 
@@ -178,9 +199,10 @@ sudo mkdir -p /boot/vermilion/perf && sudo cp tools/phxctl/perflog.sh tools/phxc
 that directory, so it runs once and never again at a later boot. Read the log afterwards with apfs-fuse
 (`/mnt/mac/root/private/var/log/vermilion-perf-*.log`).
 
-## OpenCore EFI install *(unverified)*
+## OpenCore EFI install from Linux (2026-11-18, first install)
 
-The EFI partition is shared with Limine (`/boot` on Linux). Steps:
+Superseded for everyday changes by "Building and installing the EFI on the Mac itself" below. From Linux, the
+`efi/build.py install --esp /boot` step does step 1. The EFI partition is shared with Limine (`/boot` on Linux). Steps:
 
 1. Copy the EFI to `/boot/EFI/OC`. Never touch `EFI/BOOT/BOOTX64.EFI` (Limine's fallback) or `EFI/limine`.
 2. Add a firmware boot entry, without changing the boot order:
@@ -222,14 +244,66 @@ To make Limine the default again: `efibootmgr --bootorder 0000,0006,0001,0002`.
 ```sh
 sudo mkdir -p /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1   # the NVMe's EFI partition
 # once: the machine config (serials, ACPI dump; never into git) and iasl 20251212 (same as Linux: identical AML)
-sudo cp -R /private/tmp/efi/vermilion/handoff/config-vermilion/ ~/.config/vermilion/ && sudo chown -R "$USER" ~/.config/vermilion && chmod 700 ~/.config/vermilion
+# ~/.config/vermilion comes from Linux (efi/build.py smbios + acpi-dump). Carry it over once on a USB stick or by
+# scp, never by leaving it on the ESP (FAT: any OS reads it), then: chmod -R go-rwx ~/.config/vermilion
 git clone https://github.com/acpica/acpica.git ~/.local/src/acpica && git -C ~/.local/src/acpica checkout 446be4382 \
   && make -C ~/.local/src/acpica -j8 iasl && cp ~/.local/src/acpica/generate/unix/bin/iasl ~/.local/bin/
-sudo cp -R /private/tmp/efi/EFI/OC/Kexts/VermilionBoot.kext build/                          # or a fresh kext build
-PATH=$HOME/.local/bin:$PATH python3 efi/build.py build --stage vermilion
-sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion/EFI/OC                  # only the intended files
-sudo python3 efi/build.py install --esp /private/tmp/efi --stage vermilion                    # keeps EFI/OC.prev
+sh scripts/build/kext.sh && PHXTRUST_KEEP=1 sh scripts/build/trust.sh                    # build/VermilionBoot.kext, VermilionTrust.kext
+PATH=$HOME/.local/bin:$PATH python3 efi/build.py build                                     # the profile's default stage (vermilion-trust)
+sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion-trust/EFI/OC           # only the intended files
+sudo python3 efi/build.py install --esp /private/tmp/efi                                    # keeps EFI/OC.prev
 ```
+
+`config.plist` always differs from a `--placeholder-smbios` build in `PlatformInfo` only. `build/efi/` contains the
+serials: delete it when done, never copy or commit it.
 
 Rollback from the Mac: `sudo mv /private/tmp/efi/EFI/OC /private/tmp/efi/EFI/OC.bad && sudo mv /private/tmp/efi/EFI/OC.prev /private/tmp/efi/EFI/OC`.
 In zsh, use `/usr/bin/log` (zsh has its own `log` builtin).
+
+## Deploying a plugin, translator or RADV build (2026-11-23)
+
+AMFI enforces library validation (stage `vermilion-trust`): WindowServer maps only the cdhashes compiled into
+VermilionTrust. **A new NVMTLDriver, `libnvmtl_translate.dylib`, `libvulkan_radeon.dylib` (or LLVM / zstd, the video
+decoder) has a new cdhash, so every install of one is also a VermilionTrust and EFI change:**
+
+1. Build the new binary and keep the old one: `~/vermilion-rollback/<name>-<date>/`.
+2. Install it into `/Library/GPUBundles/...` (as before).
+3. `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`: the new list holds the installed files **and** the cdhashes of the
+   current list (marked `-previous`), so the kext accepts the old and the new build and the plugin install and the
+   EFI don't have to land in the same boot.
+4. Rebuild and install the EFI ("Building and installing the EFI on the Mac itself"): `diff -rq` must show only
+   `Kexts/VermilionTrust.kext` (and `config.plist`, if anything else changed on purpose). One EFI change: write the
+   check and rollback into TODO first.
+5. Restart. Check `sysctl debug.phxtrust_stat` (`mode=enforce`, `denied_unlisted=0`) and `sysctl
+   debug.phxtrust_files` (the new file listed with overrides), plus an accelerated desktop.
+6. Rollback: the old binary back from `~/vermilion-rollback/` (the kext trusts it as `-previous`), or `EFI/OC.prev`.
+   An `OC.prev` built before the new list doesn't trust the new binary: restore the old binary first.
+7. Once the old build is gone for good, drop its `-previous` entry: rebuild without `PHXTRUST_KEEP`.
+
+Without step 3 AMFI refuses the new build in every platform process and the desktop loses acceleration.
+
+## Linux sessions (one-off captures)
+
+A Linux boot of the XTX machine collects what macOS can't: reference numbers, register traces, firmware tables. The
+current plan for the next one: [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md). The rules for every one:
+
+- Read-only: lspci, sysfs, debugfs, tracepoints, `dmesg`. No `setpci` writes, no `umr -w`, nothing written under
+  `/sys` except what a capture tool documents (amdgpu-mediated mode sets, link preferences), no amdgpu reload, no
+  kernel parameter change, no VBIOS access.
+- No EFI install, no `efibootmgr`, no EFI variable change, nothing under `/boot/EFI` or
+  `/boot/vermilion/{run-once.sh,flags}`. Don't remove the reboot guard (`vermilion-reboot-to-linux.service`).
+- Root: the password through T3's `request_secret` with file delivery, `sudo -S -p '' ... < "$file"`, never in chat.
+- Captures go outside git (`~/vermilion-captures/`, or the ESP only for the trip to macOS, deleted after). Only a
+  findings note goes into git: no serials, MACs, EDIDs with serials, register dumps.
+- End: **shut down Linux (power off, not restart), power on, macOS**.
+
+Done so far, with their tools:
+
+| Date | Capture | Tool | Result |
+|---|---|---|---|
+| 2026-11-19 | PCI view of the chipset path (Wi-Fi / I225-V not answering in macOS) | `tools/capture/linux_pci_capture.sh <dir>` (lspci, sysfs, dmesg; MACs masked; mock test `tests/mock/linux_pci_capture_test.sh`) | Common Clock set on every link under Linux; the cause turned out to be 10-bit tags ([finding](findings/2026-11-19-wifi-mt7922.md)) |
+| 2026-11-20 / 21 | Display mode sets of the LG, v1-v4: 60-240 Hz, HBR2, HDR, every EDID mode, VRR, HDR pairs | `tools/capture/linux_display_capture.py <dir> [--steps ...] [--all-modes] [--hdr-pairs]` (Hyprland mode sets; `amdgpu_dc_wreg` tracepoint, DMUB command kprobe, DTN log, DPCD; `--dry-run` lists the steps) | the replay plans (`tools/capture/p0odm_from_trace.py`); captures in `~/vermilion-captures/capture/` ([refresh / HDR](findings/2026-11-19-refresh-and-hdr.md), [HDR](findings/2026-11-21-hdr.md)) |
+
+Display capture notes: it needs debugfs and the `amdgpu_dm/amdgpu_dc_wreg` tracepoint (stop if missing; don't patch
+the kernel); the screen switches modes and may go black for seconds per step; a forced HBR2 link (`--steps hbr2-*`)
+stays forced until power-off, so run it last; `edid-noserial.bin` must show zeros at bytes 12-15.

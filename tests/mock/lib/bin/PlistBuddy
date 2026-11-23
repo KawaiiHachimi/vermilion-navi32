@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# PlistBuddy for the mock suites off macOS (tests/mock/lib/portable.sh puts it on PATH and in MOCK_PB): the subset of
+# /usr/libexec/PlistBuddy the suites and the scripts they test use, on Python's plistlib.
+#   PlistBuddy -c "<cmd>" [-c "<cmd>" ...] <file>
+#   Print [:path]            the value (bool true/false, real %f, containers as "Dict {" / "Array {" blocks)
+#   Set :path <value>        an existing scalar, its type kept (bool: YES/true/1 = true, anything else false)
+#   Add :path <type> [value] type string|integer|real|bool|date|data|array|dict; into an array at <index> or at the end
+#   Delete :path
+#   Save / Exit
+# As PlistBuddy (checked on macOS 26.7.1 against /usr/libexec/PlistBuddy): a missing file prints
+# "File Doesn't Exist, Will Create: <file>" on stdout; the file is written after an Add that worked and after any Set
+# or Delete, also one that failed (PlistBuddy then creates an empty plist, or rewrites the file); an error goes to
+# stderr, the next commands still run, and the exit status is 1 if any command failed; dict keys are written sorted, a
+# new file as XML, an existing file in its own format.
+# Not as PlistBuddy: Print of a dict lists the keys in file order (PlistBuddy: its own order), and Add does not create
+# missing parents. The suites and scripts print scalars only and add the parent first.
+import base64
+import datetime
+import os
+import plistlib
+import sys
+
+
+class Fail(Exception):
+    pass
+
+
+def parse_path(p):
+    p = p[1:] if p.startswith(":") else p
+    return [] if p == "" else p.split(":")
+
+
+def child(node, key):
+    if isinstance(node, dict):
+        return node[key] if key in node else None
+    if isinstance(node, list):
+        try:
+            i = int(key)
+        except ValueError:
+            return None
+        return node[i] if 0 <= i < len(node) else None
+    return None
+
+
+def walk(root, keys):
+    node = root
+    for k in keys:
+        node = child(node, k)
+        if node is None:
+            return None
+    return node
+
+
+def leading_int(s):
+    s = s.strip()
+    j = 1 if s[:1] in "+-" else 0
+    while j < len(s) and s[j].isdigit():
+        j += 1
+    try:
+        return int(s[:j], 10)
+    except ValueError:
+        return 0
+
+
+def leading_float(s):
+    s = s.strip()
+    for j in range(len(s), 0, -1):
+        try:
+            return float(s[:j])
+        except ValueError:
+            pass
+    return 0.0
+
+
+def as_bool(s):
+    return s.strip().lower() in ("yes", "true", "1", "y")
+
+
+def scalar(kind, value, path, verb):
+    if kind == "string":
+        return value
+    if kind == "integer":
+        return leading_int(value)
+    if kind == "real":
+        return leading_float(value)
+    if kind == "bool":
+        return as_bool(value)
+    if kind == "data":
+        return value.encode()
+    if kind == "date":
+        try:
+            return datetime.datetime.strptime(value.strip(), "%a %b %d %H:%M:%S %Z %Y")
+        except ValueError:
+            return datetime.datetime(1970, 1, 1)
+    raise Fail('%s: Unknown Type "%s"' % (verb, kind))
+
+
+def fmt(v, ind=0):
+    pad = " " * ind
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return "%f" % v
+    if isinstance(v, bytes):
+        return v.decode("latin-1")
+    if isinstance(v, datetime.datetime):
+        return v.strftime("%a %b %d %H:%M:%S UTC %Y")
+    if isinstance(v, dict):
+        lines = ["Dict {"]
+        for k in v:
+            lines.append("%s    %s = %s" % (pad, k, fmt(v[k], ind + 4)))
+        lines.append(pad + "}")
+        return "\n".join(lines)
+    if isinstance(v, list):
+        lines = ["Array {"]
+        for e in v:
+            lines.append("%s    %s" % (pad, fmt(e, ind + 4)))
+        lines.append(pad + "}")
+        return "\n".join(lines)
+    return str(v)
+
+
+def run(root, cmd):
+    """Runs one command on root; returns (root, changed)."""
+    words = cmd.strip().split(" ")
+    verb = words[0]
+    rest = words[1:]
+    v = verb.lower()
+    if v == "print":
+        path = rest[0] if rest else ""
+        node = walk(root, parse_path(path))
+        if node is None:
+            raise Fail('Print: Entry, "%s", Does Not Exist' % path)
+        sys.stdout.write(fmt(node) + "\n")
+        return False
+    if v in ("save", "exit", "quit"):
+        return False
+    if not rest:
+        raise Fail("%s: Invalid Arguments" % verb)
+    path = rest[0]
+    keys = parse_path(path)
+    if not keys:
+        raise Fail("%s: Invalid Arguments" % verb)
+    parent = walk(root, keys[:-1])
+    last = keys[-1]
+    if v == "set":
+        node = child(parent, last) if parent is not None else None
+        if node is None:
+            raise Fail('Set: Entry, "%s", Does Not Exist' % path)
+        if isinstance(node, (dict, list)):
+            raise Fail("Set: Cannot Perform Set On Containers")
+        value = " ".join(rest[1:])
+        kind = ("bool" if isinstance(node, bool) else "integer" if isinstance(node, int) else
+                "real" if isinstance(node, float) else "data" if isinstance(node, bytes) else
+                "date" if isinstance(node, datetime.datetime) else "string")
+        new = scalar(kind, value, path, "Set")
+        if isinstance(parent, dict):
+            parent[last] = new
+        else:
+            parent[int(last)] = new
+        return True
+    if v == "add":
+        if len(rest) < 2:
+            raise Fail("Add: Invalid Arguments")
+        kind = rest[1].lower()
+        value = " ".join(rest[2:])
+        new = {} if kind == "dict" else [] if kind == "array" else scalar(kind, value, path, "Add")
+        if isinstance(parent, dict):
+            if last in parent:
+                raise Fail('Add: "%s" Entry Already Exists' % path)
+            parent[last] = new
+            return True
+        if isinstance(parent, list):
+            try:
+                i = int(last)
+            except ValueError:
+                raise Fail('Add: Entry, "%s", Does Not Exist' % path)
+            parent.insert(min(max(i, 0), len(parent)), new)
+            return True
+        raise Fail('Add: Entry, "%s", Does Not Exist' % path)
+    if v == "delete":
+        node = child(parent, last) if parent is not None else None
+        if node is None:
+            raise Fail('Delete: Entry, "%s", Does Not Exist' % path)
+        if isinstance(parent, dict):
+            del parent[last]
+        else:
+            del parent[int(last)]
+        return True
+    raise Fail('Unrecognized Command "%s"' % verb)
+
+
+def main(argv):
+    cmds = []
+    files = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "-c" and i + 1 < len(argv):
+            cmds.append(argv[i + 1])
+            i += 2
+            continue
+        if a in ("-x", "-l"):
+            i += 1
+            continue
+        files.append(a)
+        i += 1
+    if len(files) != 1:
+        sys.stderr.write("Usage: PlistBuddy [-c \"<command>\"] <file>\n")
+        return 1
+    f = files[0]
+    fmt_ = plistlib.FMT_XML
+    if os.path.exists(f):
+        try:
+            with open(f, "rb") as fh:
+                data = fh.read()
+            fmt_ = plistlib.FMT_BINARY if data.startswith(b"bplist") else plistlib.FMT_XML
+            root = plistlib.loads(data) if data.strip() else {}
+        except Exception:
+            sys.stderr.write("Error Reading File: %s\n" % f)
+            return 1
+    else:
+        sys.stdout.write("File Doesn't Exist, Will Create: %s\n" % f)
+        root = {}
+    rc = 0
+    changed = False
+    for c in cmds:
+        try:
+            changed = run(root, c) or changed
+        except Fail as e:
+            if c.strip().split(" ")[0].lower() in ("set", "delete"):
+                changed = True   # PlistBuddy saves after a Set / Delete that failed too
+            sys.stdout.flush()
+            sys.stderr.write(str(e) + "\n")
+            sys.stderr.flush()
+            rc = 1
+    if changed:
+        with open(f, "wb") as fh:
+            plistlib.dump(root, fh, fmt=fmt_, sort_keys=True)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

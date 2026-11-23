@@ -49,6 +49,49 @@ bash dettest.sh                # det.sh -p <pipe> show/clear/set/rollback (must 
 bash b21guard_mut.sh           # 15 mutations of the login-window guard (b21_on / b21_off and their hooks), each CAUGHT by run.sh b21_* (11-04)
 ```
 
+## Running on Linux (11-23)
+The same commands are meant to run on Linux (bash 5, GNU coreutils, python3; no root); a real Linux run is still
+(unverified), see the end of this section. The 15 shell suites that used a macOS path or tool source
+`lib/portable.sh` (as do `b15diff.sh` and `mutlib.sh`); the other seven (`perflog_test.sh`, `wifilog_test.sh`,
+`reboot_to_linux_test.sh`, `linux_pci_capture_test.sh`, `wm144_guard_test.sh` and the two Python suites) needed no
+change:
+
+- **macOS: nothing changes.** Work dirs stay in `/private/tmp`, `sed -i ''`, `/usr/libexec/PlistBuddy`, the system
+  `plutil` / `stat` / `md5`, and run.sh still gives the daemon `PATH=<fakes>:/usr/bin:/bin:/usr/sbin:/sbin`.
+- **Elsewhere** (`uname` is not Darwin): work dirs in `${TMPDIR:-/tmp}` (`MOCKTMP=<dir>` overrides, on macOS too).
+  `sed -i` without the `''` when the `sed` on PATH is GNU sed. Off macOS, or with `MOCK_SHIMS=1` on a Mac, `lib/bin/`
+  goes in front of PATH (and of the daemon's PATH in run.sh). It holds stand-ins for the macOS tools the suites and
+  the scripts they test call:
+
+  | shim | does |
+  |---|---|
+  | `PlistBuddy` | Python plistlib: Print / Set / Add / Delete as the suites use them (output, exit codes and when the file is written checked against `/usr/libexec/PlistBuddy` on macOS 26.7.1; Print of a dict lists the keys in another order) |
+  | `plutil` | `-lint`, `-extract <key> raw -o -`, `-convert json -o -` |
+  | `stat` | BSD `stat -f <fmt>` on GNU `stat -c` (`%u %g %Su %Sg %z %m ...`); any other call goes to the real stat |
+  | `md5` | `-q` / `-r` on md5sum |
+  | `shasum` | the real one when it is on PATH, else sha256sum |
+
+  The scripts that call a macOS tool by its full path take an override, set by the suites: `PHXBOOT_PLISTBUDDY`
+  (daemon, existed), `ESPF_STAT` (esp_flags.sh), `DI_STAT` (daemon_install.sh), `VERMILION_PLISTBUDDY`
+  (recovery_install.sh). Unset, each is the macOS path it was before.
+- `phxctl_serve_test.sh` compiles `phxctl.c` against IOKit: off macOS it prints `phxctl_serve_test: SKIP (needs macOS ...)`
+  and exits 0. `p0prefetch_test.sh` still skips (exit 77) without a register dump, as on macOS.
+- `MOCK_SYSPATH=<dirs>` replaces the `/usr/bin:/bin:/usr/sbin:/sbin` part of the daemon's PATH in run.sh (to put GNU
+  tools first when trying the Linux path on a Mac).
+
+Checked 11-23 on the XTX machine (macOS 26.7.1), with GNU coreutils / sed / grep / gawk / findutils first on PATH,
+`sh` = dash, `MOCK_SHIMS=1` (so the Python PlistBuddy and plutil replace Apple's) and `TMPDIR=/tmp`. All 22 suites
+gave exactly the numbers they give on plain macOS, before and after this change. That includes five results that
+already failed before it (`phxctl_serve_test.sh` 1 failed; "bad" or "missed" mutants in `b21guard_mut.sh`,
+`bootflags_mut.sh`, `bootrate_mut.sh`, `wsprefs_mut.sh`). The numbers are in
+`.agents/findings/2026-11-18-mock-tests-on-linux.md`.
+
+A run on a real Linux machine is still **(unverified)**. On a Mac, a script that calls `/usr/bin/<tool>` by full
+path still gets the BSD tool, and `MOCK_DARWIN` stays 1, so the `phxctl_serve_test.sh` SKIP path and the
+`${TMPDIR:-/tmp}` work-dir default have not run. One full-path call has no override: the daemon's
+`/usr/bin/stat -f %Su "$0"` (`PHX_USER`), which GNU stat answers differently. In `run.sh` that value is never used:
+`PHXBOOT_G` / `PHXBOOT_HOME` skip the `dscl` lookup and `PHXBOOT_RUNAS=""` replaces `sudo -u $PHX_USER`.
+
 ## Cost knobs (11-04: the suites ran the MacBook fan at max)
 - `PAR=<n>`: how many run at once. **run.sh and b15test.sh**: a full run splits its scenarios round-robin over n shards
   (default 2; `PAR=1` = the old serial loop); every scenario still gets a fresh world, the output is printed in scenario

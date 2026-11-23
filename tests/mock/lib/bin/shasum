@@ -1,0 +1,9 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# shasum for the mock suites off macOS (tests/mock/lib/portable.sh puts it on PATH): the next shasum on PATH when there
+# is one (Perl's, on most Linux distributions), else `shasum [-a 1|224|256|384|512] <file>...` on GNU sha<n>sum.
+self=$(cd "$(dirname "$0")" && pwd); IFS=: read -r -a dirs <<<"$PATH"
+for d in "${dirs[@]}"; do [ "${d%/}" = "$self" ] && continue; [ -x "$d/shasum" ] && exec "$d/shasum" "$@"; done
+a=1; [ "${1:-}" = -a ] && { a=$2; shift 2; }
+command -v "sha${a}sum" >/dev/null 2>&1 || { echo "shasum (mock shim): needs sha${a}sum" >&2; exit 127; }
+exec "sha${a}sum" "$@"

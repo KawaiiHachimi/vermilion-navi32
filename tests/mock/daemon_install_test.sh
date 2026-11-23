@@ -5,13 +5,15 @@
 # a running bash script whose file is renamed over keeps running its old text.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); I=$HERE/../../tools/phxctl/daemon_install.sh
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 T=$(mktemp -d "${TMPDIR:-/tmp}/daemon_install.XXXXXX"); P=0; F=0
+DISHA=/usr/bin/shasum; [ -x "$DISHA" ] || DISHA=$MOCK_LIB/bin/shasum   # Linux: Perl's shasum elsewhere on PATH, or sha256sum
 ok()   { P=$((P+1)); echo "PASS  $1"; }
 bad()  { F=$((F+1)); echo "FAIL  $1"; }
 check(){ if eval "$2"; then ok "$1"; else bad "$1 ($2)"; fi; }
 fresh(){ rm -rf "$T/g" "$T/d"; mkdir -p "$T/g" "$T/d"; printf '#!/bin/bash\necho old\n' >"$T/g/phxboot-navi31.sh"
          printf '#!/bin/bash\necho new\n' >"$T/d/phxboot-navi31.sh"; shasum -a 256 "$T/d/phxboot-navi31.sh" >"$T/d/phxboot-navi31.sh.sha256"; }
-run()  { bash "$I" "$T/d" "$T/g" >"$T/out" 2>&1; echo $? >"$T/rc"; }
+run()  { DI_STAT="$MOCK_STAT" DI_SHASUM="$DISHA" bash "$I" "$T/d" "$T/g" >"$T/out" 2>&1; echo $? >"$T/rc"; }
 
 fresh; run
 check install_rc        '[ "$(cat "$T/rc")" = 0 ]'
@@ -38,7 +40,7 @@ check first_install     '[ "$(cat "$T/rc")" = 0 ] && grep -q "echo new" "$T/g/ph
 fresh
 cat >"$T/g/phxboot-navi31.sh" <<EOF
 #!/bin/bash
-bash "$I" "$T/d" "$T/g" >/dev/null 2>&1
+DI_STAT="$MOCK_STAT" DI_SHASUM="$DISHA" bash "$I" "$T/d" "$T/g" >/dev/null 2>&1
 sleep 0.2
 echo "old daemon line after the install"
 EOF

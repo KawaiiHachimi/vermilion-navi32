@@ -13,8 +13,9 @@
 # Exit 0 iff every scenario passes. Modelled on Cobalt64 tools/pc/m6-stage2-sim/run-scenarios.sh.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 DAEMON=${DAEMON:-$HERE/../../tools/phxctl/phxboot-navi31.sh}
-SCR=${SCR:-$(mktemp -d /private/tmp/phxboot-mock.XXXXXX)}
+SCR=${SCR:-$(mktemp -d "$MOCKTMP/phxboot-mock.XXXXXX")}
 BIN=$SCR/bin
 KEEP=0; [ "${1:-}" = "-k" ] && { KEEP=1; shift; }
 PASSN=0; FAILN=0; FAILED=""
@@ -109,7 +110,7 @@ fi
 # set; a set whose mode is not id 1 (head 0's boot mode) makes it call setDisplayMode, the refusal rebuilds the pipe
 # resource and it dies (launchd respawns it as pid 1021). SIM_WSMODEL=1 turns the model on.
 if [ "${SIM_WSMODEL:-0}" = 1 ] && [ "${1:-}" = -w ] && [ "${2:-}" = debug.nvaccelfb=1 ] && [ ! -e "$st/killed" ]; then
-  pb=/usr/libexec/PlistBuddy; f="$st/ws0-snapshot.plist"; i=0; hit=""
+  pb=${MOCK_PB:-/usr/libexec/PlistBuddy}; f="$st/ws0-snapshot.plist"; i=0; hit=""
   while [ -e "$f" ] && "$pb" -c "Print :DisplayAnyUserSets:$i" "$f" >/dev/null 2>&1; do
     if ! "$pb" -c "Print :DisplayAnyUserSets:$i:1" "$f" >/dev/null 2>&1; then
       id=$("$pb" -c "Print :DisplayAnyUserSets:$i:0:Mode:IODisplayModeID" "$f" 2>/dev/null)
@@ -195,7 +196,7 @@ st="${SIM_STATE:-/tmp}"; k=no; [ -e "$st/killed" ] && k=yes; c=no; [ -e "$st/cla
 # would), logged to $st/lw.log with the boot state; SIM_LW_BROKEN_AT_TERM=1 = after launchd's TERM `defaults` no longer
 # reaches cfprefsd (the v4 export at TERM returned no sets 3/3): read says absent, write returns 0 and changes nothing
 case "${2:-}" in *com.apple.loginwindow)
-  t=no; [ -e "$st/termed" ] && t=yes; echo "$1 ${3:-} ${4:-} ${5:-} killed=$k termed=$t" >>"$st/lw.log"; pb=/usr/libexec/PlistBuddy; f="$2.plist"
+  t=no; [ -e "$st/termed" ] && t=yes; echo "$1 ${3:-} ${4:-} ${5:-} killed=$k termed=$t" >>"$st/lw.log"; pb=${MOCK_PB:-/usr/libexec/PlistBuddy}; f="$2.plist"
   [ "${SIM_LW_BROKEN_AT_TERM:-0}" = 1 ] && [ $t = yes ] && { [ "$1" = read ] && { echo "The domain/default pair of ($2, $3) does not exist" >&2; exit 1; }; exit 0; }
   [ -n "${SIM_LW_FAIL:-}" ] && [ "$SIM_LW_FAIL" = "$1" ] && { echo "defaults: $1 failed (mock)" >&2; exit 1; }   # SIM_LW_FAIL=<verb>: that verb refused
   case "$1" in
@@ -214,7 +215,7 @@ echo "defaults $1 $2 claimed=$c killed=$k" >>"$st/defaults.log"
 case "$1" in
   export) [ -e "$st/wsprefs.plist" ] || { echo "Domain $2 does not exist" >&2; exit 1; }
           # SIM_WS_REWRITE=1: WindowServer rewrote the one-display set (id 7) after the claim, before the restore
-          [ "${SIM_WS_REWRITE:-0}" = 1 ] && [ "$c" = yes ] && /usr/libexec/PlistBuddy -c "Set :DisplayAnyUserSets:2:0:Mode:IODisplayModeID 7" "$st/wsprefs.plist" >/dev/null
+          [ "${SIM_WS_REWRITE:-0}" = 1 ] && [ "$c" = yes ] && "${MOCK_PB:-/usr/libexec/PlistBuddy}" -c "Set :DisplayAnyUserSets:2:0:Mode:IODisplayModeID 7" "$st/wsprefs.plist" >/dev/null
           cp "$st/wsprefs.plist" "$3";;
   import) cp "$3" "$st/wsprefs.plist";;
   *) exit 1;;
@@ -305,7 +306,7 @@ make_world_tpl() { local FR=$TPL/fr
   cp "$BIN/metaltest" "$FR/gpu/metaltest"; cp "$BIN/navi31_up.sh" "$FR/gpu/phxctl/navi31_up.sh"; cp "$BIN/mesboot" "$FR/usr/local/sbin/mesboot"
   chmod +x "$FR/gpu/metaltest" "$FR/gpu/phxctl/navi31_up.sh" "$FR/usr/local/sbin/mesboot"
   # the loginwindow system prefs as on the box, without SHOWFULLNAME (login-window guard; a scenario sets the user's own value)
-  mkdir -p "$FR/Library/Preferences"; /usr/libexec/PlistBuddy -c "Add :lastUserName string user" -c "Add :GuestEnabled bool false" "$FR/Library/Preferences/com.apple.loginwindow.plist" >/dev/null; }
+  mkdir -p "$FR/Library/Preferences"; "$MOCK_PB" -c "Add :lastUserName string user" -c "Add :GuestEnabled bool false" "$FR/Library/Preferences/com.apple.loginwindow.plist" >/dev/null; }
 
 # ---------------------------------------------------------------------------------------------- scenario DSL
 world() {   # world: a fresh fake root + default-healthy SIM_* config
@@ -376,12 +377,12 @@ boot() {
            SIM_BOOTARGS SIM_SYSCTL_FAIL SIM_GAMMA_BUSY SIM_CDPREF SIM_NO_RESYNC SIM_RESYNC_ID SIM_NMODES SIM_AOCBOOT_RC \
            SIM_TERM_LATE SIM_SHUTDOWN_TERM SIM_MARK="$FR/var/db/phxboot.pending" \
            SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL SIM_LAUNCHCTL_FAIL SIM_WAITSTEP_NOOID SIM_VRRMIN_NOOID SIM_P0_OLD
-    export PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin"
+    export PATH="$BIN:$MOCK_SHIMPATH$MOCK_SYSPATH"   # macOS: $BIN:/usr/bin:/bin:/usr/sbin:/sbin (lib/portable.sh)
     env PHXBOOT_G="$FR/gpu" PHXBOOT_HOME="$FR" PHXBOOT_LOG="$LOGF" PHXBOOT_MARK="$FR/var/db/phxboot.pending" \
         PHXBOOT_OFF="$FR/gpu/phxboot-off" PHXBOOT_DESKTOP="$FR/gpu/phxboot-desktop" \
         PHXBOOT_ALLOW="$FR/Library/GPUBundles/nvmtl-allow.txt" PHXBOOT_DR="$FR/Library/Logs/DiagnosticReports" \
         PHXBOOT_MB="$FR/usr/local/sbin/mesboot" PHXBOOT_NO_WATCH=$NOWATCH PHXBOOT_WATCH_MAX="$WATCHMAX" PHXBOOT_RUNAS="" \
-        PHXBOOT_WSPTMP="$W" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" PHXBOOT_KCPASSWORD="$FR/etc/kcpassword" \
+        PHXBOOT_WSPTMP="$W" PHXBOOT_PLISTBUDDY="$MOCK_PB" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" PHXBOOT_KCPASSWORD="$FR/etc/kcpassword" \
         PHXBOOT_GPUPRESENT="$FR/Library/GPUBundles/nvmtl/ws-gpu-present" PHXBOOT_WSASYNC="$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async" \
         bash "$DAEMON" )
 }
@@ -434,7 +435,7 @@ go() {   # go <name>
   if [ "$X_PREFS_ORIG" = 1 ]; then
     [ "$(plutil -convert json -o - "$ST/wsprefs.plist" 2>&1)" = "$(plutil -convert json -o - "$FIXT")" ] || { ok=0; why="$why prefs NOT back to the original;"; }; fi
   while IFS=$'\t' read -r a b; do [ -n "$a" ] || continue
-    c=$(/usr/libexec/PlistBuddy -c "Print :$a" "$ST/wsprefs.plist" 2>&1); [ "$c" = "$b" ] || { ok=0; why="$why prefs $a=$c!=$b;"; }; done <<<"$X_PREFS"
+    c=$("$MOCK_PB" -c "Print :$a" "$ST/wsprefs.plist" 2>&1); [ "$c" = "$b" ] || { ok=0; why="$why prefs $a=$c!=$b;"; }; done <<<"$X_PREFS"
   if [ $ok = 1 ]; then PASSN=$((PASSN+1)); printf 'PASS  %-26s rc=%s\n' "$name" "$rc"
   else FAILN=$((FAILN+1)); FAILED="$FAILED $name"; printf 'FAIL  %-26s rc=%s %s\n        (log: %s)\n' "$name" "$rc" "$why" "$LOGF"; KEEP=1; fi
   [ $KEEP = 1 ] || rm -rf "$W"
@@ -582,9 +583,9 @@ expect_kill_prefs_original(){ X_KILLPREFS=1; }   # the prefs the restarted Windo
 # v4 leftover: set 2 neutral on disk, its values in the stash (what daemon 04c751b1 left after a SUCCESS)
 v4_leftover(){ local k v; mkdir -p "$FR/gpu/phxboot-wsprefs.stash.d"; : >"$FR/gpu/phxboot-wsprefs.stash.d/2026439080"
   for k in Mode:IODisplayModeID Mode:RefreshRate Mode:IOFlags UnmirroredMode:IODisplayModeID UnmirroredMode:RefreshRate UnmirroredMode:IOFlags IOFlags RefreshRate16.16; do
-    v=$(/usr/libexec/PlistBuddy -c "Print :DisplayAnyUserSets:2:0:$k" "$FIXT"); printf '%s\t%s\n' "$k" "$v" >>"$FR/gpu/phxboot-wsprefs.stash.d/2026439080"
+    v=$("$MOCK_PB" -c "Print :DisplayAnyUserSets:2:0:$k" "$FIXT"); printf '%s\t%s\n' "$k" "$v" >>"$FR/gpu/phxboot-wsprefs.stash.d/2026439080"
     case "$k" in *IODisplayModeID) v=1;; *RefreshRate) v=60;; *IOFlags) v=1048583;; RefreshRate16.16) v=3932160;; esac
-    /usr/libexec/PlistBuddy -c "Set :DisplayAnyUserSets:2:0:$k $v" "$ST/wsprefs.plist"; done; }
+    "$MOCK_PB" -c "Set :DisplayAnyUserSets:2:0:$k $v" "$ST/wsprefs.plist"; done; }
 # a logged-in session's display change: SkyLight copies the user's DisplaySets (AOC alone at 144) into DisplayAnyUserSets
 session_saves(){ cp "$FIXT" "$ST/wsprefs.plist"; }
 sc_ws_crash_oldkext() { prefs_world; expect_log 'head-0 offer gate: absent after'; expect_log 'first WindowServer died before the restart \(pid 12345 -> 1021;'
@@ -723,8 +724,8 @@ sc_dpwatch_unarmed_ev(){ flags_world; echo 2 >"$FR/gpu/phxboot-dpwatch"; SIM_DPW
 # every revert to GOP; back to the user's value (absent = deleted, the user's own true / false kept) right before the Metal
 # WindowServer restart; ~/gpu/phxboot-b21guard = 0: the key is never touched. The fake domain is $FR/Library/Preferences/
 # com.apple.loginwindow.plist (no SHOWFULLNAME by default), the defaults calls on it are in $ST/lw.log
-sfn(){ /usr/libexec/PlistBuddy -c 'Print :SHOWFULLNAME' "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
-sfn_set(){ /usr/libexec/PlistBuddy -c "Add :SHOWFULLNAME bool $1" "$FR/Library/Preferences/com.apple.loginwindow.plist" >/dev/null; }   # the user's own value
+sfn(){ "$MOCK_PB" -c 'Print :SHOWFULLNAME' "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
+sfn_set(){ "$MOCK_PB" -c "Add :SHOWFULLNAME bool $1" "$FR/Library/Preferences/com.apple.loginwindow.plist" >/dev/null; }   # the user's own value
 expect_sfn(){ expect_cmd "[ \"\$(sfn)\" = $1 ]"; }                      # the key at the end: true / false / absent
 expect_b21orig(){ expect_cmd "[ \"\$(cat \"\$FR/gpu/phxboot-b21guard.orig\" 2>/dev/null || echo none)\" = $1 ]"; }   # the recorded user value (none = no state file)
 expect_lw(){ expect_cmd "grep -Eq -- '$1' \"\$ST/lw.log\""; }           # a defaults call on the domain (verb key -bool value killed= termed=)
@@ -794,19 +795,19 @@ sc_cdcopy_nodesk() {    gp_world async; DESK=0; touch "$FR/gpu/phxboot-wscdcopy"
 ws_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-waitstep"; }
 # 11-20 p0modes: ~/gpu/phxboot-p0modes arms the pipe-0 engine and the head-0 mode list before the claim (b128, 1440p)
 sc_p0modes_off() {      world; expect_nolog 'p0modes'; expect_writes 'phxpipe0_enable' 0; expect_writes 'phxpipe0_modes' 0; expect_log 'SUCCESS'; go p0modes_off; }
-alu(){ /usr/libexec/PlistBuddy -c "Print :autoLoginUser" "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
+alu(){ "$MOCK_PB" -c "Print :autoLoginUser" "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
 expect_alu(){ expect_cmd "[ \"\$(alu)\" = $1 ]"; }
-al_world(){ world; echo dnanu >"$FR/gpu/phxboot-autologin"; mkdir -p "$FR/etc"; echo x >"$FR/etc/kcpassword"; }
+al_world(){ world; echo mockuser >"$FR/gpu/phxboot-autologin"; mkdir -p "$FR/etc"; echo x >"$FR/etc/kcpassword"; }
 sc_al_off() {           world; expect_nolog 'autologin:'; expect_alu absent; expect_log 'SUCCESS'; go al_off; }
-sc_al_on() {            al_world; expect_log 'autologin: .* off \(daemon start\)'; expect_log "autologin: .* on for 'dnanu' before the Metal WindowServer restart \(reads 'dnanu'\)"
+sc_al_on() {            al_world; expect_log 'autologin: .* off \(daemon start\)'; expect_log "autologin: .* on for 'mockuser' before the Metal WindowServer restart \(reads 'mockuser'\)"
                         expect_order 'autologin: .* off \(daemon start\)' 'autologin: .* on for'; expect_order 'autologin: .* on for' 'restarting WindowServer once'
-                        expect_alu dnanu; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go al_on; }
+                        expect_alu mockuser; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go al_on; }
 sc_al_user_in() {       al_world; SIM_USERS="user console 2026 Nov 20"; expect_log 'a user is logged in before arming'; expect_nolog 'autologin: .* on for'; expect_alu absent; go al_user_in; }
-sc_al_nokc() {          world; echo dnanu >"$FR/gpu/phxboot-autologin"; expect_log 'autologin: .*kcpassword missing'; expect_alu absent; expect_log 'SUCCESS'; go al_nokc; }
+sc_al_nokc() {          world; echo mockuser >"$FR/gpu/phxboot-autologin"; expect_log 'autologin: .*kcpassword missing'; expect_alu absent; expect_log 'SUCCESS'; go al_nokc; }
 sc_al_metal_fail() {    al_world; SIM_METAL=0; expect_log 'FAIL \(Metal device never came up\)'; expect_nolog 'autologin: .* on for'; expect_alu absent; expect_reboot; go al_metal_fail; }
 sc_al_shutdown() {      al_world; NOWATCH=0; WATCHMAX=4; SIM_SHUTDOWN_W15=1; expect_rc 143; expect_log 'SUCCESS'; expect_log 'autologin: .* off \(shutdown \(TERM\)\)'
                         expect_alu absent; expect_no_reboot; go al_shutdown; }
-sc_al_b21off() {        al_world; echo 0 >"$FR/gpu/phxboot-b21guard"; expect_log 'autologin: .* off \(daemon start\)'; expect_log 'autologin: .* on for'; expect_alu dnanu; go al_b21off; }
+sc_al_b21off() {        al_world; echo 0 >"$FR/gpu/phxboot-b21guard"; expect_log 'autologin: .* off \(daemon start\)'; expect_log 'autologin: .* on for'; expect_alu mockuser; go al_b21off; }
 sc_p0modes_on() {       world; touch "$FR/gpu/phxboot-p0modes"; expect_writes '^-w debug.phxpipe0_enable=1$' 1; expect_writes '^-w debug.phxpipe0_modes=1$' 1
                         expect_log 'p0modes: pipe-0 engine on, head-0 mode list armed'; expect_log 'claim: phxpipe0_modes was set before the claim'
                         expect_order 'p0modes: pipe-0 engine on' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_no_reboot; go p0modes_on; }

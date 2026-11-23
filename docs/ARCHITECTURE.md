@@ -33,6 +33,7 @@ flowchart TB
   subgraph Kernel["kernel"]
     ACC["VermilionAccel.kext (src/vermilion-accel)<br/>NMXAccel, PhxAMDFB, PhxAGDC"]
     BOOT["VermilionBoot.kext (src/vermilion-boot)<br/>PhxBringup + N48N user client"]
+    TRUST["VermilionTrust.kext (src/vermilion-trust)<br/>AMFI allowlist: Vermilion's cdhashes"]
   end
   GPU["RX 7900 XT / XTX<br/>PSP, SMU, GFX, SDMA, VCN, DCN"]
   RADV -- "N48N user client:<br/>BOs, VA, submit, wait" --> BOOT
@@ -40,6 +41,7 @@ flowchart TB
   PLG -- "IOAccelerator interfaces" --> ACC
   DAEMON -- "debug selectors<br/>(phxdebug=1)" --> BOOT
   ACC --> BOOT
+  TRUST -. "library validation:<br/>lets the plugin, translator, RADV through" .-> PLG
   BOOT -- "registers (BAR5), VRAM window (BAR0),<br/>doorbells (BAR2)" --> GPU
 ```
 
@@ -136,7 +138,7 @@ sequenceDiagram
   participant GPU
   participant VA as VermilionAccel
   participant WS2 as WindowServer (restarted)
-  OC->>K: boot, inject VermilionBoot (boot-args phxdebug=1 amfi=0x80 ...)
+  OC->>K: boot, inject VermilionBoot + VermilionTrust (boot-args phxdebug=1 ...)
   Note over GPU: the GOP already lit the monitor
   K->>VB: match 0x744c1002, map BARs, publish phx-build
   K->>WS1: WindowServer starts on the firmware framebuffer (no Metal)
@@ -193,16 +195,26 @@ The display engine (DCN 3.2) is the most board- and monitor-specific part.
 
 ## Security and system settings the stack needs
 
-- **SIP partly off** (`csr-active-config 0x0A03`), **`amfi=0x80`** with Lilu + AMFIPass. Without these, the ad-hoc
-  signed plugin and the AuxKC kext don't load. Cost: no FairPlay DRM, and third-party privacy prompts are denied.
+- **SIP partly off** (`csr-active-config 0x0A03`): the ad-hoc signed VermilionAccel loads from the AuxKC.
+- **AMFI stays on; VermilionTrust** (`src/vermilion-trust`, injected by OpenCore after Lilu) lets only the cdhashes of
+  the installed plugin, translator, LLVM, zstd and RADV through library validation in platform processes such as
+  WindowServer. A new build of any of them needs a VermilionTrust and EFI rebuild
+  ([runbooks](../.agents/runbooks.md#deploying-a-plugin-translator-or-radv-build-2026-11-23)). The kext's hook offsets
+  were read from 25G241 only. On the XTX machine since 2026-11-22; on the XT *(unverified)*.
+  - The older setup, still in the `vermilion` EFI stage and in [INSTALL.md](INSTALL.md): `amfi=0x80` with Lilu +
+    AMFIPass. It turns library validation off for every process and makes every app a platform binary, which denies
+    third-party privacy prompts. Whether it also breaks FairPlay 1.x (Apple Music) was never tested: on the XTX
+    machine Music failed because `en0` wasn't built-in, not because of AMFI.
 - **`SecureBootModel = Disabled`** in OpenCore.
 - **macOS 26.7.1 exactly.** The plugin uses private Metal interfaces of that build.
-- **No sleep**: sleep/wake isn't implemented.
+- **No sleep**: sleep/wake isn't implemented (the XTX machine blocks even manual sleep: `pmset -a disablesleep 1`).
 
 ## Where the knowledge lives
 
 | Question | Look in |
 |---|---|
+| What state is the XTX machine in, and what is its known-good configuration? | [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) |
+| Where is the project going? | [ROADMAP.md](../ROADMAP.md) |
 | Why is a kext build the way it is? | `src/vermilion-boot/CHANGELOG.md` (one line per build, newest first, with test results) |
 | What does a script or flag do? | its header comment, then [INSTALL.md](INSTALL.md) section 7.3 |
 | Why does a name start with `phx` / `nv`? | [NAMING.md](NAMING.md) |

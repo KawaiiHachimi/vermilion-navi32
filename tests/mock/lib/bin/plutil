@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# plutil for the mock suites off macOS (tests/mock/lib/portable.sh puts it on PATH): the subset the suites and the
+# scripts they test use, on Python's plistlib.
+#   plutil -lint <file>...                         "<file>: OK", exit 1 if one does not parse
+#   plutil -extract <keypath> raw -o - <file>      one scalar (data as base64, bool true/false), dot-separated keypath
+#   plutil -convert json -o - <file>               JSON on stdout (keys sorted; data or dates: refused, as plutil does)
+# The JSON is only compared with another plutil -convert json of this shim, never with macOS plutil output.
+import base64
+import datetime
+import json
+import plistlib
+import sys
+
+
+def load(f):
+    with open(f, "rb") as fh:
+        return plistlib.load(fh)
+
+
+def lint(files):
+    rc = 0
+    for f in files:
+        try:
+            load(f)
+            print("%s: OK" % f)
+        except Exception as e:
+            print("%s: %s" % (f, e))
+            rc = 1
+    return rc
+
+
+def walk(node, keypath):
+    for k in keypath.split(".") if keypath else []:
+        if isinstance(node, dict) and k in node:
+            node = node[k]
+        elif isinstance(node, list) and k.isdigit() and int(k) < len(node):
+            node = node[int(k)]
+        else:
+            return None
+    return node
+
+
+def raw(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float, str)):
+        return str(v)
+    if isinstance(v, bytes):
+        return base64.b64encode(v).decode()
+    if isinstance(v, datetime.datetime):
+        return v.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return None
+
+
+def jsonable(v):
+    if isinstance(v, (bytes, datetime.datetime)):
+        raise ValueError
+    if isinstance(v, dict):
+        return {k: jsonable(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [jsonable(x) for x in v]
+    return v
+
+
+def main(a):
+    if a and a[0] == "-lint":
+        return lint(a[1:])
+    if len(a) >= 5 and a[0] == "-extract" and a[2] == "raw" and a[3] == "-o" and a[4] == "-":
+        f = a[-1]
+        try:
+            v = walk(load(f), a[1])
+        except Exception:
+            sys.stderr.write("%s: file does not exist or is not readable or is not a regular file\n" % f)
+            return 1
+        r = raw(v) if v is not None else None
+        if r is None:
+            sys.stderr.write("%s: Could not extract value, error: No value at that key path or invalid key path: %s\n" % (f, a[1]))
+            return 1
+        print(r)
+        return 0
+    if len(a) >= 5 and a[0] == "-convert" and a[1] == "json" and a[2] == "-o" and a[3] == "-":
+        f = a[-1]
+        try:
+            v = load(f)
+        except Exception:
+            sys.stderr.write("%s: file does not exist or is not readable or is not a regular file\n" % f)
+            return 1
+        try:
+            print(json.dumps(jsonable(v), sort_keys=True, separators=(",", ":")))
+        except ValueError:
+            sys.stderr.write("%s: Invalid object in plist for JSON format\n" % f)
+            return 1
+        return 0
+    sys.stderr.write("plutil (mock shim): unsupported arguments: %s\n" % " ".join(a))
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

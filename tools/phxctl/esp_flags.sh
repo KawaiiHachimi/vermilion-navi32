@@ -25,7 +25,8 @@ set -u
 G=${1:?usage: esp_flags.sh <gpu dir>}
 DISKUTIL=${ESPF_DISKUTIL:-/usr/sbin/diskutil}
 MNT=${ESPF_MNT:-/private/tmp/phxesp.$$}; DONE=${ESPF_DONE:-/var/db/vermilion}
-owner=$(/usr/bin/stat -f '%u:%g' "$G" 2>/dev/null || echo "")
+STAT=${ESPF_STAT:-/usr/bin/stat}   # ESPF_STAT: a BSD-compatible stat for the mock tests off macOS
+owner=$("$STAT" -f '%u:%g' "$G" 2>/dev/null || echo "")
 
 take() {   # take <flags dir>
   local d=$1 f n t

@@ -13,7 +13,7 @@
 set -u
 D=${1:?usage: daemon_install.sh <dir> <gpu dir>}; G=${2:?usage: daemon_install.sh <dir> <gpu dir>}
 SRC=$D/phxboot-navi31.sh; DST=$G/phxboot-navi31.sh
-SHASUM=${DI_SHASUM:-/usr/bin/shasum}
+SHASUM=${DI_SHASUM:-/usr/bin/shasum}; STAT=${DI_STAT:-/usr/bin/stat}   # DI_STAT: a BSD-compatible stat for the mock tests off macOS
 say() { echo "daemon-install: $*"; }
 [ -f "$SRC" ] || { say "no $SRC: nothing changed"; exit 1; }
 want=$(awk '{ print $1; exit }' "$SRC.sha256" 2>/dev/null)
@@ -22,7 +22,7 @@ have=$("$SHASUM" -a 256 "$SRC" 2>/dev/null | awk '{ print $1 }')
 bash -n "$SRC" 2>/dev/null || { say "$SRC does not parse: nothing changed"; exit 1; }
 [ -d "$G" ] || { say "no $G: nothing changed"; exit 1; }
 if [ -f "$DST" ] && cmp -s "$SRC" "$DST"; then say "already installed (sha256 $have)"; exit 0; fi
-owner=$(/usr/bin/stat -f '%u:%g' "$G" 2>/dev/null || echo "")
+owner=$("$STAT" -f '%u:%g' "$G" 2>/dev/null || echo "")
 if [ -f "$DST" ]; then
   cp -p "$DST" "$DST.prev" || { say "could not keep $DST.prev: nothing changed"; exit 1; }
 fi

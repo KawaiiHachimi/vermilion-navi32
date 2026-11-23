@@ -7,7 +7,8 @@
 #   bash tests/mock/bootrate_mut.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); T=$HERE/../../tools/phxctl
-TMP=$(mktemp -d /private/tmp/bootrate-mut.XXXXXX)
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+TMP=$(mktemp -d "$MOCKTMP/bootrate-mut.XXXXXX")
 . "$HERE/mutlib.sh"   # PAR mutations at once (default 2); each one's mock serial (PAR=1), b15test.sh stopping at its first FAIL
 # mut <target daemon|b15|m7|p0pf> <name> <run.sh scenarios (daemon) | b15test.sh B15ONLY glob (b15; "" = all)> <old> <new>
 mut() {

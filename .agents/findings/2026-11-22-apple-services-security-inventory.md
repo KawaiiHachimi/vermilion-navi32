@@ -1,5 +1,13 @@
 # 2026-11-22: Apple services, DRM and security, inventory (thread 05)
 
+> **Correction (2026-11-23, thread 00, from thread 05's final report):** "`amfi=0x80` -> no FairPlay" is unproven:
+> Apple Music failed because `en0` wasn't built-in and plays since that was fixed; Apple TV fails on the missing
+> protected decoder, without `amfi=0x80` too. The Music crash cause noted at 00:15 ("no height / allocation check")
+> is wrong; the 00:40 update is right (the destination memory was unmapped). The TODO claim that a changed AMFI layout
+> makes VermilionTrust refuse cleanly ("no acceleration, no crash") is probably wrong: its check can't detect shifted
+> slots, so a 26.x update most likely panics or wraps the wrong hook (thread 09). "Privacy prompts work again" was
+> inferred from the `csops` flag; only the Screen Recording prompt was seen since (thread 06).
+
 Read-only inventory of the live XTX machine, 35-40 min after the 22:23 boot (macOS 26.7.1 25G241, EFI `vermilion`
 stage, VermilionBoot b150, boot-args `-v keepsyms=1 debug=0x100 pci=0x8000000 amtk_awdl_offchan=0 amfi=0x80
 ipc_control_port_options=0 phxdebug=1`, SIP `0x0A03`, 1440p desktop). Nothing was changed. Sources: `ioreg`,

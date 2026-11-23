@@ -1,0 +1,40 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# stat for the mock suites off macOS (tests/mock/lib/portable.sh puts it on PATH; MOCK_STAT names it for the scripts
+# that call /usr/bin/stat by path): takes the BSD form `stat [-L] -f <format> <file>...` the scripts use and runs GNU
+# `stat -c` with the format translated. Any other call goes to the next stat on PATH unchanged; with a BSD stat there
+# (a Mac with MOCK_SHIMS=1 and no GNU stat on PATH) the call is passed on unchanged too.
+# BSD -> GNU: %u %g (ids), %Su %Sg (names), %z (size), %m %a %c (mtime atime ctime, epoch), %N (name), %l (links),
+# %Lp (permission bits, octal), %%.
+self=$(cd "$(dirname "$0")" && pwd)
+real=""; IFS=: read -r -a dirs <<<"$PATH"
+for d in "${dirs[@]}"; do [ "${d%/}" = "$self" ] && continue; [ -x "$d/stat" ] && { real=$d/stat; break; }; done
+[ -n "$real" ] || { echo "stat (mock shim): no stat on PATH" >&2; exit 127; }
+"$real" --version >/dev/null 2>&1 || exec "$real" "$@"     # a BSD stat: nothing to translate
+args=(); fmt=""; have=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -f) fmt=$2; have=1; shift 2 ;;
+    -L) args+=(-L); shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+[ $have = 1 ] || exec "$real" "${args[@]}" "$@"
+out=""; i=0
+while [ $i -lt ${#fmt} ]; do
+  c=${fmt:$i:1}
+  if [ "$c" != % ]; then out+=$c; i=$((i + 1)); continue; fi
+  t=${fmt:$((i + 1)):2}
+  case "$t" in
+    Su) out+=%U; i=$((i + 3)); continue ;;
+    Sg) out+=%G; i=$((i + 3)); continue ;;
+    Lp) out+=%a; i=$((i + 3)); continue ;;
+  esac
+  case "${t:0:1}" in
+    u) out+=%u ;; g) out+=%g ;; z) out+=%s ;; m) out+=%Y ;; a) out+=%X ;; c) out+=%Z ;; N) out+=%n ;; l) out+=%h ;; %) out+=%% ;;
+    *) echo "stat (mock shim): format %${t:0:1} not translated" >&2; exit 2 ;;
+  esac
+  i=$((i + 2))
+done
+exec "$real" "${args[@]}" -c "$out" "$@"

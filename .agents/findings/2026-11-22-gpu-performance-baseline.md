@@ -1,5 +1,13 @@
 # 2026-11-22: GPU performance, heat and API baseline (measured on the XTX machine)
 
+> **Correction (2026-11-23, thread 00, from thread 00.1's final report):** the "Shader disk cache" row below is
+> wrong. The `Permission denied` lines came from processes started by T3 Code, which inherit a
+> `MESA_SHADER_CACHE_DIR` pointing at root's cache folder. Apps started normally (Finder, Dock, Safari) don't carry
+> it, and `~/.cache/mesa_shader_cache` fills with recent files, so they most likely do have a cache. Also: "Metal 3
+> works" means the device reports Metal 3 and one render and one compute shader ran; ray tracing, MetalFX, BC
+> textures and function pointers are flags the plugin returns, never exercised. `RADV_DARWIN_CANNED=navi31` is not a
+> safe quick XTX test (the VCN shim's exact-name check would disable decode).
+
 Measured from macOS on the XTX machine, 19:05-19:15, 30 min after boot. Installed: VermilionBoot b150, the matching
 PhxAccel, the Metal plugin of b149. Desktop at 2560x1440, 240 Hz, HDR on (10-bit scan-out), Variable off, GPU present
 on with E3, wait step 200 us. Daemon flags: `sdma`, `cg`, `uclk` (456), `p0modes`, `wscdcopy`, `waitstep`, `vrrmin`.

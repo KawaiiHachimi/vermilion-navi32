@@ -5,11 +5,13 @@ This file is for coding agents (Claude Code, Codex, others: `AGENTS.md` links he
 
 ## What this is
 
-Vermilion is a macOS Tahoe 26.7.1 display and acceleration driver for AMD Navi 31 (RDNA 3). It has two kexts, a
-Metal plugin that runs on Mesa RADV, and a boot daemon that powers the GPU up from userspace.
+Vermilion is a macOS Tahoe 26.7.1 display and acceleration driver for AMD Navi 31 (RDNA 3). It has two kexts (this
+fork adds a third, VermilionTrust), a Metal plugin that runs on Mesa RADV, and a boot daemon that powers the GPU up
+from userspace.
 
 Upstream is [leolivm/vermilion](https://github.com/leolivm/vermilion), built for one RX 7900 XT (PCI `1002:744c`,
-rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion](https://github.com/ownback/vermilion), has these goals:
+rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx) (renamed from `ownback/vermilion` on
+2026-11-23; it still supports the XT), has these goals:
 
 1. **A fully working, stable macOS on one machine:** RX 7900 XTX (rev `0xC8`), one 2560x1440 DisplayPort monitor at
    up to 240 Hz, an ASUS B650E-I board and a Ryzen 9 7900X3D. That means the GPU driver plus a complete OpenCore EFI
@@ -19,9 +21,10 @@ rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion](https://gith
 3. **Clean, documented, reusable code**, so the community can take over afterwards. Changes for this machine must
    not break the upstream XT setup.
 
-**Start at [`docs/PROJECT_KNOWLEDGE.md`](docs/PROJECT_KNOWLEDGE.md)**: the shared map of the project for every
-workstream (machine state, known-good configuration, dependencies, cross-thread rules, performance record). Where
-things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
+**Start at [`ROADMAP.md`](ROADMAP.md)** (the goal, the numbered thread series and its rules, the known limits) and
+**[`docs/PROJECT_KNOWLEDGE.md`](docs/PROJECT_KNOWLEDGE.md)** (what is true now: machine state, known-good
+configuration, dependencies, performance record). Open tasks by thread: [`.agents/TODO.md`](.agents/TODO.md); tests
+only the owner can do: [`.agents/OWNER-TESTS.md`](.agents/OWNER-TESTS.md).
 
 ## Read before working
 
@@ -40,28 +43,38 @@ things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 |---|---|---|
 | `src/vermilion-boot/` | `VermilionBoot.kext`, injected by OpenCore. GPU register access, bring-up helpers, DCN display pipes, DMUB, GPU VM, the `N48N` user client RADV talks to | MIT (nullarc files: MIT or GPL-2.0; see [`LICENSE`](LICENSE)) |
 | `src/vermilion-accel/` | `VermilionAccel.kext`, loaded from the AuxKC. `PhxAMDFB` framebuffer, `NMXAccel` accelerator, `PhxAGDC` | **PolyForm Noncommercial** |
+| `src/vermilion-trust/` | `VermilionTrust.kext`, injected by OpenCore after Lilu: AMFI stays on, only the cdhashes of the installed Vermilion code pass library validation (replaces `amfi=0x80`); rebuilt with the EFI after every plugin / translator / RADV install | MIT |
 | `src/metal-plugin/` | `NVMTLDriver`, the Metal driver WindowServer and apps load; Metal on Vulkan | **PolyForm Noncommercial**, all of it, including the files marked `Our code` |
 | `src/translator/` | `libnvmtl_translate.dylib`, Metal AIR to SPIR-V (Rust) | LGPL-3.0-or-later |
 | `src/video-decoder/`, `src/video-accel/` | HEVC/AV1 decode via FFmpeg Vulkan (optional); the PhxVA placeholder | MIT / LGPL deps |
 | `patches/mesa/` | RADV Darwin backend, on Mesa `f5cb8ee0` | MIT |
 | `tools/phxctl/` | boot daemon `phxboot-navi31.sh`, bring-up scripts, `phxctl`, `mesboot`, display power scripts | MIT |
 | `tools/firmware/` | pinned linux-firmware fetcher (`fw.lock`) | MIT |
-| `tools/capture/` | Linux-side tools that read the GPU for reference data (`gpuinfo.c`) | MIT |
+| `tools/capture/` | Linux-side capture tools: `gpuinfo.c`, `linux_display_capture.py` (mode-set traces), `linux_pci_capture.sh`, and the replay-plan generators (`p0odm_from_trace.py`, `p0plan_from_regs.py`) | MIT |
+| `tools/linux/` | the Linux reboot guard (a Linux reboot goes back to Linux; only a power-off reaches macOS) | MIT |
+| `tools/metaltest/` | `metalbench`, `apiprobe`: Metal performance and what each graphics API reports | MIT |
+| `tools/sensors/`, `tools/storage/`, `tools/audio/`, `tools/usbmap/`, `tools/validation/` | read-only measurement tools: CPU temperature / power / clock, NVMe benchmarks, CoreAudio probes, the USB port walk, a per-boot report (`bootcheck.sh`) | MIT |
 | `scripts/build/` | one build script per component | MIT |
 | `efi/` | reproducible OpenCore EFI builder: pinned components, machine profiles, stages ([`efi/README.md`](efi/README.md)) | MIT |
-| `tests/mock/` | hardware-free tests of the daemon and scripts | MIT |
+| `tests/mock/`, `tests/kext/`, `tests/plugin/` | hardware-free tests: the daemon and scripts (mocks), kext logic and replay plans on the host, plugin helpers | MIT |
+| `.claude/skills/` | drafts of the `ryzentosh-pre-install` / `ryzentosh-post-install` skills (move to `ownback/ryzentosh` in thread 10) | MIT |
 | `docs/` | documentation for humans and LLMs | |
 | `.agents/` | agent workspace: TODO, findings, decisions, runbooks | |
 
 ## Building and testing
 
-- **Every build needs macOS** with the Command Line Tools (x86_64). Use the macOS VM on the dev box (`macbox ssh`,
-  see [`.agents/runbooks.md`](.agents/runbooks.md)). Linux can't build the kexts.
-- Linux *can* run the mock tests, but today they hardcode `/private/tmp` and BSD tools (`stat -f`, PlistBuddy, ...).
-  Making them portable is on the TODO list. Until then, run `bash tests/mock/run.sh` and
-  `bash tests/mock/b15test.sh` on macOS before deploying a daemon or script change.
-- After a kext change: bump `PHX_KEXT_BUILD` and add a line at the top of `src/vermilion-boot/CHANGELOG.md`.
-  `scripts/build/kext.sh` refuses a build whose number wasn't bumped.
+- **Every build needs macOS** with the Command Line Tools (x86_64). Builds run on the XTX machine's own macOS since
+  2026-11-22 ([`.agents/runbooks.md`](.agents/runbooks.md), "Building on the Mac itself"); the macbox VM is an
+  alternative. Linux can't build the kexts. `efi/build.py` runs on both.
+- **A plugin, translator or RADV install is also a VermilionTrust + EFI change** (new cdhashes):
+  `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, rebuild and install the EFI, one boot
+  ([runbooks](.agents/runbooks.md), "Deploying a plugin, translator or RADV build").
+- Before deploying a daemon or script change, run `bash tests/mock/run.sh` and `bash tests/mock/b15test.sh`. The mock
+  suites take their temp dir and stand-ins for the macOS tools from `tests/mock/lib/portable.sh`, so they are meant to
+  run on Linux too. That is checked on a Mac with GNU tools first on PATH, not yet on a real Linux machine
+  (unverified; [`tests/mock/README.md`](tests/mock/README.md), "Running on Linux").
+- After a kext change: bump `PHX_KEXT_BUILD` (`src/vermilion-boot/PhxBringup.cpp`) and add a line at the top of
+  `src/vermilion-boot/CHANGELOG.md`. Nothing enforces it (`kext.sh` doesn't check): do it by hand.
 - On Linux, the XTX is live under amdgpu. Read-only queries (libdrm ioctls, sysfs) are fine. Register dumps and traces
   need root: ask the user, never guess a password.
 
@@ -93,7 +106,7 @@ things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 
 ## How we work
 
-- Branches are `ownback/<topic>`. Remotes: `origin` = leolivm upstream (read-only for us), `fork` = ownback/vermilion.
+- Branches are `ownback/<topic>`. Remotes: `origin` = leolivm upstream (read-only for us), `fork` = ownback/vermilion-xtx.
   PRs go to `fork/main`. Changes useful to the XT go upstream later as separate PRs.
 - Commit or push only when the user asks.
 - When you finish or discover something:
@@ -103,3 +116,5 @@ things stand and what is next: [`.agents/TODO.md`](.agents/TODO.md).
 - Keep diffs focused: a refactor and a behaviour change go in separate commits.
 - Simulators, macbox and phone builds: follow the user's global instructions (`mac-sim`, `macbox`). The macOS VM is
   only a build host here. It has no AMD GPU, so it can't test the driver.
+- The work runs as one numbered thread at a time ([`ROADMAP.md`](ROADMAP.md), rules 1-12): each thread branches from
+  `fork/main`, opens a PR, merges with "Merge #N: ...", and the finishing thread starts the next one.

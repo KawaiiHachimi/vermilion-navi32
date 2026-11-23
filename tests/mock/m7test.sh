@@ -8,10 +8,11 @@
 # bind_1080_*: 1920x1080 only under ws-headmap enforce + debug.phxsurfmap), old_kext (no oid). Exit 0 iff all pass.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); M7=${M7:-$HERE/../../tools/phxctl/m7_boot.sh}
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 PASSN=0; FAILN=0; MOCKDIRS=""
 trap '[ -n "$MOCKDIRS" ] && rm -rf $MOCKDIRS' EXIT   # every mock dir this run made (11-02: 2000+ were left in /private/tmp)
 mk() {
-  W=$(mktemp -d /private/tmp/m7mock.XXXXXX); MOCKDIRS="$MOCKDIRS $W"; O=$W/oid; mkdir -p "$O"
+  W=$(mktemp -d "$MOCKTMP/m7mock.XXXXXX"); MOCKDIRS="$MOCKDIRS $W"; O=$W/oid; mkdir -p "$O"
   for k in phxpipe2:0 phxhead2:0 phxfb1_state:0 phxfb1_flip:0 nvaccel_heads_registered:1 phxfb1_scan:-1 phxfb1_w:1680 phxfb1_h:1050 phxfb1_pipe_refresh:60000 nvaccelfb:1 \
            phxpipe2_head1:0 phxfb1_force:0 phxsurfmap_learns:5 phxpipe2_mode:60 phxfb1_modes:0 phxfb1_nmodes:0 phxfb1_mode:0; do
     echo "${k#*:}" > "$O/debug.${k%%:*}"; done
@@ -93,7 +94,7 @@ check light_ok_says_aligned 'mk; run light; [ $RC = 0 ] && grep -q "phase: align
 # frame; a frame at the short V_TOTAL moves OTG1 STEP lines closer (the real counter advances once per frame)
 PH=${PH:-$HERE/../../tools/phxctl/m7_phase.sh}
 pk() {
-  P=$(mktemp -d /private/tmp/m7phase.XXXXXX); echo 0 > $P/optc1; echo "${1:-135}" > $P/lag; echo 0 > $P/frame; echo "${2:-0x464}" > $P/vt1; echo "${3:-0x464}" > $P/vt0; : > $P/writes
+  P=$(mktemp -d "$MOCKTMP/m7phase.XXXXXX"); echo 0 > $P/optc1; echo "${1:-135}" > $P/lag; echo 0 > $P/frame; echo "${2:-0x464}" > $P/vt1; echo "${3:-0x464}" > $P/vt0; : > $P/writes
   cat > $P/phxctl <<EOS
 #!/bin/bash
 P=$P

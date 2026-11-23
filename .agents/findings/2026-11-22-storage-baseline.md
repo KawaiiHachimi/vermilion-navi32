@@ -1,5 +1,12 @@
 # 2026-11-22: NVMe and APFS on the XTX machine, inventory and first storage baseline
 
+> **Correction (2026-11-23, thread 00, from thread 03's final report):** don't quote the 9.54 GB/s sequential write
+> as typical: the same prefill job measured 2.79 GB/s in the exploratory run and 9.54 GB/s in the final one; write
+> speed follows the SLC cache state. "SLC lasted ~190 GB" is one sample after ~0.3 TB of earlier writes. For the
+> Linux raw read use the LUKS partition (`p2`, all real data), and the variable goes before the command:
+> `sudo FIODEV=/dev/nvme0n1p2 fio --readonly --thread tools/storage/raw-read.fio`. "Writes 60-80 GB per run" is from
+> one run, untested since the layout fix. Only the TRIM *capability* is verified, not runtime TRIM.
+
 Thread 03 (Storage & Filesystems). Everything here was measured on the XTX machine under macOS 26.7.1 (25G241),
 EFI `vermilion` stage as in [PROJECT_KNOWLEDGE.md](../../docs/PROJECT_KNOWLEDGE.md) "Known-good configuration"
 (VermilionBoot b150, NVMeFix 1.1.3), boot-args `-v keepsyms=1 debug=0x100 pci=0x8000000 amfi=0x80

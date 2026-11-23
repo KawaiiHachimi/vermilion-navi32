@@ -4,7 +4,8 @@ A Lilu plugin that keeps AMFI's library validation **on** for the whole system a
 own ad-hoc signed code, which every Metal process loads: `NVMTLDriver`, `libnvmtl_translate.dylib`, `libLLVM.dylib`,
 `libzstd.1.dylib`, `libvulkan_radeon.dylib` (and the video decoder when it is installed). It is meant to replace
 the boot-arg `amfi=0x80`. That boot-arg is AMFI's "allow everything": no library validation in any process, invalid
-signatures accepted, third-party apps treated as platform binaries (no camera / microphone prompts), no FairPlay.
+signatures accepted, third-party apps treated as platform binaries (no camera / microphone prompts). Whether it also
+blocks FairPlay is unproven: on the XTX machine Apple Music failed for another reason (`en0`, 2026-11-23).
 AMFIPass alone doesn't help here, because it only trusts code signed with Dortania's key. Background:
 [`.agents/decisions.md`](../../.agents/decisions.md), 2026-11-22 "Security posture target = a real Mac".
 

@@ -1,6 +1,13 @@
 # Installing Vermilion
 
-There is no installer and none is planned. Every piece is installed by hand, the way other macOS kexts and GPU bundles
+> **Expert, manual.** This is upstream's hand install for the RX 7900 XT reference machine, kept as the detailed
+> reference for each piece. On the XTX machine the same pieces run with a few differences: the
+> [`vermilion-trust`](../efi/README.md#stages) EFI stage instead of `amfi=0x80`, the XTX notes in [XTX.md](XTX.md), and
+> its live state in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md). A skill-based install
+> (`/ryzentosh-pre-install` on Linux, `/ryzentosh-post-install` in macOS) is planned in threads 06 and 10 of the
+> [ROADMAP](../ROADMAP.md); until then, follow this guide only if you can recover a machine that doesn't boot.
+
+There is no installer yet. Every piece is installed by hand, the way other macOS kexts and GPU bundles
 are: the boot kext through OpenCore, the accelerator kext through the Auxiliary Kernel Collection, the Metal plugin and
 its libraries into `/Library/GPUBundles`, and a LaunchDaemon that powers the GPU up at every boot.
 
@@ -44,7 +51,7 @@ Boot-args the stack needs:
 | Boot-arg | Read by | Without it |
 |---|---|---|
 | `phxdebug=1` | `VermilionBoot` (`PE_parse_boot_argn("phxdebug")`) | the debug selectors stay closed, and the whole bring-up (`phxctl`, `mesboot`, `vcn_up.sh`) runs through them: no GPU |
-| `amfi=0x80` | AMFI, with AMFIPass | WindowServer does not load the ad-hoc signed Metal plugin, and the accelerator kext cannot be approved |
+| `amfi=0x80` | AMFI, with AMFIPass | WindowServer does not load the ad-hoc signed Metal plugin, and the accelerator kext cannot be approved (upstream). With VermilionTrust (below) neither is needed for the plugin; an AuxKC approval without `amfi=0x80` was never tested *(unverified)* |
 | `ipc_control_port_options=0` | the kernel | part of the AMFIPass setup the accelerator kext was approved with |
 
 The reference machine also has `nvaccel=1`. The current `VermilionAccel` build does not read it (the check sits in a
@@ -65,9 +72,12 @@ Boot-args you can add later to switch parts off without uninstalling (all read f
 ### What `amfi=0x80` costs
 
 `amfi=0x80` relaxes Apple Mobile File Integrity for the whole system: library validation is off for every process,
-not only for WindowServer. Side effects seen on the reference machine:
+not only for WindowServer. Side effects:
 
-- **FairPlay / DRM-protected playback does not work** (for example Apple TV+ or Netflix in Safari).
+- **FairPlay / DRM-protected playback** (Apple TV+, Netflix in Safari) did not work on the reference machine. Whether
+  `amfi=0x80` is the cause is unproven: on the XTX machine Apple TV films fail without it too (no decoder accepts the
+  protected stream, `-12906`), and Apple Music (FairPlay 1.x) failed because `en0` wasn't the built-in Ethernet, then
+  played once it was. Neither was tested with `amfi=0x80` alone.
 - **Privacy prompts of third-party apps are denied without a prompt.** tccd logs
   `CS_PLATFORM_BINARY set but not AppleSigned; prompt policy is Deny` and the app never shows up in System Settings >
   Privacy & Security > Microphone or Camera. The Screen & System Audio Recording pane still has a **+** button, so apps

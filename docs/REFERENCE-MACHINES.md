@@ -17,24 +17,25 @@ From upstream's [README](../README.md) and [INSTALL.md](INSTALL.md):
 
 ## This fork's target: the XTX machine
 
-The machine [ownback/vermilion](https://github.com/ownback/vermilion) is being made to work on. Measured from Linux
-(amdgpu, libdrm, sysfs) on 2026-11-18.
+The machine [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx) is being made to work on. Measured from Linux
+(amdgpu, libdrm, sysfs) on 2026-11-18. The "macOS" column says which driver handles each part; whether it works,
+and how well, is in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) "Machine state" (the one place for that).
 
-| Part | Details | macOS status |
+| Part | Details | macOS driver |
 |---|---|---|
 | Board | ASUS ROG STRIX B650E-I GAMING WIFI (AM5, Mini-ITX), BIOS 4005 | |
 | CPU | AMD Ryzen 9 7900X3D, 12 cores / 24 threads (Zen 4) | AMD_Vanilla patches, core count `0x0C` |
 | RAM | 48 GB DDR5 | |
-| dGPU | XFX Speedster MERC 310 RX 7900 XTX, PCI `1002:744c` rev **`0xC8`**, subsystem `1eae:7901`, VBIOS `113-31XFSHBS1.L04` | Vermilion (being ported, see [XTX.md](XTX.md)) |
+| dGPU | XFX Speedster MERC 310 RX 7900 XTX, PCI `1002:744c` rev **`0xC8`**, subsystem `1eae:7901`, VBIOS `113-31XFSHBS1.L04` | Vermilion ([XTX.md](XTX.md)) |
 | dGPU details | 96 CU (none disabled), 6 SE x 2 SA, 24 RB, 24 GL2 channels, 384-bit GDDR6, 24 GiB (24560 MiB), 96 MB MALL, max shader clock 2482 MHz, `GB_ADDR_CONFIG 0x545`, PCIe 4.0 x16, Resizable BAR on (32 GB BAR under Linux) | |
 | dGPU connectors | DP-1, DP-2, DP-3, HDMI-A-1 (Linux names). The VBIOS connector table equals the reference XT's: DP A/DIG0, DP E/DIG4, DP B/DIG1, HDMI D/DIG3 | |
 | iGPU | Radeon 610M (Raphael, `1002:164e`) | no macOS driver; Linux uses it in the VFIO setup |
-| Monitor | LG UltraGear+ 27", 2560x1440, 60/120/144 Hz DTDs, range 48-240 Hz, HDR metadata, 384-byte EDID (2 extensions). Connected to both the dGPU (DisplayPort, DP-3) and the iGPU | 60 Hz expected at first; high refresh needs new plans |
-| Ethernet | Intel I225-V (`8086:15f3`) | Apple's built-in driver (to verify on Tahoe) |
-| Wi-Fi | MediaTek MT7922 / AMD RZ616 (`14c3:0616`, subsystem `105b:e0cd`), behind the chipset switch (`GPP7.UP00.DP58`) | works (2026-11-19): Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1 + boot-arg `pci=0x8000000` (macOS must not enable 10-bit tags on the chipset root port) |
-| Bluetooth | MediaTek MT7922 over USB (`0489:e0e2`, Foxconn ID) | community firmware loader (to verify) |
-| Audio | ASUS USB audio (`0b05:1a5c`, Realtek USB codec) | standard USB audio, expected to work without a driver |
-| Storage | One PCIe 5.0 NVMe (Phison E26). macOS gets a 100 GiB partition next to Linux | NVMe native |
+| Monitor | LG 27GS95QE-B (UltraGear+ OLED) 27", 2560x1440, 60/120/144 Hz DTDs, range 48-240 Hz, HDR metadata, 384-byte EDID (2 extensions), 590 x 333 mm. Connected to both the dGPU (DisplayPort, DP-3) and the iGPU | Vermilion: replay plans captured from Linux for this card, monitor and connector ([XTX.md](XTX.md)) |
+| Ethernet | Intel I225-V (`8086:15f3`) | Apple's DriverKit E1000 (built in) |
+| Wi-Fi | MediaTek MT7922 / AMD RZ616 (`14c3:0616`, subsystem `105b:e0cd`), behind the chipset switch (`GPP7.UP00.DP58`) | Dino-VN/MtkWireless `MtkWirelessWifi` 1.1.1 + boot-args `pci=0x8000000` (macOS must not enable 10-bit tags on the chipset root port) and `amtk_awdl_offchan=0` |
+| Bluetooth | MediaTek MT7922 over USB (`0489:e0e2`, Foxconn ID) | `MtkWirelessBT` 1.1.1 (same project) + BlueToolFixup |
+| Audio | ASUS USB audio (`0b05:1a5c`, Realtek USB codec) | Apple's USB audio (`usbaudiod`, UAC2); no HDA codec, so AppleALC doesn't apply |
+| Storage | One PCIe 5.0 NVMe, Corsair MP700 PRO 1 TB (Phison E26). macOS: an 83.8 GB APFS container plus a 22 GiB installer partition next to Linux | Apple's NVMe driver + NVMeFix |
 | Firmware | UEFI, Secure Boot off, IOMMU on (the dGPU and its HDMI audio function each in their own IOMMU group), SVM on | |
 | Other OS | Linux (Arch-based) with Limine on the shared EFI partition | |
 

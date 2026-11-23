@@ -8,7 +8,10 @@
 # Exit 0 iff all pass.   bash tests/mock/phxctl_serve_test.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); SRC=${PHXCTL_SRC:-$HERE/../../tools/phxctl/phxctl.c}
-T=$(mktemp -d /private/tmp/phxserve.XXXXXX); PASSN=0; FAILN=0
+. "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
+# it compiles phxctl.c against IOKit and reads macOS sysctls (kern.ostype, kern.version): macOS only, a SKIP elsewhere
+[ "$MOCK_DARWIN" = 1 ] || { echo "phxctl_serve_test: SKIP (needs macOS: phxctl.c builds against IOKit)"; echo "RESULT: 0 passed, 0 failed (SKIP)"; exit 0; }
+T=$(mktemp -d "$MOCKTMP/phxserve.XXXXXX"); PASSN=0; FAILN=0
 ok() { if eval "$2"; then PASSN=$((PASSN + 1)); echo "PASS  $1"; else FAILN=$((FAILN + 1)); echo "FAIL  $1 ($2)"; fi; }
 printf '#define main phxctl_main\n#include "%s"\n#undef main\nint main(void) { return serve(); }\n' "$SRC" > "$T/t.c"
 xcrun clang -arch x86_64 -O2 -Wall -o "$T/serve" "$T/t.c" -framework IOKit -framework CoreFoundation 2> "$T/cc.log" ||

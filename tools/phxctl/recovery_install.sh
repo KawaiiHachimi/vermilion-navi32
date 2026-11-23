@@ -25,11 +25,11 @@
 #   6. Software Update: no automatic download or install (the stack is pinned to macOS 26.7.1)
 # It never touches the system volume, NVRAM or the EFI partition, and it sets no desktop-arm flag: the first boot runs
 # the bring-up and gives apps Metal while WindowServer stays on the firmware framebuffer (docs/INSTALL.md 8.1).
-# VERMILION_DATA=<dir> and VERMILION_NOCHOWN=1 are for tests (tests/mock/recovery_install_test.sh).
+# VERMILION_DATA=<dir>, VERMILION_NOCHOWN=1 and VERMILION_PLISTBUDDY=<path> are for tests (tests/mock/recovery_install_test.sh).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 P=${VERMILION_PAYLOAD:-$HERE/payload}
-PB=/usr/libexec/PlistBuddy
+PB=${VERMILION_PLISTBUDDY:-/usr/libexec/PlistBuddy}   # VERMILION_PLISTBUDDY: the mock tests' PlistBuddy off macOS
 say() { echo "vermilion-install: $*"; }
 die() { echo "vermilion-install: ERROR: $*" >&2; exit 1; }
 for f in build/NVMTLDriver build/libnvmtl_translate.dylib build/libvulkan_radeon.dylib build/VermilionAccel.kext \

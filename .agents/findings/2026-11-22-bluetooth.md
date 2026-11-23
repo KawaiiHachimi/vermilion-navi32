@@ -1,5 +1,9 @@
 # 2026-11-22: Bluetooth on the XTX machine (MediaTek MT7922, USB `0489:e0e2`)
 
+> **Note (2026-11-23, thread 00):** "the black boot was unrelated to Bluetooth" rests on one bad and one good boot; the
+> logs point to DP link training (thread 01). MtkWirelessBT's feature list (BLE advertising partial, mSBC) is the
+> author's claim; only A2DP with AirPods and BLE advertising (Handoff) were seen here.
+
 Since the USB map (same day) the controller enumerates on chipset port 16 as `Wireless_Device` `0489:e0e2`, with
 no driver. System Information still shows Apple's placeholder controller (`BCM_4350C2`, PCIe, firmware v0, Off).
 

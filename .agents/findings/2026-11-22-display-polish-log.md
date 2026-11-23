@@ -95,7 +95,7 @@ The item numbers are the order the owner asked for (0 and 00 came up during the 
      (`last_fail_post`). **Test:** restart; Variable feels as with ramp 5; `sudo sysctl -w debug.phxvrr_ramp=0` gives the full
      range (no stuck rate). **Rollback:** swap `EFI/OC` and `EFI/OC.prev`.
   00. **2026-11-22 the failed Variable -> HDR switch, the white flashes, PhxAccel not loaded**
-     ([findings](findings/2026-11-22-vrr-underflow-and-auxkc.md)). The run failed on HUBP0's sticky underflow status alone
+     ([findings](2026-11-22-vrr-underflow-and-auxkc.md)). The run failed on HUBP0's sticky underflow status alone
      (twice: b147, b149); on the box the range / ramp writes took effect mid-frame (OTG0 DRR double buffer mode 0; Linux
      runs 2) and raised that sticky at 144 Hz by hand (4 in 27 000 window changes; 0 in 19 600 with mode 2). PhxAccel:
      the AuxKC is only rebuilt by the Allow click in Privacy & Security, the 17:57 restart skipped it.
