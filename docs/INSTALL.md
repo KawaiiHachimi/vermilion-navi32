@@ -320,7 +320,17 @@ of an install: every first use then recompiles and clients can time out.
    replaces the system volume and removes the bundle. `sudo sh tools/phxctl/sysvol_install.sh --remove /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle`
    removes it (again live after a reboot).
 4. Decode also needs the VCN engine up: the `phxboot-vcn` flag of section 7. `touch /Library/GPUBundles/nvmtl/phxdec-off`
-   turns the decoder off without uninstalling it.
+   turns the decoder off without uninstalling it. AV1 needs `touch /Library/GPUBundles/nvmtl/phxdec-av1`: with the
+   bundle installed, an AV1 session the decoder refuses fails instead of falling back to another decoder, so set it
+   whenever the bundle is installed (RX 7900 XTX, 2026-11-23). HEVC falls back to Apple's decoder.
+5. The decoder's dylibs and the bundle executable load into platform processes (`VTDecoderXPCService`), so they need
+   VermilionTrust's cdhash list: `PHXTRUST_KEEP=1 sh scripts/build/trust.sh` after step 1 picks up the dylibs next to
+   the plugin and an installed bundle; add the bundle before it is installed (it appears only after the reboot) with
+   `PHXTRUST_ADD=<path to PhxVideoDecoder.bundle/Contents/MacOS/PhxVideoDecoder>`. Then the EFI change of the runbook.
+
+The FFmpeg libraries come from `scripts/build/ffmpeg.sh` (FFmpeg n7.1 + `patches/ffmpeg`, only the HEVC / AV1
+decoders and their Vulkan hwaccels). Verified on the RX 7900 XTX (2026-11-23): HEVC 8 / 10-bit frames identical to
+Apple's decoder, AV1 identical to the AOM conformance MD5s ([finding](../.agents/findings/2026-11-23-apis-video.md)).
 
 ### 5.6 Optional: relocating the bundles for sandboxed GPU processes
 
@@ -330,8 +340,10 @@ sandboxed GPU processes (WebKit's `com.apple.WebKit.GPU`, Chromium and Electron 
 system paths, and `/Library/GPUBundles` is readable but not executable for them. That `CoreTypes.bundle` directory is a
 firmlink into the writable Data volume, so the sealed system volume is not touched and no `csr` bit is needed. The
 originals are kept in `/Library/GPUBundles-backup`; the script is idempotent and checks the plugin's signature at the
-end. Run it as root after the plugin is installed. The reference machine's documented install paths are the
-`/Library/GPUBundles` ones; whether it runs relocated, and whether Navi 31 needs this, is not recorded (unverified).
+end. Run it as root after the plugin is installed. The reference machine runs relocated since 2026-11-23: before, Safari's GPU
+process was refused (`file system sandbox blocked mmap()`) and WebGL contexts were lost at creation; after, WebGL 1 / 2
+and WebGPU work in it (RX 7900 XTX). Later installs into `/Library/GPUBundles/...` land in the relocated copy through
+the symlinks. The script ends by checking that the moved executables keep their cdhashes.
 
 ## 6. The tools directory `~/gpu`
 

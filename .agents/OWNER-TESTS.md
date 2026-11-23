@@ -80,17 +80,21 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 
 ## 03 Graphics APIs and video
 
+Since 2026-11-23 (thread 03): Safari's GPU process has the Metal plugin, and HEVC / AV1 decode on the GPU (VCN). Quit
+and reopen Safari once before these tests (a Safari that was open before 18:07 keeps the old GPU process).
+
 - [ ] **WebGL and WebGPU in Safari:** load the WebGL Aquarium and a WebGPU sample (for example from
       webgpu.github.io/webgpu-samples). Does it draw, is it smooth, does anything crash?
 - [ ] **The same in a Chromium browser** (Chrome, Brave, Edge).
-- [ ] **Minecraft:** start it in Prism Launcher, press F3, and read the renderer line and the frame rate. Expected:
-      "Apple Software Renderer", slow.
-- [ ] **4K video:** play a 4K HEVC or AV1 video (YouTube 4K in Safari) and watch CPU use in Activity Monitor.
-      Expected: high (software decode).
+- [ ] **Minecraft:** start it in Prism Launcher, press F3, and read the renderer line and the frame rate.
+- [ ] **4K video:** play a 4K video in Safari (YouTube 4K: AV1 or VP9) and an HEVC `.mov` in QuickTime, and watch
+      CPU use in Activity Monitor. Expected now: low for HEVC / AV1 (hardware decode); smooth, no blocks or colour
+      faults. Note anything odd and the time.
 - [ ] **Quick Look:** open `/System/Library/Desktop Pictures` in Finder's Gallery view, press Space on a `.heic`
       file and on a video file, and note how long each preview takes.
 - [ ] **Video wallpaper:** System Settings > Wallpaper, pick a moving (Aerial) wallpaper. Does it play? Note Activity
       Monitor's CPU use for about a minute.
+- [ ] **Photos:** open a few videos and HEIC photos in Photos. Smooth? Any black or green frames?
 
 ## 07 Wireless and Continuity
 

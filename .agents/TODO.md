@@ -15,37 +15,12 @@ Rules:
 
 ## Staged now
 
-State at the end of thread 02 (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 22
-(VermilionBoot b160, the tiled-drawable plugin `344c621f`), `EFI/OC.prev` = change 21, `EFI/OC.bad` = change 12.
-Nothing is staged. Thread 02's per-change steps (changes 15-22, C3): git history of this file (`fork/main` after
-the merge of `ownback/perf-ws`).
+State after thread 03's changes (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 23
+(VermilionBoot b160, VermilionTrust with the video decoder, 14 cdhashes), `EFI/OC.prev` = change 22, `EFI/OC.bad` =
+change 12; the system volume boots the snapshot with `PhxVideoDecoder.bundle`. Nothing is staged. Thread 03's
+check / rollback steps for change 23 and the system-volume change: git history of this file (`ownback/apis-video`);
+the rollbacks are also in PROJECT_KNOWLEDGE.
 
-- [~] **EFI change 23 (thread 03): VermilionTrust with the video decoder** (14 cdhashes: change 22's 10 plus
-  `libphxdec_hevc.dylib`, `libavcodec_phx.61.dylib`, `libavutil_phx.59.dylib`, the VideoToolbox bundle executable
-  `PhxVideoDecoder` `8007478b`); `diff -rq` against the live `EFI/OC`: only `VermilionTrust`; `config.plist`
-  identical. Same boot, outside the EFI: daemon flag `~/gpu/phxboot-vcn` (VCN0 up after `done`), the plugin read
-  through the `CoreTypes.bundle/.../PhxGPU` symlinks (03, Safari item below), the decoder dylibs installed with
-  `/Library/GPUBundles/nvmtl/phxdec-off` present (nothing loads them until it is removed).
-  - **Check:** desktop accelerated at 1440p240; `sysctl debug.phxtrust_stat` `mode=enforce list=14
-    denied_unlisted=0`; `/var/log/phxboot.log` has `vcn: up, ring adopted, MMHUB VM on`; `debug.phxvcn_stat`
-    `vcn 1 stuck 0`; `debug.phxmmvm_stat` fault status 0.
-  - **Rollback:** `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`: `sudo mv OC OC.c23-bad && sudo mv
-    OC.prev OC` (= change 22, trusts the live plugin), restart. VCN alone: `rm ~/gpu/phxboot-vcn`, restart. Copy of
-    change 22: `~/vermilion-rollback/EFI-OC.change22-20261123`.
-  - **Verified 2026-11-23 18:18** (booted 18:15:47, first try, owner watched): `SUCCESS`, `done 18:18:11`,
-    `vcn: up, ring adopted, MMHUB VM on`, `list=14 denied_unlisted=0`, WindowServer maps the plugin from
-    `PhxGPU`. `phxdec-off` removed 18:18: the decoder registers in `VTDecoderXPCService` but VideoToolbox picks
-    Apple's decoder (registered too late, at Metal device creation): the system bundle is the fix (next item).
-- [~] **System volume (thread 03, not an EFI change): `PhxVideoDecoder.bundle` into
-  `/System/Library/Video/Plug-Ins`** with `tools/phxctl/sysvol_install.sh` (OCLP-style: the live system volume
-  mounted read-write, a new boot snapshot blessed; authenticated root already off, SIP `0x0A03`). The sealed Apple
-  snapshot `com.apple.os.update-590AC978...` stays. Live after one restart.
-  - **Check:** boots to the desktop; `vtdec_test` without the dylib argument decodes on VCN (`vcn submits` grows,
-    frames equal Apple's); QuickTime plays the clip.
-  - **Rollback:** `sudo sh tools/phxctl/sysvol_install.sh --remove /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle`
-    (another snapshot) and restart; or back to Apple's sealed snapshot: `sudo bless --mount / --last-sealed-snapshot`,
-    restart (from Recovery > Terminal: `bless --mount "/Volumes/Macintosh HD" --last-sealed-snapshot`). Off without
-    a restart: `sudo touch /Library/GPUBundles/nvmtl/phxdec-off`.
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
@@ -110,28 +85,31 @@ the merge of `ownback/perf-ws`).
 ## 03 Graphics APIs and video
 
 03 keeps the API-level work (ROADMAP): Zink / OpenGL / OpenCL on the GPU, VCN decode, WebGL / WebGPU. Performance of
-what already runs is thread 13's (section "13 Performance parity" below).
+what already runs is thread 13's (section "13 Performance parity" below). Done so far (2026-11-23,
+[finding](findings/2026-11-23-apis-video.md)): `gpuTimeReset` answered (harmless, no change); VCN up at every boot;
+HEVC 8 / 10-bit and AV1 decode on VCN system-wide through VideoToolbox, bit-exact; Safari's GPU process has the
+plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 0020) with an opt-in loader + ICD.
 
-- [ ] Before VCN decode uses its queue: `gpuTimeReset` also retires the VCN queue and the other three callers of the
-      retire loop skip it (Fable follow-up from #15; 13 item 9). Decide whether that is right
+- [ ] **Owner, by eye** (OWNER-TESTS 03): Safari after a relaunch: a WebGL page, a WebGPU sample, an HEVC / AV1
+      video (YouTube AV1, an HEVC `.mov` in QuickTime): smooth, no artefacts; Photos and a video wallpaper
+- [ ] AV1 has no fallback: with the bundle installed, an AV1 session our decoder refuses (VCN down, `phxdec-off`)
+      fails (`-12906`) instead of falling back, while `VTIsHardwareDecodeSupported(av1)` says true. Find out whether
+      Apple's `AV1DecoderSW` decodes on this build at all; then either refuse AV1 in the bundle's matching when VCN
+      is down (a second bundle entry?) or document. `phxdec-av1` is set meanwhile
+- [ ] H.264 on VCN (a real Mac decodes it in hardware): FFmpeg's `h264_vulkan` + RADV's H.264 decode are there;
+      `phxdec_hevc.c` and the bundle handle HEVC / AV1 only
+- [ ] Zink for apps that load their own libGL (Minecraft / LWJGL): Mesa's Zink on the opt-in loader + ICD
+      (`/usr/local/lib/vermilion`), per app
 - [ ] OpenCL on the GPU for the apps that want it (Blender Cycles lists only the CPU; clpeak): what is possible per app
-      (Known limits: system-wide OpenCL stays on the CPU), measured
-- [ ] VCN decode (HEVC, AV1) through VideoToolbox: `vcn_up.sh` behind `phxboot-vcn`, then `src/video-decoder`.
-      Check every register write against Linux first. The bundle goes to the sealed system volume
-- [ ] Vulkan loader + ICD manifest for RADV, then a real window surface (Darwin WSI is stubbed in patch 0001)
-- [ ] Zink for apps that load their own libGL (Minecraft / LWJGL), after the window surface
-- [~] Safari's WebKit GPU process doesn't map the plugin: **confirmed 2026-11-23** (`file system sandbox blocked
-      mmap()` of `NVMTLDriver`); `webprobe` (WKWebView, same GPU process): WebGL 1 / 2 contexts lost at creation,
-      WebGPU no adapter. Fix: INSTALL.md 5.6 `relocate_gpubundle.sh` (plugin + `nvmtl/` to
-      `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU`, a firmlink into the Data volume: no
-      seal change; symlinks left in `/Library/GPUBundles`; originals in `/Library/GPUBundles-backup`). Not an EFI
-      change; WindowServer loads it through the symlink from the next boot.
-      **Rollback** (from macOS, takes the live copies back, then restart):
-      `H=/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU; for n in NVMTLDriver.bundle nvmtl; do sudo rm /Library/GPUBundles/$n && sudo mv $H/$n /Library/GPUBundles/; done`.
-      If the desktop doesn't come up after the restart: the daemon's GOP fallback, then the same commands over SSH /
-      from T3 Code. Two Safari `ExcUserFault` reports may be this
-- [ ] Quick Look 12.2 s vs `sips` 1.6 s for a 6016x6016 HEIC: one cold run each. Re-measure (warm cache, n >= 5)
-- [ ] Photos, video wallpaper, Quick Look on hardware decode once VCN works
+      (Known limits: system-wide OpenCL stays on the CPU), measured. Blender's Cycles on macOS uses Metal, not
+      OpenCL: find why it lists only the CPU (its Metal device check) first
+- [ ] Vulkan apps by default: whether MoltenVK apps get pointed at the RADV ICD is TODO 13 item 6 (the window
+      surface's speed too: a host-memory copy plus a Metal blit per frame today)
+- [ ] The plugin's RADV still lacks patch 0020 (no visible effect: it presents through IOSurfaces). Picked up by the
+      next RADV build for the plugin (a trust + EFI change), not on its own
+- [ ] Skills: the post-install steps for decode (flags `phxboot-vcn`, `phxdec-av1`; the bundle on the system volume),
+      `relocate_gpubundle.sh`, the opt-in Vulkan stack: drafted in `.claude/skills/ryzentosh-post-install/`, not run
+      end to end yet
 
 ## 04 DP / HDMI audio, HDMI output
 
@@ -289,8 +267,9 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   `vkCmdDrawIndexedIndirect` with `drawCount > 1`. Gap: as item 4. Effort M. Plugin: EFI change + restart.
 - [ ] **6. A direct Vulkan ICD for macOS apps** (RADV as the app's Vulkan driver with a `CAMetalLayer` / IOSurface
   swapchain, skipping MoltenVK -> Metal -> Vulkan). Removes items 4 and 5 for Vulkan apps; Linux runs RADV directly.
-  03 builds the loader, the ICD manifest and the window surface (Zink needs them); 13 points MoltenVK apps at it and
-  measures. Effort L. RADV: EFI change + restart.
+  03 built the loader, the ICD manifest and the window surface (patch 0020, opt-in in `/usr/local/lib/vermilion`,
+  2026-11-23: a host-memory copy plus a Metal blit per frame); 13 points MoltenVK apps at it, gives the swapchain a
+  direct IOSurface path and measures. Effort L. RADV: EFI change + restart.
 - [ ] **7. CPU side.** (a) The plugin adds ~55-80 us per waited Metal submit over Vulkan (`metalbench` 207 vs
   `vkbench` 124 us median for the 512x512 job; Vulkan alone is at parity, 32 vs 37 us): effort M, plugin (EFI change +
   restart). (b) CPU idle package 39.5-41.3 W vs Linux 37.8 W, one thread 5.02-5.12 vs 5.16 GHz: the `_CST` idle kext
@@ -298,9 +277,9 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   change. (c) WindowServer's ~280 wakeups/s on an idle desktop: compare with a real Mac first. Effort S.
 - [ ] **8. The 6 GiB Metal working set** (`phx_globals.cpp`) sized from VRAM, now that BOs can live there. Effort S.
   Kext: EFI change + restart.
-- [ ] **9. Fable's five follow-ups from #15** (each changes machine code: one kext build bump, b161, one EFI change):
-  - **Check `gpuTimeReset`: it also retires the VCN queue, the other three callers skip it** (oversight?). **Also
-    for 03:** VCN decode will use that queue, so 03 answers it first if it touches `phx_gputime.cpp`.
+- [ ] **9. Fable's follow-ups from #15** (each changes machine code: one kext build bump, b161, one EFI change):
+  - ~~Check `gpuTimeReset`~~: answered by 03 (2026-11-23, [finding](findings/2026-11-23-apis-video.md) section 1):
+    retiring the VCN queue there is harmless (VCN entries carry `kNoCtx`); the helper below may include or skip it.
   - Fold the retire loop that appears three times in `phx_gputime.cpp` into one helper.
   - `gpuSubmit`'s timestamp path uses `fbAper` without the null check `gpuTimeAccount` has: confirm a ready queue
     implies `fbAper`, or add the check.

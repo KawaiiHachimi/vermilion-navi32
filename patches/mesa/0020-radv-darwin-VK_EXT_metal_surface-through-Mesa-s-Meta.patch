@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vermilion contributors <vermilion@example.invalid>
+Date: Mon, 23 Nov 2026 00:00:00 +0000
+Subject: [PATCH 20/20] radv/darwin: VK_EXT_metal_surface through Mesa's Metal WSI
+
+Built with -Dplatforms=macos, RADV now offers VK_KHR_surface, VK_EXT_metal_surface
+and swapchains on macOS through src/vulkan/wsi/wsi_common_metal.c. RADV cannot
+render into a CAMetalLayer drawable's texture (no import of its IOSurface into a
+VkImage), so the WSI runs its software path: each presented image is copied into
+host-visible memory on the presenting queue and blitted into the drawable through
+the process's Metal device.
+
+The private SDMA blit queue stays off with the Metal WSI: the kext runs GFX and
+compute IBs only, and an SDMA copy reached it as a CS without any IB.
+
+Everything is under VK_USE_PLATFORM_METAL_EXT: the default build (-Dplatforms=,
+the one the Metal plugin loads) compiles to the same objects apart from the git
+version string and one __LINE__ constant in radv_instance.c.
+
+Tested on the RX 7900 XTX (macOS 26.7.1, VermilionBoot b160): tools/metaltest/vkwindow,
+640x360 FIFO at 240 Hz, 480 frames at 213 fps, the captured window pixels equal
+an AppKit window of the same sRGB colour.
+---
+ src/amd/vulkan/radv_instance.c |  3 +++
+ src/amd/vulkan/radv_wsi.c      | 17 ++++++++++++++++-
+ src/amd/vulkan/radv_wsi.h      |  2 +-
+ 3 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_instance.c b/src/amd/vulkan/radv_instance.c
+index 8d42262..36794a1 100644
+--- a/src/amd/vulkan/radv_instance.c
++++ b/src/amd/vulkan/radv_instance.c
+@@ -217,6 +217,9 @@ static const struct vk_instance_extension_table radv_instance_extensions_support
+ #ifdef VK_USE_PLATFORM_XLIB_XRANDR_EXT
+    .EXT_acquire_xlib_display = true,
+ #endif
++#ifdef VK_USE_PLATFORM_METAL_EXT
++   .EXT_metal_surface = true,
++#endif
+ #ifdef VK_USE_PLATFORM_DISPLAY_KHR
+    .KHR_display = true,
+    .KHR_get_display_properties2 = true,
+diff --git a/src/amd/vulkan/radv_wsi.c b/src/amd/vulkan/radv_wsi.c
+index d862dad..e9ed83c 100644
+--- a/src/amd/vulkan/radv_wsi.c
++++ b/src/amd/vulkan/radv_wsi.c
+@@ -95,15 +95,30 @@ radv_init_wsi(struct radv_physical_device *pdev)
+ {
+    const struct radv_instance *instance = radv_physical_device_instance(pdev);
+ 
++#if defined(HAVE_AMDGPU_DARWIN) && defined(VK_USE_PLATFORM_METAL_EXT)
++   /* macOS with the Metal WSI (-Dplatforms=macos): RADV cannot render into a CAMetalLayer drawable's texture (no
++    * import of its IOSurface into a VkImage), so the WSI takes its software path: each presented image is copied
++    * into host-visible memory, and the present blits that memory into the drawable through the process's Metal
++    * device. */
++   const bool sw_wsi = true;
++#else
++   const bool sw_wsi = false;
++#endif
+    VkResult result =
+       wsi_device_init(&pdev->wsi_device, radv_physical_device_to_handle(pdev), radv_wsi_proc_addr, &instance->vk.alloc,
+-                      pdev->wsi_master_fd, &pdev->drirc.options, &(struct wsi_device_options){.sw_device = false});
++                      pdev->wsi_master_fd, &pdev->drirc.options, &(struct wsi_device_options){.sw_device = sw_wsi});
+    if (result != VK_SUCCESS)
+       return result;
+ 
+    pdev->wsi_device.supports_modifiers = true;
+    pdev->wsi_device.set_memory_ownership = radv_wsi_set_memory_ownership;
++#if !(defined(HAVE_AMDGPU_DARWIN) && defined(VK_USE_PLATFORM_METAL_EXT))
+    pdev->wsi_device.get_blit_queue = radv_wsi_get_prime_blit_queue;
++#else
++   /* macOS with the Metal WSI: the kext runs GFX and compute IBs only. A copy on the private SDMA queue reached it
++    * as a CS without any IB, which the Darwin layer refuses (-EINVAL), and the present failed: the copy stays on
++    * the presenting queue. */
++#endif
+ 
+    for (uint32_t i = 0; i < ARRAY_SIZE(pdev->wsi_device.supports_protected); i++) {
+       pdev->wsi_device.supports_protected[i] = radv_tmz_enabled(pdev);
+diff --git a/src/amd/vulkan/radv_wsi.h b/src/amd/vulkan/radv_wsi.h
+index 2ab3107..a1eab08 100644
+--- a/src/amd/vulkan/radv_wsi.h
++++ b/src/amd/vulkan/radv_wsi.h
+@@ -14,7 +14,7 @@
+ #include "radv_physical_device.h"
+ 
+ #if defined(VK_USE_PLATFORM_WAYLAND_KHR) || defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) ||   \
+-   defined(VK_USE_PLATFORM_DISPLAY_KHR)
++   defined(VK_USE_PLATFORM_DISPLAY_KHR) || defined(VK_USE_PLATFORM_METAL_EXT)
+ #define RADV_USE_WSI_PLATFORM
+ #endif
+ 
+-- 
+2.50.1 (Apple Git-155)
+

@@ -7,6 +7,8 @@
 // draw loop takes (100 full-viewport draws of a 512x512 canvas, read back once). Draws only into its own canvas.
 // Build: xcrun clang -arch x86_64 -fobjc-arc -O1 -o webprobe tools/metaltest/webprobe.m -framework Cocoa -framework WebKit
 // Run:   ./webprobe [timeout seconds, default 20]
+//        ./webprobe <timeout> <movie>   plays <movie> muted in a <video> element for 2 s and prints the frames WebKit
+//        presented and dropped (requestVideoFrameCallback, getVideoPlaybackQuality): the media path Safari uses
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
@@ -39,6 +41,17 @@ static NSString *const kPage = @"<!doctype html><html><body><canvas id=c width=5
 " post(JSON.stringify(r));}\n"
 "probe();</script></body></html>";
 
+// <video> mode: %@ is the movie's file name, the page sits next to it (file access is limited to that folder)
+static NSString *const kVideoPage = @"<!doctype html><html><body><video id=v muted playsinline src=\"%@\" "
+"width=480 height=270></video><script>\n"
+"const post=x=>window.webkit.messageHandlers.probe.postMessage(x);const v=document.getElementById('v');let n=0;\n"
+"const cb=()=>{n++;v.requestVideoFrameCallback(cb);};v.requestVideoFrameCallback(cb);\n"
+"v.onerror=()=>post(JSON.stringify({error:'media error '+(v.error&&v.error.code)}));\n"
+"v.onplaying=()=>{post('step playing');setTimeout(()=>{const q=v.getVideoPlaybackQuality();\n"
+" post(JSON.stringify({w:v.videoWidth,h:v.videoHeight,t:+v.currentTime.toFixed(2),callbackFrames:n,\n"
+"  total:q.totalVideoFrames,dropped:q.droppedVideoFrames}));},2000);};\n"
+"v.play().catch(e=>post(JSON.stringify({error:'play '+e})));</script></body></html>";
+
 @interface Probe : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
 @end
 @implementation Probe
@@ -70,14 +83,26 @@ int main(int argc, char **argv) {
     Probe *p = [Probe new];
     WKWebViewConfiguration *cfg = [WKWebViewConfiguration new];
     [cfg.userContentController addScriptMessageHandler:p name:@"probe"];
-    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(-4000, -4000, 512, 512)
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(argc > 2 ? 64 : -4000, argc > 2 ? 64 : -4000, 512, 512)
                                               styleMask:NSWindowStyleMaskBorderless
                                                 backing:NSBackingStoreBuffered defer:NO];
     WKWebView *v = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 512, 512) configuration:cfg];
     v.navigationDelegate = p;
     w.contentView = v;
-    [w orderBack:nil];
-    [v loadHTMLString:kPage baseURL:[NSURL URLWithString:@"https://localhost/"]];
+    if (argc > 2) [w orderFrontRegardless]; else [w orderBack:nil];   // <video> presents frames only on screen
+    if (argc > 2) {
+      NSURL *movie = [NSURL fileURLWithPath:@(argv[2])].URLByStandardizingPath;
+      NSURL *dir = movie.URLByDeletingLastPathComponent;
+      NSURL *page = [dir URLByAppendingPathComponent:@".webprobe-video.html"];
+      NSString *html = [NSString stringWithFormat:kVideoPage, movie.lastPathComponent];
+      if (![html writeToURL:page atomically:YES encoding:NSUTF8StringEncoding error:nil]) {
+        printf("{\"error\":\"cannot write %s\"}\n", page.path.UTF8String);
+        return 1;
+      }
+      [v loadFileURL:page allowingReadAccessToURL:dir];
+    } else {
+      [v loadHTMLString:kPage baseURL:[NSURL URLWithString:@"https://localhost/"]];
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       printf("{\"error\":\"timeout after %.0f s\"}\n", timeout);
       exit(2);

@@ -520,3 +520,35 @@ OpenCL on the GPU, VCN decode, WebGL). The per-draw / multi-draw plugin fix foun
 **Why:** owner, via the coordination thread, 2026-11-23: the GPU phase should move on to the missing APIs and
 features; doing performance last, before ryzentosh, lets ryzentosh pin the final driver.
 **Revisit:** if a later thread is blocked by a performance gap (then that one item moves forward).
+
+## 2026-11-23: the video decoder bundle goes onto the system volume
+
+**Decision:** `PhxVideoDecoder.bundle` is installed into `/System/Library/Video/Plug-Ins` with `sysvol_install.sh`
+(a new boot snapshot; Apple's sealed snapshot is kept), and `phxdec-av1` is set.
+**Why:** the plugin's own registration runs when a process creates its Metal device, after VideoToolbox has chosen a
+decoder: `VTDecoderXPCService` registered ours and still decoded with Apple's (thread 03, measured). Only a bundle
+VideoToolbox reads at registry time is picked, and `/Library/Video/Plug-Ins` drops ad-hoc bundles. With the bundle,
+an AV1 session our decoder refuses fails instead of falling back, so AV1 stays on (bit-exact on the AOM vectors).
+**Cost:** the system volume is no longer sealed: macOS offers only full updates and an update removes the bundle
+(thread 09 owns the update policy; ROADMAP rule 12 already blocks updates). Owner's OK, 2026-11-23.
+**Revisit:** if a way to load an ad-hoc decoder from the Data volume early enough turns up (thread 09's sealed-system
+goal), or once the bundle can be signed.
+
+## 2026-11-23: the plugin lives under CoreTypes.bundle (firmlink), symlinked from /Library/GPUBundles
+
+**Decision:** `relocate_gpubundle.sh` on the reference machine: `NVMTLDriver.bundle` and `nvmtl/` in
+`/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU`, symlinks in `/Library/GPUBundles`.
+**Why:** Safari's WebKit GPU process may map executables only from system paths; from `/Library/GPUBundles` the
+sandbox blocked the plugin, so Safari had no WebGL / WebGPU (measured). That directory is a firmlink into the Data
+volume (`/usr/share/firmlinks`): no seal change, no `csr` bit. Every existing path keeps working through the symlinks.
+**Revisit:** thread 06 (fresh-install path) installs there directly.
+
+## 2026-11-23: the app-facing Vulkan stack is opt-in, outside the standard paths
+
+**Decision:** the Vulkan loader and the RADV ICD with the window surface (patch 0020) go to `/usr/local/lib/vermilion`
+and `/usr/local/share/vermilion/vulkan/icd.d`, used only with `VK_DRIVER_FILES`; not to `/usr/local/lib`, not to the
+standard ICD folders, not to `/Library/GPUBundles/nvmtl/`.
+**Why:** an app that finds a system loader would switch from its bundled MoltenVK to RADV, a behaviour change for
+apps that work today; that switch, and the swapchain's speed (a host copy plus a Metal blit per frame), are thread
+13's (TODO 13 item 6). The plugin looks for `libvulkan.dylib` / `radeon_icd.json` in `nvmtl/`, so nothing goes there.
+Patch 0020 is under `VK_USE_PLATFORM_METAL_EXT`, so the plugin's RADV build stays the same code.

@@ -16,4 +16,13 @@ for n in NVMTLDriver.bundle nvmtl; do
     ln -s "$H/$n" "$G/$n"
     echo "$n -> $H/$n"
 done
-codesign --verify --strict "$H/NVMTLDriver.bundle" && echo "plugin signature ok"
+# The plugin is ad-hoc signed as a binary (no sealed bundle resources), so `codesign --verify --strict` on the bundle
+# fails for the original as well (2026-11-23, XTX machine). What AMFI and VermilionTrust check is each Mach-O's cdhash:
+# the moved copies must keep the ones of the originals.
+cdh(){ codesign -dvvv "$1" 2>&1 | sed -n 's/^CDHash=//p'; }
+bad=0
+for f in NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver nvmtl/libvulkan_radeon.dylib; do
+    [ -f "$B/$f" ] || continue
+    if [ "$(cdh "$H/$f")" = "$(cdh "$B/$f")" ]; then echo "$f: cdhash $(cdh "$H/$f") kept"; else echo "$f: cdhash changed"; bad=1; fi
+done
+exit $bad
