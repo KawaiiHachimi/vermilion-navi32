@@ -127,6 +127,7 @@ add each change here with the thread's number.
   | 15 | 2026-11-23 06:31 (first boot 07:10, after the Linux run; verified: `list=8 denied_unlisted=0`, `profile navi31`, Metal "AMD Radeon RX 7900 XTX", no leaked environment) | 02 | VermilionTrust 1.0.4 (`63481dc4`) for RADV with the XTX profile (patches 0018-0019, `801ae178`) and the plugin without the environment leak (`3be1ec3c`), both installed outside the EFI the same minute |
   | 16 | 2026-11-23 08:51 (booted 08:54, verified: desktop, self-test 1) | 02 B | VermilionBoot b156 (`d8f5948a`): VRAM-backed BOs, opt-in per process, off at boot |
   | 17 | 2026-11-23 10:27 (booted 10:29, verified: desktop, aperture, self-test 1) | 02 C | VermilionBoot b157 (`5110437b`): GPU time per context (`debug.phxgpu_time`, off at boot). Same boot, outside the EFI: mesboot with the system aperture from FB_LOCATION (24 GiB) |
+  | 18 | 2026-11-23 ~10:55 (booted 10:57, verified: desktop, trace) | 02 C | VermilionBoot b158: per-submission GPU trace (`debug.phxgpu_trace`, off at boot) |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
