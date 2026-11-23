@@ -173,3 +173,20 @@ again. The redo: one copy per frame at the swap commit (as the app drawables do)
 image straight into its VRAM slot (no page write at all while GPU present runs; the pages only for other readers).
 Horizon's own GPU time is now ~0.9 ms per frame (its passes ~0.22 ms plus the drawable copy): WindowServer's composite
 (~2.2 ms) is the largest part of the frame.
+
+## Minecraft Java (Fabulously Optimized, Vulkan through MoltenVK) on the XTX, 2026-11-23 17:14-17:20
+
+- The owner's instance (Prism, Fabulously Optimized 15.0.0-beta.4 for 26.3, `preferredGraphicsBackend:"vulkan"`) runs
+  Vulkan through MoltenVK 1.4.2 on our Metal plugin: "NVMTL over AMD Radeon RX 7900 XTX (RADV NAVI31)".
+- **Its window stayed black with the tiled drawable** (`NVMTL_DRAWABLE_TILED`, C2): the drawables (854x480) were made
+  TILED and no copy error was logged, yet nothing reached the window. With `/Library/GPUBundles/nvmtl/drawable-tiled-off`
+  it draws. Cause not found yet (MoltenVK presents differently from wgpu); the off switch stays until it is fixed.
+- 854x480 window, `java` not in `debug.phxbo_vram_proc` (all its BOs in system memory): GPU 99 % busy at 3.1 GHz,
+  java 65.8 % of it (4.84 s in 7.35 s, 1363 submissions, 3.55 ms each), WindowServer 28.3 %.
+- Same with `java` added to `debug.phxbo_vram_proc` (and to `~/gpu/phxboot-bovram`): java 8.1 % (0.60 s, 888
+  submissions, 0.68 ms each: 5.2x less per submission), WindowServer 26.0 %, GPU 36 % busy. The GPU stops being
+  the limit; 825 MiB in the VRAM pool, no leak, 32 fallbacks.
+- Systemic causes this shows: VRAM BOs are still opt-in per process name (M3 would make them default); Minecraft's
+  Vulkan goes through two translation layers (MoltenVK to Metal, our plugin back to Vulkan) where Linux runs RADV
+  directly (a native Vulkan ICD for macOS apps would remove both); WindowServer's composite costs ~0.9 ms per
+  submission even for a small window.

@@ -42,6 +42,14 @@ Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each change
 - [ ] `doBoCreate`: the b156 and b159 blocks duplicate the free-handle search and the scalar outputs.
 - [ ] `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
 
+Thread 02 part C, from Minecraft (2026-11-23 17:20, finding horizon-present-cost, "Minecraft"):
+- [ ] **The tiled drawable leaves MoltenVK windows black** (Minecraft Vulkan). Off switch
+  `/Library/GPUBundles/nvmtl/drawable-tiled-off` is set (every new window takes the old path, Horizon too). Trace a
+  MoltenVK present (plugin trace with the switch off for that run), fix, remove the switch.
+- [x] `java` added to `debug.phxbo_vram_proc` and `~/gpu/phxboot-bovram` (Minecraft's GPU cost 5x lower).
+- [ ] Decide M3 (VRAM BOs for every app by default) now that b160 is in: opt-in by name misses every new app.
+- [ ] Look at a native Vulkan path for macOS apps (RADV as the Vulkan driver, without MoltenVK + Metal in between).
+
 Thread 02 part C3: **WindowServer's display surface tiled** (boot daemon `ws_tiled`, flag `~/gpu/phxboot-wstiled` ->
 `launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23,
 booted 17:08 (desktop fine, all 2560x1440 display surfaces "CoreDisplay Scanout drawn TILED"), **measured worse and
