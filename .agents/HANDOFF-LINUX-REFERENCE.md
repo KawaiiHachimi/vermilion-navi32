@@ -96,6 +96,15 @@ RADV_DEBUG=info vulkaninfo --summary > "$OUT/radv-info.txt" 2>&1 || true   # if 
 
 `gpuinfo.txt` has no serials. Copy it whole into the findings note.
 
+Where Linux keeps its own things in VRAM (for the VRAM-backed buffers design), as root:
+
+```sh
+sudo -S -p '' sh -c 'for d in /sys/kernel/debug/dri/*; do [ -e $d/amdgpu_vram_mm ] && { echo "== $d"; head -c 20000 $d/amdgpu_vram_mm; }; done' < "$file" > "$OUT/vram_mm.txt" 2>&1
+sudo -S -p '' sh -c 'dmesg | grep -i -E "amdgpu.*(vram|tmr|reserv|stolen|discovery|fw_reserve|mem_train)"' < "$file" > "$OUT/vram-dmesg.txt"
+```
+
+Mask nothing there (no serials), but don't quote PCI bus addresses beyond the bus number.
+
 ## 2. CPU: clock, idle power, C-states (thread 02)
 
 ```sh
