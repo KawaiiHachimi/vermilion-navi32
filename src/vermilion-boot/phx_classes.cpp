@@ -137,6 +137,8 @@ private:
         uint64_t dbByte, wptr, doneEnd;
         uint64_t fseq[64], fend[64];
         volatile uint32_t head, tail;
+        uint16_t fctx[64];      // b157: the context of each history entry for GPU time (phxgputime::kNoCtx: unstamped)
+        uint64_t tsLastEnd;     // b157: bottom-of-pipe stamp of the last accounted submission on this queue
     };
     GpuQueue gq[3]{};
     uint64_t gSeq{0};
@@ -147,6 +149,13 @@ private:
     IOLock *vramLock{nullptr}, *clearLock{nullptr};
     bool vramPoolUpLocked();
     IOReturn gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw, uint64_t *seqOut);
+    // b157: retire the finished history entries of a queue (gpuLock held), accounting their GPU time (phx_gputime.cpp)
+    void retireLocked(GpuQueue &q);
+    void gpuTimeAccount(GpuQueue &q, uint32_t idx);
+public:
+    int gpuTimeStat(char *b, size_t cap);
+    void gpuTimeReset();
+private:
     // One GPUVM context (page tables) per client, and the eight hardware VMIDs lent to contexts at submission time,
     // as amdgpu does: a fixed VMID per client capped Metal at eight processes, and with every app allowed Metal the
     // ninth got no device (2026-10-20). A context's handle is its index + 1.
@@ -162,12 +171,24 @@ private:
     // who owns each context, for the fault/stall diagnostics (set by the client in its own process context)
     int ctxPid[kMaxCtx]{};
     char ctxName[kMaxCtx][20]{};
+    // b157: GPU time per queue and context since the last reset (index kMaxCtx: the context was closed and reused)
+    uint64_t ctxGpuTicks[3][kMaxCtx + 1]{}, ctxGpuSubs[3][kMaxCtx + 1]{};
+    uint64_t gpuTimeResetAbs{0}, gpuTimeLost{0};
 public:
     IOLock *scanLockForEngines() const { return scanLock; }   // b131: debug.phxp0odm holds it so no flip runs mid-plan
     bool scanYieldForModeLocked(uint32_t targetH);
     bool scanAcquiredLocked() const { return scan.acquired; }   // b144 (scanLock held)             // b139: give the plane back before a size change (scanLock held)
     void vmTag(uint32_t handle, int pid, const char *name) {
-        if (handle && handle <= kMaxCtx) { ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
+        if (handle && handle <= kMaxCtx) {
+            if (gpuLock && ctxPid[handle - 1] != pid) {   // b157: a reused context: its GPU time goes to the "closed" row
+                IOLockLock(gpuLock);
+                for (uint32_t qi = 0; qi < 3; qi++) {
+                    ctxGpuTicks[qi][kMaxCtx] += ctxGpuTicks[qi][handle - 1]; ctxGpuTicks[qi][handle - 1] = 0;
+                    ctxGpuSubs[qi][kMaxCtx] += ctxGpuSubs[qi][handle - 1]; ctxGpuSubs[qi][handle - 1] = 0;
+                }
+                IOLockUnlock(gpuLock);
+            }
+            ctxPid[handle - 1] = pid; strlcpy(ctxName[handle - 1], name, sizeof ctxName[0]); } }
     // the process whose context a hardware VMID points at, for a fault report
     const char *hwVmidOwner(uint32_t hwVmid, int *pid) const {
         *pid = 0;

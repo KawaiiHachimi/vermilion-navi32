@@ -102,6 +102,8 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxbos_flush_bytes);
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_proc);   // b156
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram_selftest); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_stat);
+        sysctl_unregister_oid(&sysctl__debug_phxgpu_time_on); sysctl_unregister_oid(&sysctl__debug_phxgpu_time_reset);   // b157
+        sysctl_unregister_oid(&sysctl__debug_phxgpu_time);
         sysctl_unregister_oid(&sysctl__debug_phxvm);
         sysctl_unregister_oid(&sysctl__debug_phxpt_reclaim);
         sysctl_unregister_oid(&sysctl__debug_phxpt_keep);

@@ -177,6 +177,10 @@ enum {
 #define PHX_VRAM_CLEARIB_SIZE  0x200000ull
 #define PHX_VRAM_SELFTEST_OFF  0x9600000ull
 #define PHX_VRAM_SELFTEST_SIZE 0x100000ull
+/* b157 (thread 02 part C): GPU timestamps per submission (PhxGpuTime.h: 3 queues x 64 slots x 16 bytes) at 151 MiB,
+ * in the same free gap */
+#define PHX_GPUTIME_OFF        0x9700000ull
+#define PHX_GPUTIME_SIZE       0x10000ull
 #define PHX_VRAM_POOL_BASE     0x20000000ull
 
 /* n48n_info.flags */

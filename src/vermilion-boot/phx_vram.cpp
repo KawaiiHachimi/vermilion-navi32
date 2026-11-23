@@ -20,9 +20,10 @@ static bool gVramClearBroken = false;   // a clear that did not finish: no VRAM 
 // The pool's end, the lower of:
 // - the top of VRAM minus 112 MiB: below the firmware there (Linux on the XTX: the PSP TMR, 19 MiB at 24512 MiB);
 // - the end of the GFXHUB system aperture, because the clear runs at VMID 0, where VRAM is reached by MC address
-//   only inside that window. mesboot programs it as Linux did on the XT, 0x00200000 - 0x00213fbf (256 KiB units):
-//   20464 MiB, also on the XTX (docs/XTX.md row 3, read on the box 2026-11-23). A range above it would not be
-//   cleared, so the pool stops there: [512 MiB, 20464 MiB) on the XTX today.
+//   only inside that window. Up to 2026-11-23 mesboot programmed the XT's 0x00200000 - 0x00213fbf (256 KiB units,
+//   20464 MiB) on every card; since thread 02 part C it derives the window from FB_LOCATION as Linux does, 0x00217fbf
+//   on the XTX (24560 MiB), so the pool is [512 MiB, 24464 MiB) there (the top-of-VRAM limit wins). A range above
+//   the window would not be cleared, so the pool never goes past it.
 // Register reads only. GC 11.0.0 GCMC_VM_SYSTEM_APERTURE_LOW_ADDR / _HIGH_ADDR = dwords 0x28DD / 0x28DE (mesboot's
 // SEG0(0x167d) / SEG0(0x167e)).
 static constexpr uint64_t kVramTopReserve = 112ull << 20;
@@ -133,11 +134,7 @@ IOReturn PhxBringup::gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw
     const uint32_t need = 4 + 8;
     IOLockLock(gpuLock);
     for (int spin = 0;; spin++) {
-        const uint64_t done = queueFence(q);
-        while (q.head != q.tail && q.fseq[q.head & 63] <= done) {
-            q.doneEnd = q.fend[q.head & 63];
-            q.head++;
-        }
+        retireLocked(q);
         if (q.tail - q.head < 63 && q.wptr + need - q.doneEnd <= q.ringDw - 16)
             break;
         if (spin > 40000) {
@@ -164,6 +161,7 @@ IOReturn PhxBringup::gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw
     q.wptr += k;
     q.fseq[q.tail & 63] = seq;
     q.fend[q.tail & 63] = q.wptr;
+    q.fctx[q.tail & 63] = phxgputime::kNoCtx;   // b157: no stamps on the kext's own IB
     __asm__ __volatile__("" ::: "memory");
     q.tail = q.tail + 1;
     __asm__ __volatile__("sfence" ::: "memory");

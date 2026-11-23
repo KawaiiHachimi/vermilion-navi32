@@ -71,17 +71,14 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
     if (!qp->ready || !vmCtx(handle))
         return kIOReturnNotReady;
     GpuQueue &q = *qp;
-    const uint32_t need = n * 4 + 8;
+    const bool stamp = gGpuTimeOn == 1 && handle && handle <= kMaxCtx;   // b157: GPU time per context
+    const uint32_t need = n * 4 + 8 + (stamp ? phxgputime::kStartDw + phxgputime::kEndDw : 0);
     if (need + 16 > q.ringDw)
         return kIOReturnBadArgument;
     IOLockLock(gpuLock);
     // Ring space and the 64-entry history: retire finished entries, wait for the oldest one if needed (bounded, ~2 s).
     for (int spin = 0;; spin++) {
-        const uint64_t done = queueFence(q);
-        while (q.head != q.tail && q.fseq[q.head & 63] <= done) {
-            q.doneEnd = q.fend[q.head & 63];
-            q.head++;
-        }
+        retireLocked(q);
         if (q.tail - q.head < 63 && q.wptr + need - q.doneEnd <= q.ringDw - 16)
             break;
         if (spin > 40000) {
@@ -96,6 +93,15 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
         return kIOReturnBusy;
     }
     uint32_t k = 0;
+    const uint32_t qi = static_cast<uint32_t>(&q - gq);
+    const uint64_t tsOff = PHX_GPUTIME_OFF + phxgputime::slotOff(qi, q.tail);
+    uint32_t pk[phxgputime::kEndDw];
+    if (stamp) {   // b157: clear the slot (0 = never stamped), then a top-of-pipe stamp before the IBs
+        volatile uint32_t *ts = reinterpret_cast<volatile uint32_t *>(fbAper->getVirtualAddress() + tsOff);
+        ts[0] = ts[1] = ts[2] = ts[3] = 0;
+        for (uint32_t j = 0, c = phxgputime::emitStart(pk, fbMcBase + tsOff); j < c; j++)
+            ringPut(q, k++, pk[j]);
+    }
     for (uint32_t i = 0; i < n; i++) {
         ringPut(q, k++, 0xC0023F00);                               // INDIRECT_BUFFER
         // the CP wants the canonical (sign-extended) address: an upper-half IB (bit 47, where RADV puts them) with a
@@ -106,6 +112,9 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
         // size | VMID, plus VALID on compute (gfx_v11_0_ring_emit_ib_compute; the gfx variant has no VALID bit)
         ringPut(q, k++, ibDw[i] | (q.gfx ? 0u : (1u << 23)) | (vmid << 24));
     }
+    if (stamp)   // b157: the bottom-of-pipe stamp, ahead of the fence (both end-of-pipe events, in order)
+        for (uint32_t j = 0, c = phxgputime::emitEnd(pk, fbMcBase + tsOff + 8); j < c; j++)
+            ringPut(q, k++, pk[j]);
     const uint64_t seq = ++gSeq;
     hwv[vmid - kFirstUserVmid].lastSeq = seq;
     const uint64_t fenceMc = fbMcBase + q.fenceOff;
@@ -120,6 +129,7 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
     q.wptr += k;
     q.fseq[q.tail & 63] = seq;
     q.fend[q.tail & 63] = q.wptr;
+    q.fctx[q.tail & 63] = stamp ? static_cast<uint16_t>(handle - 1) : phxgputime::kNoCtx;
     __asm__ __volatile__("" ::: "memory");
     q.tail = q.tail + 1;
     // BAR0 is write-combined: drain the WC buffers so the packets are in VRAM before the CP is told about them
