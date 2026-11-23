@@ -20,6 +20,8 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 1. **EFI change 9: VermilionBoot b151** (stage `vermilion-trust`, only the kext differs from change 8) **+ the boot
    daemon with the display check** (`~/gpu/phxboot-navi31.sh`, not an EFI change; it only reads sysctls).
+   **Installed 2026-11-23 03:08** (owner's OK): `EFI/OC` = change 9 (VermilionBoot sha256 `a23a2766`), `EFI/OC.prev` =
+   change 8; change 7 kept as `~/vermilion-rollback/EFI-OC.change7-20261122`. Waiting for the restart.
    - Before: `~/vermilion-rollback/EFI-OC.change8-20261123` (a copy of the live `EFI/OC`) and
      `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`; `efi/build.py install` turns change 8 into `EFI/OC.prev`.
    - Check: `sysctl debug.phxp0odm_stat` has the `recovery:` line; `/var/log/phxboot.log` ends in `SUCCESS` with no
