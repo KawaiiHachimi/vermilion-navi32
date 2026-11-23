@@ -8,7 +8,8 @@ instead of a hand-edited plist. SMBIOS serials are generated once per machine wi
 ~/.config/vermilion/smbios-<machine>.json (mode 0600), never in git.
 
 Usage (Linux or macOS; needs python3, iasl for the ACPI tables):
-  efi/build.py build   [--machine b650e-i-xtx] [--stage install|base|vermilion] [--placeholder-smbios]
+  efi/build.py build   [--machine b650e-i-xtx] [--stage <stage>] [--placeholder-smbios]
+                       (without --stage: the profile's default_stage, the everyday EFI)
   efi/build.py smbios  [--machine b650e-i-xtx]           generate the SMBIOS file if it does not exist
   efi/build.py install --esp /boot [--stage ...]         copy EFI/OC onto an EFI partition (root; keeps EFI/OC.prev)
   efi/build.py acpi-dump [--machine ...]                 save this machine's DSDT for the DSDT fix (Linux, root)
@@ -470,6 +471,31 @@ def check_acpi_patches(machine_id, machine):
         if n != 1:
             die(f"ACPI patch matches {n} times in the dumped DSDT (needs exactly 1): {p['comment']}")
     print(f"  ACPI: {len(patches)} DSDT patches, each matches exactly once in the dumped DSDT")
+    check_patch_bios(machine_id, machine)
+
+
+def check_patch_bios(machine_id, machine):
+    """The DSDT patches are byte patterns for one BIOS version. Refuse a dump or a live firmware of another version.
+
+    The dump records its BIOS version (acpi-dump). The profile's acpi_patches_bios names the version the patches were
+    derived for. Under Linux booted directly the live version is known too; elsewhere (macOS, or Linux through
+    OpenCore, whose SMBIOS hides it) only the dump can be checked, so say that a BIOS update needs a new dump.
+    """
+    f = acpi_dir(machine_id) / "bios-version"
+    dumped = f.read_text().strip() if f.is_file() else "unknown"
+    wanted = machine.get("acpi_patches_bios")
+    if wanted and dumped != wanted:
+        die(f"the DSDT patches are for BIOS {wanted}, the DSDT dump is from BIOS {dumped}: re-derive the patches "
+            f"(efi/acpi/fix_dsdt.py resolve) or dump the right firmware")
+    now = bios_version()
+    if now and now != dumped:
+        die(f"the DSDT dump is from BIOS {dumped}, this machine runs {now}: run acpi-dump again and re-derive the "
+            f"DSDT patches")
+    if now:
+        print(f"  ACPI: dump and firmware are both BIOS {dumped}")
+    else:
+        print(f"  ACPI: dump is from BIOS {dumped}; the live BIOS version can't be read here. After a BIOS update, "
+              f"dump again under Linux before building")
 
 
 def install(args):
@@ -502,7 +528,8 @@ def show_stages(args):
     machine = load_json(HERE / "machines" / f"{args.machine}.json")
     for name in machine["stages"]:
         s = resolve_stage(machine, name)
-        print(f"{name}:\n  kexts: {', '.join(s['kexts'])}\n  boot-args: {' '.join(s['boot_args'])}\n"
+        mark = "  (default)" if name == machine.get("default_stage", "install") else ""
+        print(f"{name}:{mark}\n  kexts: {', '.join(s['kexts'])}\n  boot-args: {' '.join(s['boot_args'])}\n"
               f"  csr-active-config: {s['csr_active_config']}")
 
 
@@ -513,7 +540,7 @@ def main():
         p = sub.add_parser(name)
         p.add_argument("--machine", default="b650e-i-xtx")
         if name in ("build", "install"):
-            p.add_argument("--stage", default="install")
+            p.add_argument("--stage", help="a stage of the machine profile (default: its default_stage)")
         if name == "build":
             p.add_argument("--placeholder-smbios", action="store_true",
                            help="use Sample.plist's dummy serials (for tests; never boot this)")
@@ -526,6 +553,8 @@ def main():
             p.add_argument("--with-fallback", action="store_true",
                            help="also write EFI/BOOT/BOOTx64.efi (USB sticks only; on the internal disk it is Limine's)")
     args = ap.parse_args()
+    if getattr(args, "stage", "") is None:
+        args.stage = load_json(HERE / "machines" / f"{args.machine}.json").get("default_stage", "install")
     if args.cmd == "build":
         build(args)
     elif args.cmd == "install":
