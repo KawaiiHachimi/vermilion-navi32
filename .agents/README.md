@@ -3,14 +3,17 @@
 Working notes for coding agents (and the humans steering them). The public, stable documentation is in
 [`../docs/`](../docs/). The rules are in [`../CLAUDE.md`](../CLAUDE.md).
 
-The shared map across all workstreams is [`../docs/PROJECT_KNOWLEDGE.md`](../docs/PROJECT_KNOWLEDGE.md): read it
+The shared map across all threads is [`../docs/PROJECT_KNOWLEDGE.md`](../docs/PROJECT_KNOWLEDGE.md): read it
 first, and update it when the machine's state, the known-good configuration or a cross-thread rule changes.
 
 | File | What | How to update |
 |---|---|---|
-| [TODO.md](TODO.md) | The plan, by phase, with checkboxes | Tick with a date when done; add items where they belong |
+| [../ROADMAP.md](../ROADMAP.md) | The thread series 00-12, the rules, the known limits | One status line per thread; rarely edited |
+| [TODO.md](TODO.md) | Open tasks, grouped by series thread | Delete an item when done (record it where it belongs); add items under the owning thread |
+| [OWNER-TESTS.md](OWNER-TESTS.md) | Tests only the owner can do, grouped by the thread that needs the answer | Tick with the date and the result |
+| [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md) | The plan for the next Linux boot (read-only captures) | Replace when done; record results in a finding |
 | [decisions.md](decisions.md) | Why things are the way they are | Append only; newest at the bottom |
-| [runbooks.md](runbooks.md) | Exact procedures (boot safety, captures, build host, EFI install) | Mark *(unverified)* until done once, then date it |
+| [runbooks.md](runbooks.md) | Exact procedures (boot safety, Linux sessions, building on the Mac, EFI install, deploying a plugin) | Mark *(unverified)* until done once, then date it |
 | [findings/](findings/) | One dated file per investigation (`YYYY-MM-DD-topic.md`) | Write a new file; don't rewrite old findings, add a note that supersedes them |
 
 Rules:

@@ -12,10 +12,13 @@ Vermilion is a display and acceleration driver for macOS Tahoe 26.7.1: two kerne
 running on Mesa RADV, and the boot-time bring-up that powers the GPU up before WindowServer opens the displays.
 
 > [!NOTE]
-> **This fork ([ownback/vermilion](https://github.com/ownback/vermilion)) is adding RX 7900 XTX support** (revision
-> `0xC8`, one 2560x1440 DisplayPort monitor) without dropping the XT. Status and plan: [docs/XTX.md](docs/XTX.md) and
-> [.agents/TODO.md](.agents/TODO.md). How the stack works: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Upstream is
-> [leolivm/vermilion](https://github.com/leolivm/vermilion).
+> **This fork ([ownback/vermilion](https://github.com/ownback/vermilion)) adds RX 7900 XTX support** (revision `0xC8`,
+> one 2560x1440 DisplayPort monitor). **The RX 7900 XT keeps working:** XTX values are added next to the XT's and
+> chosen by what the hardware reports, never in place of them. On the XTX machine
+> ([REFERENCE-MACHINES.md](docs/REFERENCE-MACHINES.md)): an accelerated desktop at 2560x1440 up to 240 Hz, Variable
+> refresh and HDR ([docs/XTX.md](docs/XTX.md)); its full state, verified item by item, is in
+> [docs/PROJECT_KNOWLEDGE.md](docs/PROJECT_KNOWLEDGE.md). Plan: [ROADMAP.md](ROADMAP.md). How the stack works:
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Upstream is [leolivm/vermilion](https://github.com/leolivm/vermilion).
 
 > [!IMPORTANT]
 > Vermilion is specific to **one board**: an RX 7900 XT (PCI `1002:744c`, revision `0xcc`) on the reference machine,
@@ -72,8 +75,9 @@ bash tests/mock/run.sh && bash tests/mock/b15test.sh    # boot daemon and displa
 
 ## Installing
 
-There is no installer and none is planned: the kexts are installed the way other macOS kexts are. The guide is
-[docs/INSTALL.md](docs/INSTALL.md).
+There is no installer yet: the kexts are installed the way other macOS kexts are. The guide is
+[docs/INSTALL.md](docs/INSTALL.md) (expert, manual). This fork plans a skill-based install from Linux and macOS
+([ROADMAP.md](ROADMAP.md), threads 06 and 10).
 
 ## License
 
@@ -92,6 +96,8 @@ Vermilion is built on NullMoth's macOS driver and its shader translator (metal2v
 Acidanthera's tools: see [CREDITS.md](CREDITS.md) for what came from each.
 
 ## Roadmap
+
+This fork's plan, thread by thread, with the known limits: [ROADMAP.md](ROADMAP.md). Upstream's list:
 
 - **Sleep and wake.** Today the machine has to be kept awake ([INSTALL.md](docs/INSTALL.md#10-known-limits)).
 - **HDMI and DisplayPort audio** from the GPU.

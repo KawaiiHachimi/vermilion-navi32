@@ -25,7 +25,7 @@ The XTX is the same die with nothing disabled. These were checked against the XT
 
 | # | What | Where | Fix | Impact if left |
 |---|---|---|---|---|
-| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | Add `navi31_xtx` (= upstream Mesa's `navi31` entry, which already describes an XTX) and choose the profile by PCI revision. A quick test needs no rebuild: `RADV_DARWIN_CANNED=navi31` | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
+| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | Add `navi31_xtx` (= upstream Mesa's `navi31` entry, which already describes an XTX) and choose the profile by PCI revision. `RADV_DARWIN_CANNED=navi31` needs no rebuild but is **not** a safe quick test: the VCN shim's exact-name check (`0017`) would disable decode (never run) | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
 | 2 | Two shims compare the profile name to `"navi31_xt"` exactly | `patches/mesa/0017` (`acd_vcn`), `0016` (marketing name) | Match by family / prefix | With another profile: no video decode, wrong name ("RX 9070 XT") |
 | 3 | GFXHUB `SYSTEM_APERTURE_HIGH` hardcoded for 20 GiB (`0x00213fbf`) | `tools/phxctl/mesboot.c:131` | `0x00217fbf` for 24 GiB, better: derive from `FB_LOCATION_TOP` | Latent: nothing uses VRAM above 20 GiB today |
 | 4 | HUBP1 aperture in pipe-1 plans (`0x00213fff`) | `phx_s2_plan_*.inc` | `0x00217fff`, or derive | Latent; pipe 1 is the second-monitor path |
