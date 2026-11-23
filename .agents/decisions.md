@@ -504,7 +504,7 @@ in efi/build.py; any other error still fails the build).
 default stage stays at 0 until the stage is verified.
 **Revisit:** if macOS fails PCI configuration or the desktop with 1 GiB; when sleep gets a resume path.
 
-### 2026-11-23: thread 02 part C merges in milestones
+## 2026-11-23: thread 02 part C merges in milestones
 **Choice:** one PR per systemic fix, merged once it is measured against a Linux twin (C1: GPU timing, aperture, BAR0
 1 GiB, CPU-visible VRAM BOs; then e.g. shader / translator cost, the present path, per-submit overhead). After each,
 ROADMAP row 02 says what is left, so it is clear when 03 can start. Translator shader-quality work stays in 02 while
