@@ -2,6 +2,7 @@
 // gputime_test.cpp: host test of src/vermilion-boot/PhxGpuTime.h (GPU time per context, kext b157).
 //   c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o /tmp/gputime_test tests/kext/gputime_test.cpp && /tmp/gputime_test
 #include "PhxGpuTime.h"
+#include "PhxNativeABI.h"
 #include <cstdio>
 
 static int fails, checks;
@@ -21,7 +22,7 @@ int main() {
     CHECK(d[3] == static_cast<uint32_t>(mc + 8) && d[4] == 0x80u && d[5] == 0 && d[6] == 0 && d[7] == 0);
     // slots: 3 queues x 64, 16 bytes each, wrapping with the history index
     CHECK(slotOff(0, 0) == 0 && slotOff(0, 63) == 63 * 16 && slotOff(0, 64) == 0 && slotOff(2, 1) == (128 + 1) * 16);
-    CHECK(kAreaBytes == 3072 && kAreaBytes <= 0x10000);   // fits PHX_GPUTIME_SIZE
+    CHECK(kAreaBytes == 3072 && kAreaBytes <= PHX_GPUTIME_SIZE);
     // accounting: in-order queue, overlap with the previous submission's tail is not counted twice
     uint64_t last = 0;
     CHECK(account(last, 1000, 1500) == 500 && last == 1500);

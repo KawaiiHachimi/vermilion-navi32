@@ -437,9 +437,10 @@ IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
     inf.ring_size_dw = 4096;
     inf.max_ibs = PHXN_MAX_IBS;
     // b159: an opted-in process sees the CPU-visible VRAM pool when it is bigger than the old 256 MiB budget
-    const uint64_t vt = phxBoVramProcOn() ? owner->vramVisTotal() : 0, visTot = vt > kVisTotal ? vt : kVisTotal;
-    inf.vram_vis_total = visTot;
-    inf.vram_vis_free = visTot > visUsed ? visTot - visUsed : 0;
+    const uint64_t visPool = phxBoVramProcOn() ? owner->vramVisTotal() : 0;
+    const uint64_t visTotal = visPool > kVisTotal ? visPool : kVisTotal;
+    inf.vram_vis_total = visTotal;
+    inf.vram_vis_free = visTotal > visUsed ? visTotal - visUsed : 0;
     inf.vram_hi_total = kHiTotal;
     inf.vram_hi_free = kHiTotal - hiUsed;
     inf.gtt_cap = kGttCap;
