@@ -372,7 +372,10 @@ def build(args):
             # a stage may accept named ocvalidate messages it takes on purpose (ocvalidate_accept, with its reason in the
             # stage's _comment); any other error still fails the build
             accept = stage.get("ocvalidate_accept", [])
-            errs = [l.strip() for l in out if l.strip() and not l.lstrip().startswith(("Completed validating", "Serialisation", "Check")) and "returns" not in l and "OCS:" not in l and not l.lstrip().startswith("NOTE")]
+            # the messages themselves: ocvalidate's progress and summary lines left out
+            not_a_message = ("Completed validating", "Serialisation", "Check", "NOTE")
+            errs = [l.strip() for l in out
+                    if l.strip() and not l.lstrip().startswith(not_a_message) and "returns" not in l and "OCS:" not in l]
             unknown = [l for l in errs if l not in accept]
             if not accept or unknown or not errs:
                 print("  " + "\n  ".join(out))

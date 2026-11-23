@@ -1095,9 +1095,9 @@ static int nvmtl_surface_image_create(NVMTLTexture *t, IOSurfaceRef surf, NSUInt
                     nvlog("drawables: %s (NVMTL_DRAWABLE_TILED=%s)", drawTiled ? "TILED, copied to their pages at present" : "on their pages", e ? e : "unset"); }
                 if (drawTiled && w >= 256 && h >= 256 && access("/Library/GPUBundles/nvmtl/drawable-tiled-off", F_OK) != 0) {
                     CFTypeRef nm = IOSurfaceCopyValue(surf, CFSTR("IOSurfaceName"));
-                    const int drw = nm && CFGetTypeID(nm) == CFStringGetTypeID() && CFStringHasPrefix((CFStringRef)nm, CFSTR("CAMetalLayer"));
+                    const int layerDrawable = nm && CFGetTypeID(nm) == CFStringGetTypeID() && CFStringHasPrefix((CFStringRef)nm, CFSTR("CAMetalLayer"));
                     if (nm) CFRelease(nm);
-                    if (drw && !nvmtl_vk_image_create_typed(w, h, vkf, bpp, a8, 1, stex, 2, 1, &t->_i)) {
+                    if (layerDrawable && !nvmtl_vk_image_create_typed(w, h, vkf, bpp, a8, 1, stex, 2, 1, &t->_i)) {
                         if (!nvmtl_vk_copy_buffer_to_image(nvmtl_device_queue(), &hb, 0, (uint32_t)row, &t->_i, 0, 0, w, h)) {
                             t->_hostBuf = hb; t->_hostOn = YES; t->_drawTiled = YES;
                             t->_surfSeed = IOSurfaceGetSeed(surf); t->_surfSynced = YES;
