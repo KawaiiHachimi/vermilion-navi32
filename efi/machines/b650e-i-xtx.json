@@ -5,7 +5,7 @@
   "smbios_model": "MacPro7,1",
   "rom_from_interface": "eno1",
   "default_stage": "vermilion-trust",
-  "_default_stage": "The everyday EFI, built and installed when --stage is not given. vermilion-trust since EFI change 7 (2026-11-22 23:45); change 8 (VermilionTrust 1.0.3) is the live EFI. The vermilion stage (amfi=0x80, no VermilionTrust) stays as the fallback.",
+  "_default_stage": "The everyday EFI, built and installed when --stage is not given. vermilion-trust since EFI change 7 (2026-11-22 23:45); what is booted now: docs/PROJECT_KNOWLEDGE.md. The vermilion stage (amfi=0x80, no VermilionTrust) stays as the fallback.",
   "acpi": ["SSDT-CPUR-B650EI.dsl", "SSDT-EC-USBX-B650EI.dsl"],
   "_acpi": "SSDT-CPUR: the firmware declares CPUs only as ACPI0007 devices; macOS needs Processor () objects (24, matching the MADT's enabled IDs). See the table's header.",
   "dsdt_fix": false,

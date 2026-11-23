@@ -480,17 +480,20 @@ def check_patch_bios(machine_id, machine):
     The dump records its BIOS version (acpi-dump). The profile's acpi_patches_bios names the version the patches were
     derived for. Under Linux booted directly the live version is known too; elsewhere (macOS, or Linux through
     OpenCore, whose SMBIOS hides it) only the dump can be checked, so say that a BIOS update needs a new dump.
+    A build on another Linux machine than the target (a second PC, CI) sets VERMILION_EFI_OTHER_HOST=1: then the live
+    firmware is not compared.
     """
     f = acpi_dir(machine_id) / "bios-version"
     dumped = f.read_text().strip() if f.is_file() else "unknown"
     wanted = machine.get("acpi_patches_bios")
     if wanted and dumped != wanted:
-        die(f"the DSDT patches are for BIOS {wanted}, the DSDT dump is from BIOS {dumped}: re-derive the patches "
-            f"(efi/acpi/fix_dsdt.py resolve) or dump the right firmware")
-    now = bios_version()
+        hint = "run acpi-dump again (this dump records no version)" if dumped == "unknown" else \
+               "re-derive the patches (efi/acpi/fix_dsdt.py resolve) or dump the right firmware"
+        die(f"the DSDT patches are for BIOS {wanted}, the DSDT dump is from BIOS {dumped}: {hint}")
+    now = None if os.environ.get("VERMILION_EFI_OTHER_HOST") == "1" else bios_version()
     if now and now != dumped:
         die(f"the DSDT dump is from BIOS {dumped}, this machine runs {now}: run acpi-dump again and re-derive the "
-            f"DSDT patches")
+            f"DSDT patches (building for another machine from this Linux: VERMILION_EFI_OTHER_HOST=1)")
     if now:
         print(f"  ACPI: dump and firmware are both BIOS {dumped}")
     else:

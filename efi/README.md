@@ -35,7 +35,8 @@ efi/build.py build --placeholder-smbios  # test build with dummy serials (never 
 The DSDT patches are byte patterns for one BIOS version (`acpi_patches_bios` in the machine file, 4005 here).
 `build.py` refuses a DSDT dump of another version and, under Linux booted directly, a firmware that differs from the
 dump. From macOS the live BIOS version can't be read (OpenCore's SMBIOS hides it): after a BIOS update, dump again
-under Linux before building.
+under Linux before building. Building on a Linux machine other than the target (a second PC, CI): set
+`VERMILION_EFI_OTHER_HOST=1`, so the live firmware isn't compared.
 
 ## Stages
 

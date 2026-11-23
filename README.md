@@ -8,8 +8,9 @@
 # Vermilion
 
 **A GPU-accelerated macOS desktop on the AMD Radeon RX 7900 XT (Navi 31, RDNA 3).**
-Vermilion is a display and acceleration driver for macOS Tahoe 26.7.1: two kernel extensions, a Metal driver plugin
-running on Mesa RADV, and the boot-time bring-up that powers the GPU up before WindowServer opens the displays.
+Vermilion is a display and acceleration driver for macOS Tahoe 26.7.1: two kernel extensions (this fork adds a third,
+VermilionTrust), a Metal driver plugin running on Mesa RADV, and the boot-time bring-up that powers the GPU up before
+WindowServer opens the displays.
 
 > [!NOTE]
 > **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,

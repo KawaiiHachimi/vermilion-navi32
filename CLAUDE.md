@@ -5,8 +5,9 @@ This file is for coding agents (Claude Code, Codex, others: `AGENTS.md` links he
 
 ## What this is
 
-Vermilion is a macOS Tahoe 26.7.1 display and acceleration driver for AMD Navi 31 (RDNA 3). It has two kexts, a
-Metal plugin that runs on Mesa RADV, and a boot daemon that powers the GPU up from userspace.
+Vermilion is a macOS Tahoe 26.7.1 display and acceleration driver for AMD Navi 31 (RDNA 3). It has two kexts (this
+fork adds a third, VermilionTrust), a Metal plugin that runs on Mesa RADV, and a boot daemon that powers the GPU up
+from userspace.
 
 Upstream is [leolivm/vermilion](https://github.com/leolivm/vermilion), built for one RX 7900 XT (PCI `1002:744c`,
 rev `0xCC`) with two 1080p monitors. This fork, [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx) (renamed from `ownback/vermilion` on
