@@ -351,6 +351,49 @@ inline int aux(const Io &io, unsigned eng, uint8_t action, uint32_t addr, const 
     return kErrDefer;
 }
 
+// b155: one native DPCD read or write with drm's retry rule, the path every DPCD access of Linux's DC takes
+// (dm_helpers_dp_read_dpcd / dm_helpers_dp_write_dpcd -> drm_dp_dpcd_read / drm_dp_dpcd_write -> drm_dp_dpcd_access,
+// Linux v6.12 drivers/gpu/drm/display/drm_dp_helper.c; each try one dc_link_aux_transfer_raw): up to 32 transactions;
+// after a timeout the next goes at once, after any other failure (NACK, DEFER, a short read, HPD low, no grant) 500 us
+// later (AUX_RETRY_INTERVAL). A read needs all n bytes (drm: -EPROTO otherwise, retried). The first error is returned.
+struct DpcdStat {
+    uint32_t calls, ok, retried, gaveUp;           // accesses, landed, landed after more than one try, every try failed
+    uint32_t timeouts, nacks, defers, other;       // failed tries by kind
+    uint32_t maxTries;                             // most tries one access took
+    int lastFirstErr;                              // the first error of the last access that needed a retry (0 none)
+};
+constexpr unsigned kDpcdTries = 32;
+inline int dpcdAccess(const Io &io, unsigned eng, bool write, uint32_t addr, uint8_t *buf, uint8_t n, DpcdStat *s) {
+    if (s) s->calls++;
+    int first = 0, rc = 0;
+    for (unsigned t = 0; t < kDpcdTries; t++) {
+        if (t && rc != kErrTimeout) delay(io, 500);
+        uint8_t got = 0;
+        rc = auxOnce(io, eng, write ? 0x80 : 0x90, addr, write ? buf : nullptr, n, write ? nullptr : buf, write ? 0 : n, &got, nullptr);
+        if (rc == kErrArg) return kErrArg;                         // nothing reached the wire: not a sink failure
+        if (rc == 0 && (write || got == n)) {
+            if (s) {
+                s->ok++;
+                if (t) { s->retried++; s->lastFirstErr = first; }
+                if (t + 1 > s->maxTries) s->maxTries = t + 1;
+            }
+            return kOk;
+        }
+        if (rc == 0) rc = kErrNack;                                 // a short read
+        else if (rc == 2 || rc == 8) rc = kErrDefer;
+        else if (rc > 0) rc = kErrNack;                             // NACK / I2C NACK reply nibble
+        if (s) {
+            if (rc == kErrTimeout) s->timeouts++;
+            else if (rc == kErrNack) s->nacks++;
+            else if (rc == kErrDefer) s->defers++;
+            else s->other++;
+        }
+        if (!first) first = rc;
+    }
+    if (s) { s->gaveUp++; s->lastFirstErr = first; s->maxTries = kDpcdTries; }
+    return first;
+}
+
 inline int dpcdRead(const Io &io, unsigned eng, uint32_t addr, uint8_t *buf, uint8_t n, Diag *d) {
     uint8_t got = 0;
     int rc = aux(io, eng, 0x90, addr, nullptr, n, buf, n, &got, d);

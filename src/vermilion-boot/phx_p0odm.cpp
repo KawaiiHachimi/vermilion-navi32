@@ -278,6 +278,11 @@ static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     int len = gOdm.attempts ? phxodm::stat(gOdm, kOdmSet, b, kN)
                             : snprintf(b, kN, "never run (root: sysctl -w debug.phxp0odm=1 survey, or 60 / 120 / 144 / 240)\n");
     if (len < 0) len = 0;
+    if (len < kN - 1)   // b155: the boot's trainer DPCD accesses (phx_dplink.cpp, drm's 32-try rule)
+        len += snprintf(b + len, static_cast<size_t>(kN - len), "dpcd_aux: calls=%u ok=%u retried=%u gave_up=%u timeouts=%u nacks=%u defers=%u "
+                        "other=%u max_tries=%u last_first_err=%d\n", gDplDpcd.calls, gDplDpcd.ok, gDplDpcd.retried, gDplDpcd.gaveUp,
+                        gDplDpcd.timeouts, gDplDpcd.nacks, gDplDpcd.defers, gDplDpcd.other, gDplDpcd.maxTries, gDplDpcd.lastFirstErr);
+    if (len < 0) len = 0;
     if (len > kN - 1) len = kN - 1;
     b[len] = 0;
     const int e = SYSCTL_OUT(req, b, static_cast<size_t>(len) + 1);

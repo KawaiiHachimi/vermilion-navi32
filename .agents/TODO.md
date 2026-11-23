@@ -81,8 +81,11 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 01 GPU stability
 
-- [ ] The sink once did not answer AUX at the first access after D3 (b153, 03:51; the retry trained). Compare with
-      Linux's AUX handling after SET_POWER D0 (any wait or retry Linux does there that the trainer doesn't)
+- [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
+      DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
+      trainer stopped after 4 timeouts or 1 NACK. **b155** (built `e13e19b8`, host-tested, not installed): drm's rule
+      for the trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Goes in with the next boot that is
+      needed anyway; check: `train_w` attempts `tries=1` where b154 had `rc=aux,ok`, `dpcd_aux: retried=` > 0
 - [~] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
       every later switch refused until reboot. **b151** (built, host-tested, staged 1): Linux's 4 training attempts
       per link window, a failed from plan runs once more (2 per boot), `last_fail_train` keeps the CR / EQ report.
