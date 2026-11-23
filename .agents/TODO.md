@@ -34,6 +34,14 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
+Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each changes machine code, so a build bump):
+- [ ] Fold the retire loop that appears three times in `phx_gputime.cpp` into one helper.
+- [ ] Check `gpuTimeReset`: it also retires the VCN queue, the other three callers skip it (oversight?).
+- [ ] `gpuSubmit`'s timestamp path uses `fbAper` without the null check `gpuTimeAccount` has: confirm a ready queue
+  implies `fbAper`, or add the check.
+- [ ] `doBoCreate`: the b156 and b159 blocks duplicate the free-handle search and the scalar outputs.
+- [ ] `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
+
 Thread 02 part C3: **WindowServer's display surface tiled** (boot daemon `ws_tiled`, flag `~/gpu/phxboot-wstiled` ->
 `launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23, not
 booted yet. Check after the boot: `phxboot.log` has "wstiled: NVMTL_WS_SCANOUT_TILED=1"; `/tmp/nvmtl.log` has
