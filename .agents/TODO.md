@@ -20,6 +20,18 @@ State at the end of thread 02 (verified, recorded in PROJECT_KNOWLEDGE, known-go
 Nothing is staged. Thread 02's per-change steps (changes 15-22, C3): git history of this file (`fork/main` after
 the merge of `ownback/perf-ws`).
 
+- [~] **EFI change 23 (thread 03): VermilionTrust with the video decoder** (14 cdhashes: change 22's 10 plus
+  `libphxdec_hevc.dylib`, `libavcodec_phx.61.dylib`, `libavutil_phx.59.dylib`, the VideoToolbox bundle executable
+  `PhxVideoDecoder` `8007478b`); `diff -rq` against the live `EFI/OC`: only `VermilionTrust`; `config.plist`
+  identical. Same boot, outside the EFI: daemon flag `~/gpu/phxboot-vcn` (VCN0 up after `done`), the plugin read
+  through the `CoreTypes.bundle/.../PhxGPU` symlinks (03, Safari item below), the decoder dylibs installed with
+  `/Library/GPUBundles/nvmtl/phxdec-off` present (nothing loads them until it is removed).
+  - **Check:** desktop accelerated at 1440p240; `sysctl debug.phxtrust_stat` `mode=enforce list=14
+    denied_unlisted=0`; `/var/log/phxboot.log` has `vcn: up, ring adopted, MMHUB VM on`; `debug.phxvcn_stat`
+    `vcn 1 stuck 0`; `debug.phxmmvm_stat` fault status 0.
+  - **Rollback:** `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`: `sudo mv OC OC.c23-bad && sudo mv
+    OC.prev OC` (= change 22, trusts the live plugin), restart. VCN alone: `rm ~/gpu/phxboot-vcn`, restart. Copy of
+    change 22: `~/vermilion-rollback/EFI-OC.change22-20261123`.
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
@@ -94,8 +106,16 @@ what already runs is thread 13's (section "13 Performance parity" below).
       Check every register write against Linux first. The bundle goes to the sealed system volume
 - [ ] Vulkan loader + ICD manifest for RADV, then a real window surface (Darwin WSI is stubbed in patch 0001)
 - [ ] Zink for apps that load their own libGL (Minecraft / LWJGL), after the window surface
-- [ ] Safari's WebKit GPU process doesn't map the plugin (sandbox: executables from system paths only;
-      INSTALL.md 5.6 `relocate_gpubundle.sh`, never applied here). Two Safari `ExcUserFault` reports may be this
+- [~] Safari's WebKit GPU process doesn't map the plugin: **confirmed 2026-11-23** (`file system sandbox blocked
+      mmap()` of `NVMTLDriver`); `webprobe` (WKWebView, same GPU process): WebGL 1 / 2 contexts lost at creation,
+      WebGPU no adapter. Fix: INSTALL.md 5.6 `relocate_gpubundle.sh` (plugin + `nvmtl/` to
+      `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU`, a firmlink into the Data volume: no
+      seal change; symlinks left in `/Library/GPUBundles`; originals in `/Library/GPUBundles-backup`). Not an EFI
+      change; WindowServer loads it through the symlink from the next boot.
+      **Rollback** (from macOS, takes the live copies back, then restart):
+      `H=/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU; for n in NVMTLDriver.bundle nvmtl; do sudo rm /Library/GPUBundles/$n && sudo mv $H/$n /Library/GPUBundles/; done`.
+      If the desktop doesn't come up after the restart: the daemon's GOP fallback, then the same commands over SSH /
+      from T3 Code. Two Safari `ExcUserFault` reports may be this
 - [ ] Quick Look 12.2 s vs `sips` 1.6 s for a 6016x6016 HEIC: one cold run each. Re-measure (warm cache, n >= 5)
 - [ ] Photos, video wallpaper, Quick Look on hardware decode once VCN works
 

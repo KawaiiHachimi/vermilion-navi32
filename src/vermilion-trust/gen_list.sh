@@ -7,6 +7,8 @@
 # PHXTRUST_KEEP=1 also keeps the cdhashes of the current phxtrust_list.inc, so one kext accepts the installed build and
 # the next one: the plugin install and the EFI update then don't have to land in the same boot. Without it the list
 # is exactly the files given.
+# PHXTRUST_ADD="file ..." adds files that are not installed yet (the VideoToolbox bundle on the system volume, which
+# appears only after the reboot that boots its snapshot), to the default list or to the files given.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT="$HERE/phxtrust_list.inc"
@@ -16,10 +18,17 @@ if [ $# -eq 0 ]; then
          /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib \
          /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libzstd.1.dylib \
          /Library/GPUBundles/nvmtl/libvulkan_radeon.dylib
-  for f in /Library/GPUBundles/PhxVideoDecoder.bundle/Contents/MacOS/* /Library/GPUBundles/phxdec/*.dylib; do
+  # the optional video decoder (INSTALL.md 5.5): its dylibs next to the plugin, its VideoToolbox bundle on the system
+  # volume (VTDecoderXPCService and the clients that load it are platform binaries)
+  M=/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS
+  for f in $M/libphxdec_hevc.dylib $M/libavcodec_phx.61.dylib $M/libavutil_phx.59.dylib \
+           /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle/Contents/MacOS/PhxVideoDecoder; do
     [ -f "$f" ] && set -- "$@" "$f"
   done
 fi
+for f in ${PHXTRUST_ADD:-}; do
+  set -- "$@" "$f"
+done
 tmp=$(mktemp)
 n=0
 for f in "$@"; do
