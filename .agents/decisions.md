@@ -453,3 +453,11 @@ number and the VRAM reservations.
 build folder plus the installed list (`PHXTRUST_KEEP=1`), so the files and the EFI can go in together minutes before the
 owner shuts down for the Linux run; the boot back from Linux (a power-off, so a cold GPU) is change 15's one boot. The
 Linux boot itself goes through Limine (F8), not OpenCore, so it is not an OpenCore boot of either change.
+
+## 2026-11-23: no `_CST` CPU idle kext (thread 02)
+
+Linux on the same machine and BIOS (all C-state / CPPC / PBO settings Auto, owner's photos) tops out at 5.16 GHz on the
+frequency CCD and idles at 37.8 W package with CC6 98 % of the time; macOS reaches 5.02-5.12 GHz and idles at
+39.5-41.3 W. A kernel extension that enters CC6 through the firmware's `_CST` would gain ~2-3 W and adds a new
+kernel component in the idle path. Not built; revisit only if a later measurement shows a bigger gap (for example at
+sleep, thread 05). Evidence: [perf finding](findings/2026-11-23-perf-power.md) section 8.

@@ -54,12 +54,7 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 
 ## 02 GPU and CPU performance, power
 
-- [ ] **Linux reference boot:** boot Linux once and let its agent session follow
-      [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md) (read-only; about 30 minutes). Afterwards **shut down
-      Linux fully** (power off, not restart), then power on into macOS.
-- [ ] **BIOS photos:** at power-on press F2 (or Del), then F7 for Advanced Mode. Photograph these pages and change
-      nothing: Advanced > AMD CBS (Global C-state Control, CPPC, CPPC Preferred Cores, Power Supply Idle Control) and
-      Ai Tweaker > Precision Boost Overdrive / Eco mode. Exit without saving.
+- [x] Linux reference boot and BIOS photos: done 2026-11-23 06:41-07:10 (results in the perf finding, section 8).
 - [ ] **A Metal game or benchmark** you own: run it for 20 minutes. Report the frame rate, stutter, wrong rendering,
       and whether the fans behave.
 

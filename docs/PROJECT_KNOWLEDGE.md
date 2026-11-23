@@ -42,7 +42,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 
 | Area | State | Evidence | Thread |
 |---|---|---|---|
-| Boot | OpenCore 1.0.8, stage `vermilion-trust` (EFI change 14 = change 8 with VermilionBoot b155); live `EFI/OC` = this repo's build (below) | change 8 rebuilt and compared 2026-11-23; changes 9-14 installed with `efi/build.py install` | 09 |
+| Boot | OpenCore 1.0.8, stage `vermilion-trust` (EFI change 15 = change 8 with VermilionBoot b155, VermilionTrust 1.0.4); live `EFI/OC` = this repo's build (below) | change 8 rebuilt and compared 2026-11-23; changes 9-15 installed with `efi/build.py install` | 09 |
 | GPU acceleration (Metal) | works: the device reports Metal 3; one render and one compute shader exercised. Ray tracing, MetalFX, BC textures, function pointers: flags only, never exercised | [GPU baseline](../.agents/findings/2026-11-22-gpu-performance-baseline.md) | 02 |
 | Display 2560x1440 | 60 / 120 / 144 / 240 Hz, Variable 60-240 with the ramp, 10-bit HDR, HDR + Variable, from System Settings; the login screen comes up at the saved rate. 10-bit banding not checked | [XTX.md](XTX.md) | 01 |
 | Other LG modes | fixed rates only (1080p60/120, 1280x1024@75, 1024x768, 800x600, 640x480), no VRR / HDR (owner's choice, decisions 2026-11-22) | same | 01 |
@@ -59,7 +59,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 | Ethernet I225-V | Apple's DriverKit E1000 bound as **`en0`** (built-in), up to 2500BASE-T; **no link ever tested** (no cable) | same | 11 |
 | USB | USBToolBox 1.2.0 + `efi/kexts/UTBMap.kext`: all 8 rear ports (USB 2 halves walked), internal audio (port 11) and Bluetooth (port 16). USB 3 halves untested. Why macOS didn't create ports 11 / 16 / 17 unmapped (`_UPC` or the 15-port limit) is unproven | [USB map](../.agents/findings/2026-11-22-usb-map.md) | 11 |
 | CPU sensors | SMCProcessorAMD 1.0.1 (read-only): package temperature and power; per-core clock keys not published | [CPU sensors](../.agents/findings/2026-11-22-cpu-sensors.md) | 02 |
-| CPU power management | AMD_Vanilla (`0x0C` cores), `DummyPowerManagement`. **Never above 5.15 GHz** (frequency CCD rated 5.6), idle package 40-50 W. Suspect: `HLT`-only idle, no CC6 *(unverified until the Linux run)* | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) | 02 |
+| CPU power management | AMD_Vanilla (`0x0C` cores), `DummyPowerManagement`. Never above 5.15 GHz, idle package ~40 W: **Linux the same** (5.16 GHz, 37.8 W, BIOS all Auto), so no idle kext | [sleep / power](../.agents/findings/2026-11-23-sleep-power-validation-inventory.md) | 02 |
 | Fans | GPU fan from SMU metrics; no motherboard / CPU fan readings (no Super I/O plugin) | same | 02 |
 | NVMe | Apple's driver + NVMeFix 1.1.3 (APST on), Gen 5 x4, TRIM capability yes (runtime TRIM not seen), SMART clean, no thermal throttling. Shown as "external" (cosmetic) | [storage](../.agents/findings/2026-11-22-storage-baseline.md) | 10 |
 | APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 11 |
@@ -81,15 +81,15 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 The configuration the owner uses every day. Change it only through the active thread, one EFI change per boot, and
 add each change here with the thread's number.
 
-- **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 14** (change 8
-  with VermilionBoot b155; thread 01, 2026-11-23). On 2026-11-23 thread 00 rebuilt change 8's VermilionBoot and
+- **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 15** (change 8
+  with VermilionBoot b155, thread 01; VermilionTrust 1.0.4, thread 02; 2026-11-23). On 2026-11-23 thread 00 rebuilt change 8's VermilionBoot and
   VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder serials: every file
-  equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the serials). Changes 9-14
+  equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the serials). Changes 9-15
   were built and installed from the repo. **The repo is the source of truth for the EFI.**
   - OpenCore 1.0.8. Kexts, in load order: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
     AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0, UTBMap, SMCProcessorAMD 1.0.1, BlueToolFixup
-    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b155** (sha256 `f95b4baf`), VermilionTrust **1.0.3**
-    (`8e0dcd84`). Pinned in [`efi/components.json`](../efi/components.json).
+    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b155** (sha256 `f95b4baf`), VermilionTrust **1.0.4**
+    (`63481dc4`; 8 cdhashes, among them RADV `801ae178` and the plugin `3be1ec3c`). Pinned in [`efi/components.json`](../efi/components.json).
   - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, 5 DSDT NOP patches (derived for BIOS 4005; `efi/build.py`
     refuses another version).
   - NVRAM (Apple GUID, set by OpenCore every boot): `bluetoothInternalControllerInfo`, `bluetoothExternalDongleFailed`.
@@ -124,7 +124,7 @@ add each change here with the thread's number.
   | 12 | 2026-11-23 ~04:00 | 01 | `vermilion-trust-nvram` (`DisableVariableWrite` false), as a test; rolled back from Linux at an unknown time (kept as `EFI/OC.bad`), so whether it ever booted is unknown: NVRAM write test still open |
   | 13 | 2026-11-23 04:36 | 01 | VermilionBoot b154 (`78f560cc`) on change 11's config: a switch whose last link window needed a retry runs once more (the LG stayed black after such a retry at 04:15) |
   | 14 | 2026-11-23 04:52 | 01 | VermilionBoot b155 (`f95b4baf`): drm's 32-try rule for the trainers' DPCD accesses; the live switch `debug.phxp0odm_dbuf` (0 at boot) |
-  | 15 | 2026-11-23 06:31 (installed; boots after the Linux run) | 02 | VermilionTrust 1.0.4 (`63481dc4`) for RADV with the XTX profile (patches 0018-0019, `801ae178`) and the plugin without the environment leak (`3be1ec3c`), both installed outside the EFI the same minute |
+  | 15 | 2026-11-23 06:31 (first boot 07:10, after the Linux run; verified: `list=8 denied_unlisted=0`, `profile navi31`, Metal "AMD Radeon RX 7900 XTX", no leaked environment) | 02 | VermilionTrust 1.0.4 (`63481dc4`) for RADV with the XTX profile (patches 0018-0019, `801ae178`) and the plugin without the environment leak (`3be1ec3c`), both installed outside the EFI the same minute |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
@@ -269,7 +269,8 @@ say whether the path is accelerated or a fallback.
 
 ### Baselines
 
-No Linux reference exists yet for any row: [HANDOFF-LINUX-REFERENCE.md](../.agents/HANDOFF-LINUX-REFERENCE.md).
+Linux reference: [linux-reference](../.agents/findings/2026-11-23-linux-reference.md) (2026-11-23, one Omarchy boot); the
+side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-power.md) section 8.
 
 | Date | Area | Conditions | Result | Source |
 |---|---|---|---|---|
@@ -296,19 +297,25 @@ No Linux reference exists yet for any row: [HANDOFF-LINUX-REFERENCE.md](../.agen
 | 2026-11-23 | Buffer bandwidth | same; `metalbench` / `vkbench bandwidth 8 256` | **44.7 GB/s** read + write in both: system memory over PCIe (VRAM ~960 GB/s) | same |
 | 2026-11-23 | Waited short job | `vkbench submit 8 200 512 512` (GPU 51 us) | poll: median 265 us, p99 0.92 ms; interrupt waits (live test, reverted): median 115 us, p99 2.4 ms | same |
 | 2026-11-23 | RADV XTX profile | patch 0018 side-loaded, A/B interleaved | `metalbench render 2000`: 4.86 -> 3.93 ms GPU per frame; compute, Vulkan and bandwidth unchanged | same |
+| 2026-11-23 | **Linux:** GPU idle | Omarchy, kernel 7.2.15, 1440p; PPT (= macOS socket) | 9.9 W at 60 SDR (UCLK 96, FCLK 1000, DCEFCLK 200), 22-23 W at 240 SDR, 35 W at 240 HDR; macOS 50-51 W socket at 240 HDR (UCLK 456 pinned, FCLK 2301, DCEFCLK 661) | linux-reference, perf / power 8 |
+| 2026-11-23 | **Linux:** vkbench | same boot, 240 SDR | compute 2000: 4.05 ms; compute 64: 0.134 ms (macOS 0.41); bandwidth 823 GB/s (macOS 44.7); submit 37 us; 512x512 job 114 us (macOS 265 poll / 114 interrupt) | same |
+| 2026-11-23 | **Linux:** CPU | same boot | 1 thread 5.16 GHz on the frequency CCD (macOS 5.02-5.12); idle package 37.8 W, CC6 98 % (macOS 39.5-41.3 W, 07:14) | same |
+| 2026-11-23 | **Linux:** NVMe raw read | same boot, `fio --readonly` | 6.8 GB/s, 4 KiB QD1 21.3 k IOPS (macOS 7.0 GB/s, ~20 k) | same |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
 ### Known bottlenecks and limits
 
-- CPU: no clock above 5.15 GHz on either CCD and 40-50 W idle package power. Suspect: `HLT`-only idle, never CC6
-  *(unverified until the Linux comparison)*. Per-core clocks only through `cpuclk.c`.
+- CPU: no clock above 5.15 GHz, idle package ~40 W. Linux does the same (5.16 GHz, 37.8 W) with the BIOS at Auto: not a
+  macOS problem; a `_CST` idle kext would gain ~2-3 W (decisions 2026-11-23). Per-core clocks only through `cpuclk.c`.
 - Buffer objects live in system memory, not VRAM (`phx_client.cpp` allocates every BO as an
   `IOBufferMemoryDescriptor`): a buffer copy runs at 44.7 GB/s (PCIe), against ~960 GB/s for VRAM. The 1440p target
   written at ~50 GB/s (2026-11-22) is probably DCC compression *(unverified)*.
 - Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits work on the XTX (live test 2026-11-23) but stay
   off: better median, worse p99 so far.
-- The UCLK hard minimum of 456 MHz is never released, and FCLK stays at 2301 MHz. Whether Linux idles lower is unknown.
+- The UCLK hard minimum of 456 MHz is never released, and FCLK stays at 2301 MHz. Linux idles at UCLK 96 / FCLK 1000 and
+  ~15 W less at 240 Hz HDR: it sends the PMFW UCLK 96, DCFCLK 199, the deep-sleep DCFCLK, the display count and the DAL
+  watermark table; macOS's display registers already match Linux's (perf / power section 8).
 - RADV runs the XT's canned profile on the XTX (84 CU, XT name): fixed in patch 0018, not installed yet (pixel
   shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
 - OpenGL apps run on the CPU (Apple Software Renderer).

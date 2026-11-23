@@ -19,30 +19,8 @@ State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC
 `EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12. Thread 01's per-change steps: git history of this file
 (`fork/main` `c9f132e`).
 
-Thread 02 (2026-11-23):
-
-1. **ESP:** `<ESP>/vermilion/LINUX-THREAD02.md` for the Linux session. Afterwards copy `<ESP>/vermilion/results-02/`
-   off and delete both.
-2. **EFI change 15: VermilionTrust 1.0.4** (`63481dc4`, 8 cdhashes) on stage `vermilion-trust`, VermilionBoot b155
-   unchanged, `config.plist` identical (built and diffed 06:24: only `VermilionTrust.kext` differs, plus the FSCK
-   artefact in MtkWirelessBT). **Plus, outside the EFI:** RADV with patches 0018-0019 (`801ae178`, cdhash `d5251b0b`)
-   in `/Library/GPUBundles/nvmtl/`, the plugin without the environment leak (`3be1ec3c`, cdhash `e162a385`) in
-   `NVMTLDriver.bundle/Contents/MacOS/`. Built in `~/src/vermilion/build-02/` (contains `efi/` with serials: delete it
-   after the install).
-   - When: installed right before the owner shuts down for the Linux run, so the cold boot back from Linux is the
-     change's only boot (the Linux boot doesn't go through OpenCore). **Installed 2026-11-23 06:31** (owner's "go"):
-     `EFI/OC` = change 15 (diff against the build: none), `EFI/OC.prev` = change 14, the two files in place (the old
-     plugin carried the `restricted` file flag; the new one doesn't). Not booted yet.
-   - Before: `~/vermilion-rollback/EFI-OC.change14-20261123` (a copy of the live `EFI/OC`) and
-     `~/vermilion-rollback/gpubundles-20261123-thread02/` (the installed `NVMTLDriver` `6840fbe3` and
-     `libvulkan_radeon.dylib` `8054fbe4`); `efi/build.py install` makes change 14 `EFI/OC.prev`.
-   - Check: accelerated desktop; `sysctl debug.phxtrust_stat` `mode=enforce list=8 denied_unlisted=0`;
-     `debug.phxtrust_files` shows the new `NVMTLDriver` and `libvulkan_radeon.dylib` with overrides; Metal names "AMD
-     Radeon RX 7900 XTX"; `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "radv-darwin: native"'`
-     says `profile navi31`; `sudo launchctl procinfo <pid of an app reopened at login>` has no `MESA_SHADER_CACHE_DIR`.
-   - Rollback: the two files back from `~/vermilion-rollback/gpubundles-20261123-thread02/` (1.0.4 trusts them as
-     `-previous`), restart. Boot trouble: `EFI/OC` and `EFI/OC.prev` swapped (macOS: `/Volumes/NO NAME/EFI`; Linux:
-     `/boot/EFI`, then power off fully), **and** the two old files back (change 14 trusts only them).
+Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
+results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22). Nothing staged.
 
 ## 01 GPU stability
 
@@ -102,40 +80,40 @@ Thread 02 (2026-11-23):
 
 ## 02 GPU and CPU performance, power
 
-- [ ] **Linux reference capture** (one boot, read-only): [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md).
-      Results go into PROJECT_KNOWLEDGE's performance record. Staged 2026-11-23 06:06: `<ESP>/vermilion/LINUX-THREAD02.md`
-      (instructions for the Linux agent; it copies results to `<ESP>/vermilion/results-02/`). Afterwards copy them off
-      and delete both from the ESP
-- [ ] **CPU never above 5.15 GHz, idle package 40-50 W** (2026-11-23). Suspect: `HLT`-only idle, the firmware's `_CST`
-      C2 / C3 (`inb 0x414` / `0x415`) unused, so no CC6 *(unverified)*. If Linux reaches ~5.5 GHz and idles 15+ W
-      lower: a minimal `_CST` idle kext (never AMDRyzenCPUPowerManagement). BIOS C-state / CPPC settings first
-      ([OWNER-TESTS](OWNER-TESTS.md))
+- [-] CPU never above 5.15 GHz, idle ~40 W: Linux does the same (5.16 GHz, 37.8 W with CC6 98 %, BIOS all Auto), so
+      no `_CST` idle kext for ~2-3 W (decisions 2026-11-23; [perf finding](findings/2026-11-23-perf-power.md) 8)
 - [ ] Real-app test set: WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min, Minecraft (F3 renderer line)
 - [x] XTX RADV profile chosen by PCI revision: `patches/mesa/0018` (Mesa's `navi31` for revision 0xc8; the name
       checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5)
-- [ ] **Install RADV with 0018:** `libvulkan_radeon.dylib` from `~/src/vermilion/build-02/` to `/Library/GPUBundles/nvmtl/`,
-      `PHXTRUST_KEEP=1 trust.sh`, EFI rebuild and install (one EFI change, one boot; rollback: `EFI/OC.prev` + the old
-      dylib `8054fbe4` kept in `~/vermilion-rollback/`). Bundle with the other 02 boot items. Check `gpuCoreCount` = 96
-      in an app afterwards
 - [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`), together with the next item only
 - [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measured: 44.7 GB/s buffer copy in
-      Metal and in RADV directly (PCIe; VRAM ~960). Next: the Linux number, then VRAM-backed BOs (weeks; design note
-      first: `.agents/findings/2026-11-23-vram-bo-design.md`)
+      Metal and in RADV directly (PCIe); Linux 823 GB/s on the same `vkbench bandwidth`. Next: VRAM-backed BOs, M1 of
+      the [design note](findings/2026-11-23-vram-bo-design.md) (days of code; its own kext build and boot)
 - [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
       storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
       Quiet interleaved A/B (06:25): better in median and p99 everywhere. Left: a daemon flag (`phxboot-irqwait`, sets
       the five sysctls after the bring-up; mock tests), then a day of use
       ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
-- [ ] Idle power (62-70 W board; UCLK pinned at 456 MHz, FCLK 2301): only what Linux sends, after the Linux numbers
-- [ ] Fan readings: `SMCSuperIO` (in the pinned VirtualSMC 1.3.8 zip) once Linux names the Super I/O chip. One EFI
-      change
+- [ ] **Idle power:** macOS 50-51 W socket at 240 HDR vs Linux 35 W (9.9 W at 60 SDR). Linux sends the PMFW, after
+      every mode set, HardMin UCLK 96 / DCFCLK 199 / DISPCLK / DPPCLK, `SetMinDeepSleepDcfclk`, `NumOfDisplays` 1; macOS's
+      plans send only DISPCLK / DPPCLK and the daemon pins UCLK at 456. The display registers (watermarks, DET) already
+      match Linux. Next, with the owner's OK (a brief flicker is possible): clear the underflow stickies, send Linux's
+      messages live with `dal.sh`, unpin UCLK, watch the stickies; re-pin 456 at the first underflow
+      ([perf finding](findings/2026-11-23-perf-power.md) 8)
+- [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip). Linux loads no Super I/O driver either; the board is in
+      `nct6775`'s ASUS-WMI list (the chip sits behind ACPI WMI methods, so direct port access may race the firmware).
+      Name the chip first (`modprobe nct6775` on Linux, owner's OK); then one EFI change
 - [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
 - [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target; decode the SMU
       feature masks (0x71ffffff / 0x0003ebb8) against Linux's header
 - [~] The Mesa init line and `nvmtl-mesa ... Permission denied` on stderr of command-line Metal tools. Found: loginwindow
       runs as root with the plugin, which `setenv`s `MESA_SHADER_CACHE_DIR` (root's cache) and `NVRM_FLUSH_TIMEOUT_MS`;
       the apps loginwindow reopens at login (T3 Code) inherit both, so they run without a Mesa disk cache. Fixed in the
-      plugin (unset once RADV is up) and patch 0019 (the init line to the unified log): staged change 15
+      plugin (unset once RADV is up) and patch 0019 (the init line to the unified log): change 15. Verified 07:22: no
+      `MESA_*` / `NVRM_*` in T3 Code's environment; the init line in the unified log only. Left: the `Permission denied`
+      line, if a tool still prints it
+- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): compare
+      with what the firmware macOS loads (`tools/firmware/fw.lock`) reports, and whether RADV keys anything off them
 
 ## 03 Graphics APIs and video
 

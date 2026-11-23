@@ -9,7 +9,7 @@ with an `IOBufferMemoryDescriptor`, whatever domain RADV asks for. The "visible 
 and GTT (2 GiB) pools are budgets over system memory (`phx_globals.cpp`). Measured on the XTX machine
 ([perf finding](2026-11-23-perf-power.md) section 3): a buffer copy runs at **44.7 GB/s**, the PCIe 4.0 x16 limit,
 in Metal and in RADV alone. Navi 31's GDDR6 peaks at ~960 GB/s, and Linux's number for the same `vkbench bandwidth`
-is the target (handoff 1b, pending). A memory-bound load (big textures, post-processing, compute over large buffers,
+is the target: **823 GB/s** on Linux (2026-11-23, [linux-reference](2026-11-23-linux-reference.md)). A memory-bound load (big textures, post-processing, compute over large buffers,
 games) can lose up to ~20x. A compute-bound load loses nothing: the Mandelbrot loop is within 7 % of RADV.
 
 The fixed 6 GiB Metal working set (`recommendedMaxWorkingSetSize`) is tied to this. Raising it while BOs are system
@@ -40,7 +40,7 @@ clear, and the life cycle.
 | 144 - 146 MiB | SMU driver / tools tables | same |
 | 164 - 240 MiB | page-table pool (`PHX_VRAM_PT_OFF`, `_SIZE`) | same |
 | 256 - 352 MiB | large scan slots (1440p GPU present) | `PhxScanLayout.h` |
-| top of VRAM | firmware: PSP TMR (Linux: at 0x85_fc00_0000 MC), DMUB regions, "firmware above 24560 MiB" | XTX.md; **exact ranges pending** (handoff 1c, `amdgpu_vram_mm`) |
+| top of VRAM | firmware: PSP TMR, **19 MiB at MC 0x85_fc00_0000** (Linux dmesg 2026-11-23), DMUB regions, "firmware above 24560 MiB" | XTX.md, linux-reference; `amdgpu_vram_mm` prints no per-range reserved list, so the DMUB ranges stay to be read from dmesg / debugfs |
 
 The pool for client BOs: **[512 MiB, top - Linux's reserved regions - a margin)**, about 23 GiB. 352-512 MiB stays
 free as headroom for the fixed regions.
@@ -84,7 +84,7 @@ already does.
 
 ## Steps
 
-1. **M0 (Linux, read-only):** `vkbench bandwidth` on Linux and the VRAM reservations (handoff 1b / 1c).
+1. **M0 (Linux, read-only), done 2026-11-23:** `vkbench bandwidth` 823 GB/s; the PSP TMR 19 MiB at MC 0x85_fc00_0000.
 2. **M1:** allocator + placement + GPU clear behind `debug.phxbo_vram` (0 at boot). 1 = only BOs of processes named in
    `debug.phxbo_vram_proc` (e.g. `metalbench`, `vkbench`), so WindowServer never sees it during the first tests. One
    kext build, one boot; the switch is live after that.

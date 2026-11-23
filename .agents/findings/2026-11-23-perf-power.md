@@ -138,3 +138,49 @@ runbooks ("Building on the Mac itself"). The Mesa checkout is ~560 MB, the build
 
 The Data volume had 125 MB left (83.8 GB container) when the Mesa fetch filled it. The owner had the installer
 partition `disk0s4` deleted and the container grown to 107.4 GB (22 GiB free).
+
+## 8. Against Linux (the reference run of 06:41-07:04, [linux-reference](2026-11-23-linux-reference.md))
+
+macOS readings taken at 07:14, 3 minutes after the first boot of change 15, 2560x1440 240 Hz HDR, the owner's idle
+desktop (T3 Code open). BIOS: the owner's photos (05:34-05:38) show Global C-state Control, CPPC Dynamic Preferred
+Cores, Power Supply Idle Control, Precision Boost Overdrive, ECO Mode all **Auto / Disable**, CPU fused boost clock
+limit 5650 MHz: nothing in the BIOS caps the clock or the idle states.
+
+| | Linux | macOS | Reading |
+|---|---|---|---|
+| GPU idle power | PPT 9.9 W at 60 SDR, 22-23 W at 240 SDR, 35 W at 240 HDR (11-51, screen activity) | socket 50-51 W, board 63-64 W at 240 HDR | macOS ~15 W over Linux at the same mode |
+| UCLK | 96 MHz (level 0) at 60 SDR; 96 / 456 at 240; mostly 456 at 240 HDR | 456 MHz, pinned (daemon `uclk` flag, hard minimum) | the pin keeps UCLK off 96 |
+| FCLK | 1000 MHz (level 1 of 8) | 2301 MHz (top) | never released on macOS |
+| DCEFCLK | 200 MHz | 661 MHz | |
+| SMU running features | `0x0003ebb8_71ffffff` | the same | identical: limits differ, not features |
+| CPU 1 thread, frequency CCD | 5.16 GHz | 5.02-5.12 GHz | the same ceiling: not macOS's doing |
+| CPU idle package | 37.8 W (C3 = CC6 98 % of the time) | 39.5-41.3 W (15 samples) | ~2-3 W: a `_CST` idle kext isn't worth its risk |
+| `vkbench compute 2000` | 4.05 ms | 3.95 ms | same shader speed |
+| `vkbench compute 64` | 0.134 ms | 0.41 ms | macOS writes the 14.7 MB image to system memory over PCIe: buffer placement |
+| `vkbench bandwidth 256` | 823 GB/s | 44.7 GB/s | 18x: VRAM vs system memory |
+| `vkbench submit` flat | 37 us | 34 us | same |
+| `vkbench submit 200 512 512` | 114 us | 265 us poll, **113-115 us interrupt waits** | interrupt waits reach Linux |
+| Raw NVMe read / 4 KiB QD1 | 6.8 GB/s / 21.3 k IOPS | 7.0 GB/s / ~20 k IOPS | same |
+
+**What Linux sends the power firmware for the display** (the 2026-11-20 mode-set traces, 70 traces, every mode):
+after every mode set, through the DAL mailbox, `SetHardMinByFreq` **UCLK 96**, **DCFCLK 199**, DISPCLK / DPPCLK
+(per mode: 245 at 60, 505 at 120, 614 at 144, 537 at 240), `SetMinDeepSleepDcfclk` (18 MHz at 60, 36 at 120, 43 at
+144, 72 at 240), `NumOfDisplays` 1, `BacoAudioD3PME` 0. During a switch to 240 Hz UCLK goes to 1249 and back to 96.
+No `SetFclkSwitchAllow` in the mode-set traces (Linux sends it from `dcn32_update_clocks` when the FCLK p-state support
+changes, so at its first update after boot, before these traces started *(unverified for this card)*).
+macOS's replay plans send only DISPCLK / DPPCLK.
+
+**The display side already matches Linux:** of 284 display registers in Linux's 240 Hz HDR capture, 248 read the same
+on macOS, including DET (9 segments) and all four DCHUBBUB watermark sets A-D, and `DCHUBBUB_ARB_DRAM_STATE_CNTL`
+0x1000 (stutter allowed). The 36 that differ are the planes' surface / DCC set-up, MPC / DPP colour, and
+`ODM0_OPTC_INPUT_GLOBAL_CONTROL` 0x400: **the OTG0 underflow sticky is set** (an underflow happened at some time since
+boot, likely during the login mode switch; not timed).
+
+**Fans:** Linux loads no Super I/O driver on this board either. The chip is a Nuvoton NCT67xx behind ASUS's WMI
+methods (the board is in `nct6775`'s ASUS-WMI list); model unverified. SMCSuperIO reads the chip through its I/O ports
+directly, which is what ASUS's WMI path exists to avoid (the firmware's ACPI code uses the same ports): no EFI change
+before the chip is named (`modprobe nct6775` on Linux, owner's OK) and that conflict is understood.
+
+**RADV profile:** Linux's `gpuinfo` confirms the harvest fields of Mesa's `navi31` entry (96 CU, all 24 GL2 channels,
+384-bit, full CU bitmap, 6 SE, 24 RB). Its firmware versions (ME 2540, PFP 2710, MEC 2790) are newer than the canned
+entry's (1486 / 1525 / 494), which came from an older Linux; what macOS's pinned firmware reports was not compared.
