@@ -55,6 +55,14 @@ public:
     IOReturn vramClear(uint64_t off, uint64_t bytes);           // zeros, counted in debug.phxbo_vram_stat
     int vramSelftest();
     int vramStat(char *b, size_t cap);
+    // b159: CPU-visible VRAM BOs inside the BAR0 window (phx_vram.cpp): [kVisPoolBase, BAR0 end) when BAR0 is bigger
+    // than the fixed layout (EFI stage vermilion-trust-bar1g: 1 GiB)
+    uint64_t vramVisAlloc(uint64_t bytes);                      // a VRAM offset inside BAR0, 0 = none
+    void vramVisRelease(IOMemoryDescriptor *md, uint64_t off, uint64_t bytes);
+    uint64_t vramVisTotal();                                    // bytes in the window pool, 0 = no window
+    uint64_t barPhys() const { return fbAperPhys; }
+    uint8_t *barKva(uint64_t off) const {
+        return (fbAper && off < fbAperLen) ? reinterpret_cast<uint8_t *>(fbAper->getVirtualAddress() + off) : nullptr; }
     void scanQuery(phxn_scan_query *q);
     IOReturn scanAcquire(const void *who, uint64_t out[2]);
     IOReturn scanAllocSlot(const void *who, const phxn_scan_reg *r, uint32_t *slot, uint64_t *mc, uint64_t *vramOff);
@@ -149,6 +157,12 @@ private:
     IOLock *gpuLock{nullptr};
     // b156: VRAM-backed BOs (phx_vram.cpp): the pool (vramLock) and the kext's own clear IB (clearLock)
     phxvram::Pool *vpool{nullptr};
+    phxvram::Pool *vispool{nullptr};   // b159: CPU-visible VRAM BOs inside BAR0
+    uint64_t fbBarLen{0};              // b159: BAR0's length as macOS assigned it (fbAperLen: the part mapped)
+    struct VisZombie { IOMemoryDescriptor *md; uint64_t off, size; };   // b159: freed while a CPU map still holds it
+    static constexpr uint32_t kVisZombies = 256;
+    VisZombie visZ[kVisZombies]{};
+    void visReapLocked();
     IOLock *vramLock{nullptr}, *clearLock{nullptr};
     bool vramPoolUpLocked();
     IOReturn gpuSubmitKernelIb(GpuQueue &q, uint64_t ibMc, uint32_t ibDw, uint64_t *seqOut);
@@ -466,6 +480,7 @@ private:
         uint64_t scanVram{0};
         uint64_t freeSeq{0};      // freed by the client, released once the GPU retires this seqno (b52); 0 = live
         uint64_t vram{0};         // b156: a VRAM-backed BO's pool offset (md is a 4 KiB anchor, kva NULL); 0 = system pages
+        bool visVram{false};      // b159: vram is inside BAR0: md covers its BAR pages (CPU maps), kva the kernel's BAR view
     };
     struct Map {
         bool used;

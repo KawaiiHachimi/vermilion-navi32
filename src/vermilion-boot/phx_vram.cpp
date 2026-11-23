@@ -16,6 +16,7 @@ static int gBoVramSelftest = 0;         // last self-test: 0 never, 1 passed, < 
 static volatile SInt64 gVramClears, gVramClearBytes, gVramClearNs, gVramClearMaxNs, gVramClearFails, gVramFallbacks,
                        gVramNoSpace, gVramCpuMapRefused, gVramScanRefused, gVramLeaked;
 static bool gVramClearBroken = false;   // a clear that did not finish: no VRAM BO until the next boot
+static volatile SInt64 gVramVisBos = 0;   // b159: CPU-visible VRAM BOs handed out
 
 // The pool's end, the lower of:
 // - the top of VRAM minus 112 MiB: below the firmware there (Linux on the XTX: the PSP TMR, 19 MiB at 24512 MiB);
@@ -27,6 +28,10 @@ static bool gVramClearBroken = false;   // a clear that did not finish: no VRAM 
 // Register reads only. GC 11.0.0 GCMC_VM_SYSTEM_APERTURE_LOW_ADDR / _HIGH_ADDR = dwords 0x28DD / 0x28DE (mesboot's
 // SEG0(0x167d) / SEG0(0x167e)).
 static constexpr uint64_t kVramTopReserve = 112ull << 20;
+// b159: the CPU-visible pool starts past the large scan slots (PhxScanLayout.h) and ends at BAR0's end; the BO pool
+// starts at the larger of PHX_VRAM_POOL_BASE and BAR0's end, so the two never overlap.
+static constexpr uint64_t kVisPoolBase = phxscanlay::kLargeEnd;   // 352 MiB
+static constexpr uint64_t kVisPoolMin = 64ull << 20;               // a smaller window is not worth a pool
 static constexpr uint64_t kVramMinFb = 1ull << 30;
 static constexpr uint32_t kGcSysApertureLow = 0x28DD, kGcSysApertureHigh = 0x28DE;
 
@@ -42,9 +47,67 @@ bool PhxBringup::vramPoolUpLocked() {
     uint64_t end = fbSize - kVramTopReserve;
     if (apEnd - fbMcBase < end)
         end = apEnd - fbMcBase;
+    const uint64_t win = fbBarLen < fbAperLen ? fbBarLen : fbAperLen;   // the part of BAR0 this kext reaches
+    if (!vispool && win >= kVisPoolBase + kVisPoolMin && win <= end) {   // b159
+        vispool = static_cast<phxvram::Pool *>(IOMallocZero(sizeof(phxvram::Pool)));
+        if (vispool && !phxvram::init(*vispool, kVisPoolBase, win)) { IOFree(vispool, sizeof(phxvram::Pool)); vispool = nullptr; }
+    }
+    const uint64_t base = vispool && vispool->end > PHX_VRAM_POOL_BASE ? vispool->end : PHX_VRAM_POOL_BASE;
     if (!vpool)
         vpool = static_cast<phxvram::Pool *>(IOMallocZero(sizeof(phxvram::Pool)));
-    return vpool && phxvram::init(*vpool, PHX_VRAM_POOL_BASE, end);
+    return vpool && phxvram::init(*vpool, base, end);
+}
+
+// b159: a freed CPU-visible BO whose BAR pages a CPU map still holds (its md is retained by the map) keeps its range
+// until the map goes: the range would otherwise go to another BO while the old process can still write it.
+void PhxBringup::visReapLocked() {
+    for (uint32_t i = 0; i < kVisZombies; i++) {
+        VisZombie &z = visZ[i];
+        if (z.md && z.md->getRetainCount() <= 1) {
+            z.md->release();
+            if (vispool) phxvram::release(*vispool, z.off, z.size);
+            z = VisZombie{};
+        }
+    }
+}
+
+uint64_t PhxBringup::vramVisAlloc(uint64_t bytes) {
+    if (!vramLock || gVramClearBroken)
+        return 0;
+    IOLockLock(vramLock);
+    uint64_t off = 0;
+    if (vramPoolUpLocked() && vispool) {
+        visReapLocked();
+        off = phxvram::alloc(*vispool, bytes);
+    }
+    IOLockUnlock(vramLock);
+    if (!off)
+        OSIncrementAtomic64(&gVramNoSpace);
+    return off;
+}
+
+void PhxBringup::vramVisRelease(IOMemoryDescriptor *md, uint64_t off, uint64_t bytes) {
+    if (!vramLock || !vispool)
+        return;
+    IOLockLock(vramLock);
+    if (md && md->getRetainCount() > 1) {   // the BO's own reference plus a CPU map's: park it
+        uint32_t i = 0;
+        while (i < kVisZombies && visZ[i].md) i++;
+        if (i < kVisZombies) { md->retain(); visZ[i] = VisZombie{md, off, phxvram::sizeFor(bytes)}; }
+        else OSIncrementAtomic64(&gVramLeaked);   // no slot: the range is never handed out again in this boot
+    } else {
+        phxvram::release(*vispool, off, bytes);
+    }
+    IOLockUnlock(vramLock);
+}
+
+uint64_t PhxBringup::vramVisTotal() {
+    if (!vramLock)
+        return 0;
+    IOLockLock(vramLock);
+    const uint64_t t = vramPoolUpLocked() && vispool ? vispool->end - vispool->base : 0;
+    IOLockUnlock(vramLock);
+    return t;
 }
 
 uint64_t PhxBringup::vramPoolAlloc(uint64_t bytes) {
@@ -219,11 +282,36 @@ int PhxBringup::vramSelftest() {
             if (mmIdxRead(at[k] + i * 16384ull) != 0)
                 return -9 - 10 * k;
     }
+    // b159, step 3: the CPU-visible pool's first and last MiB, when there is one: the GPU fills a pattern at the MC
+    // address, the CPU reads it back through the kernel's BAR0 map (proves BAR offset == VRAM offset above 256 MiB),
+    // then the GPU zeroes it and the CPU checks again
+    IOLockLock(vramLock);
+    const bool vup = vispool && vispool->used == 0;
+    const uint64_t vat[2] = {vup ? vispool->base : 0, vup ? vispool->end - (1ull << 20) : 0};
+    IOLockUnlock(vramLock);
+    for (int k = 0; vup && k < 2; k++) {
+        const volatile uint32_t *p = reinterpret_cast<const volatile uint32_t *>(barKva(vat[k]));
+        if (!p || !barKva(vat[k] + (1ull << 20) - 4))
+            return -31;
+        if (vramFill(vat[k], 1ull << 20, 0xC3C33C3Cu, nullptr) != kIOReturnSuccess)
+            return -26 - 10 * k;
+        hdpFlush();
+        for (uint32_t i = 0; i < 64; i++)
+            if (p[i * 4096] != 0xC3C33C3Cu)
+                return -27 - 10 * k;
+        if (vramFill(vat[k], 1ull << 20, 0, nullptr) != kIOReturnSuccess)
+            return -28 - 10 * k;
+        hdpFlush();
+        for (uint32_t i = 0; i < 64; i++)
+            if (p[i * 4096] != 0)
+                return -29 - 10 * k;
+    }
     return 1;
 }
 
 int PhxBringup::vramStat(char *b, size_t cap) {
     uint64_t base = 0, end = 0, used = 0, peak = 0, fr = 0, big = 0, allocs = 0, frees = 0, fails = 0, lost = 0;
+    uint64_t vb = 0, ve = 0, vu = 0, vp = 0, va = 0, vf = 0, vfl = 0, vz = 0;
     uint32_t ext = 0;
     if (vramLock) {
         IOLockLock(vramLock);
@@ -231,6 +319,11 @@ int PhxBringup::vramStat(char *b, size_t cap) {
             base = vpool->base; end = vpool->end; used = vpool->used; peak = vpool->peak; fr = phxvram::freeBytes(*vpool);
             big = phxvram::largest(*vpool); allocs = vpool->allocs; frees = vpool->frees; fails = vpool->fails;
             lost = vpool->lost; ext = vpool->n;
+        }
+        if (vispool && vispool->end) {   // b159
+            vb = vispool->base; ve = vispool->end; vu = vispool->used; vp = vispool->peak; va = vispool->allocs;
+            vf = vispool->frees; vfl = vispool->fails;
+            for (uint32_t i = 0; i < kVisZombies; i++) if (visZ[i].md) vz++;
         }
         IOLockUnlock(vramLock);
     }
@@ -240,20 +333,20 @@ int PhxBringup::vramStat(char *b, size_t cap) {
         "pool [%llu, %llu) MiB: used %llu MiB (peak %llu), free %llu MiB, largest %llu MiB, %u extents; allocs %llu frees %llu "
         "fails %llu lost %llu KiB\n"
         "clears %llu, %llu MiB, avg %llu us, max %llu us, failed %lld; fallbacks to system memory %lld (no space %lld); "
-        "refused: CPU map %lld, scanout %lld; leaked ranges %lld",
+        "refused: CPU map %lld, scanout %lld; leaked ranges %lld\n"
+        "CPU-visible pool (BAR0 %llu MiB) [%llu, %llu) MiB: used %llu MiB (peak %llu), allocs %llu frees %llu fails %llu, "
+        "held by CPU maps %llu; BOs handed out %lld",
         gBoVram, gBoVramProc[0] ? gBoVramProc : "-", gBoVramSelftest, gVramClearBroken ? 1 : 0,
         base >> 20, end >> 20, used >> 20, peak >> 20, fr >> 20, big >> 20, ext, allocs, frees, fails, lost >> 10,
         c, static_cast<uint64_t>(gVramClearBytes) >> 20, c ? static_cast<uint64_t>(gVramClearNs) / c / 1000 : 0,
         static_cast<uint64_t>(gVramClearMaxNs) / 1000, (long long)gVramClearFails, (long long)gVramFallbacks,
-        (long long)gVramNoSpace, (long long)gVramCpuMapRefused, (long long)gVramScanRefused, (long long)gVramLeaked);
+        (long long)gVramNoSpace, (long long)gVramCpuMapRefused, (long long)gVramScanRefused, (long long)gVramLeaked,
+        fbBarLen >> 20, vb >> 20, ve >> 20, vu >> 20, vp >> 20, va, vf, vfl, vz, (long long)gVramVisBos);
 }
 
-// Is this BOCREATE (in the calling process) one for the pool?
-static bool phxBoVramWanted(uint64_t domains, uint64_t flags) {
+// Is the calling process one of debug.phxbo_vram_proc, with VRAM BOs on?
+static bool phxBoVramProcOn() {
     if (gBoVram != 1 || gBoVramSelftest != 1 || gVramClearBroken || !gBoVramProc[0])
-        return false;
-    if (!(domains & PHX_AMDGPU_GEM_DOMAIN_VRAM) || !(flags & PHX_AMDGPU_GEM_CREATE_NO_CPU_ACCESS) ||
-        (flags & PHX_AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED))
         return false;
     char me[32] = {0};
     proc_selfname(me, sizeof me);
@@ -268,6 +361,17 @@ static bool phxBoVramWanted(uint64_t domains, uint64_t flags) {
         p = *e ? e + 1 : e;
     }
     return false;
+}
+
+// Is this BOCREATE (in the calling process) one for the pool?
+static bool phxBoVramWanted(uint64_t domains, uint64_t flags) {
+    return (domains & PHX_AMDGPU_GEM_DOMAIN_VRAM) && (flags & PHX_AMDGPU_GEM_CREATE_NO_CPU_ACCESS) &&
+           !(flags & PHX_AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED) && phxBoVramProcOn();
+}
+
+// b159: one for the CPU-visible pool inside BAR0 (a VRAM BO the CPU may map)?
+static bool phxBoVisVramWanted(uint64_t domains, uint64_t flags) {
+    return (domains & PHX_AMDGPU_GEM_DOMAIN_VRAM) && !(flags & PHX_AMDGPU_GEM_CREATE_NO_CPU_ACCESS) && phxBoVramProcOn();
 }
 
 static int phxBoVramSysctl SYSCTL_HANDLER_ARGS {

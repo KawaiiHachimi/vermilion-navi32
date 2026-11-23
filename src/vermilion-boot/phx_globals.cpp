@@ -87,7 +87,7 @@ static constexpr uint64_t kGttCap = 2048ull << 20;
 static constexpr uint64_t kGttMaxBo = 256ull << 20;
 static constexpr uint64_t kHostCap = 4096ull << 20, kHostMaxBo = 1024ull << 20;   // host imports, per client
 static constexpr uint64_t kVaMask = (1ull << 48) - 1;
-static constexpr IOByteCount kFbAperMapMax = 512ull << 20;   // navi31: BAR0 window mapped into the kernel
+static constexpr IOByteCount kFbAperMapMax = 1024ull << 20;   // navi31: BAR0 window mapped into the kernel (b159: was 512 MiB)
 static constexpr int kMaxMaps = 4096;
 
 static bool vaCanonical(uint64_t va) {

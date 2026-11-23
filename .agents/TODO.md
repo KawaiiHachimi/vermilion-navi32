@@ -34,6 +34,14 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
+Thread 02 part C: **EFI change 20** (stage `vermilion-trust-bar1g` with VermilionBoot b159: CPU-visible VRAM BOs in
+[352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, not booted yet.
+Check after the boot: accelerated desktop 1440p240 HDR + VRR; `ioreg -l | grep phx-fb-aper-len` 1073741824;
+`debug.phxbo_vram_selftest` 1 (now with step 3, the BAR0 read-back); `debug.phxbo_vram_stat` shows the hi pool from
+1024 MiB and a "CPU-visible pool" `[352, 1024)` MiB. Rollback: `EFI/OC.prev` = change 19 (copy in
+`~/vermilion-rollback/EFI-OC.change19-20261123`); if macOS does not reach the desktop, boot Linux and
+`mv /boot/EFI/OC /boot/EFI/OC.b159-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`.
+
 Thread 02 part C: **EFI change 19** (stage `vermilion-trust-bar1g`: OpenCore `ResizeAppleGpuBars` 0 -> 10, BAR0 1 GiB
 for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, **booted 11:09 and verified**: `phx-bar0-len`
 1073741824, `phx-fb-aper-len` 536870912, desktop 1440p240 HDR + VRR, VRAM self-test 1. New on this boot (owner): an

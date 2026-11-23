@@ -21,8 +21,9 @@ bool PhxBringup::start(IOService *provider) {
         setProperty("phx-pci-cmd-after", pci->configRead16(kIOPCIConfigCommand), 16);
     }
     mmio = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress5);
-    // navi31: BAR0 measures 256 MiB on the reference RX 7900 XT and on an XTX, both with Resizable BAR on in the BIOS.
-    // Everything this kext places in VRAM lives below 160 MiB, so map at most kFbAperMapMax even on a larger BAR.
+    // navi31: BAR0 measures 256 MiB on the reference RX 7900 XT and on an XTX with OpenCore's ResizeAppleGpuBars 0, and
+    // 1 GiB on the XTX with the vermilion-trust-bar1g stage (2026-11-23). The fixed regions live below 352 MiB; b159
+    // maps up to kFbAperMapMax (1 GiB, Apple's BAR limit) for the CPU-visible VRAM BOs above them.
     if (IODeviceMemory *bar0 = pci->getDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0)) {
         IOByteCount len = bar0->getLength() < kFbAperMapMax ? bar0->getLength() : kFbAperMapMax;
         if (IODeviceMemory *sub = IODeviceMemory::withSubRange(bar0, 0, len)) {
@@ -30,6 +31,7 @@ bool PhxBringup::start(IOService *provider) {
             sub->release();
         }
         setProperty("phx-bar0-len", static_cast<uint64_t>(bar0->getLength()), 64);
+        fbBarLen = bar0->getLength();   // b159
     }
     if (fbAper) {
         fbAperLen = fbAper->getLength();
