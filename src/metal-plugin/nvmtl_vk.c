@@ -734,9 +734,14 @@ static int nvmtl_vk_initialize(void)
 {
     if (g_state) return g_state == 1 ? 0 : -1;
     g_state = -1;
+    // Vermilion (thread 02): the two variables set here are for this process only. loginwindow runs as root with
+    // this plugin, and the apps it reopens at login inherited both (with root's cache folder: no Mesa disk cache for
+    // them, "Permission denied" on stderr, 2026-11-23). They are taken out again once RADV is up (g_state = 1).
+    int set_budget_env = 0, set_cache_env = 0;
     if (!getenv("NVRM_FLUSH_TIMEOUT_MS")) {
         char budget[32]; snprintf(budget, sizeof budget, "%ld", nvmtl_gpu_wait_budget_ms());
         setenv("NVRM_FLUSH_TIMEOUT_MS", budget, 1);
+        set_budget_env = 1;
         nvlog("vk: GPU wait budget %s ms for %s (WindowServer keeps 5000 - a frozen desktop is worse than a dropped frame)", budget, getprogname());
     }
     if (!getenv("MESA_SHADER_CACHE_DIR") && !getenv("XDG_CACHE_HOME") && !getenv("NVMTL_NO_MESA_CACHE_DIR")) {
@@ -746,7 +751,7 @@ static int nvmtl_vk_initialize(void)
             const size_t n = confstr(_CS_DARWIN_USER_CACHE_DIR, ucd, sizeof ucd);
             if (n > 0 && n <= sizeof ucd && snprintf(dir, sizeof dir, "%snvmtl-mesa", ucd) < (int)sizeof dir) {
                 mkdir(dir, 0700);
-                if (access(dir, W_OK) == 0) { setenv("MESA_SHADER_CACHE_DIR", dir, 1);
+                if (access(dir, W_OK) == 0) { setenv("MESA_SHADER_CACHE_DIR", dir, 1); set_cache_env = 1;
                     nvlog("vk: %s has no writable HOME (%s) - Mesa shader disk cache at %s", getprogname(), home ?: "unset", dir); }
                 else nvlog("vk: %s: no writable Mesa cache dir (%s) - NAK recompiles every start", getprogname(), dir);
             }
@@ -1133,6 +1138,9 @@ static int nvmtl_vk_initialize(void)
     pvkGetDeviceQueue(g_dev, g_qfam, 0, &g_queue);
 
     g_state = 1;
+    // RADV made its disk caches in vkEnumeratePhysicalDevices and the wait budget is cached: children must not inherit
+    if (set_cache_env) unsetenv("MESA_SHADER_CACHE_DIR");
+    if (set_budget_env) unsetenv("NVRM_FLUSH_TIMEOUT_MS");
     nvlog("vk: UP in this Metal process — \"%s\" api %u.%u.%u, queue family %u", g_name,
           VK_VERSION_MAJOR(pp.apiVersion), VK_VERSION_MINOR(pp.apiVersion), VK_VERSION_PATCH(pp.apiVersion), g_qfam);
     return 0;
