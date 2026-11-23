@@ -419,3 +419,37 @@ afterwards: it did not, the LG NACKed all 32 tries at one boot, finding section 
 Not chosen: detecting the black picture (no readable signal for it), or a fixed redo after every HDR switch (an extra
 ~1.5 s blank each time). **Revisit:** if a later build removes the first-attempt AUX misses, b154's redo becomes a rare fallback;
 keep it.
+
+## 2026-11-23: the RX 7900 XTX runs Mesa's own `navi31` profile, chosen by PCI revision
+
+**Decision (thread 02):** patch 0018 reads the `revision-id` of the PCI device under NMXAccel (or PhxBringup) and takes
+Mesa's `navi31` entry for 0xC8; every other revision, and an unreadable one, keeps `navi31_xt`. A new hand-made
+`navi31_xtx` entry was the plan in XTX.md, but Mesa's `navi31` already is an XTX, and a field diff shows it differs from
+`navi31_xt` only in the harvest (the XT entry was made from it). Linux's `gpuinfo` from this card checks the harvest
+fields (handoff 1c). Measured side-loaded: pixel shading 19 % faster, nothing slower (finding 2026-11-23-perf-power.md
+section 5). Not chosen: `RADV_DARWIN_CANNED=navi31` from the daemon (the VCN shim's exact-name check; and a launchd
+variable would reach every process, including the ones that must not change). **Revisit:** a third Navi 31 board
+(another revision) gets its own entry next to these.
+
+## 2026-11-23: interrupt fence waits stay off for now
+
+**Decision (thread 02):** the IH ring, the MSI and `debug.phxwait_irq` work on the XTX (live test, 1.19 M interrupts,
+no storm), and the median waited short job halves, but the 99th percentile got 1.5-4 ms worse and the second test set
+was spoiled by a video app. They stay off at boot until an interleaved A/B on an idle desktop explains the tail. Not
+chosen: a daemon flag now. **Revisit:** with the owner's OK for a quiet GPU test; the tail's likely cause is a waiter
+re-sleeping a full deadline after an EOP of another submission.
+
+## 2026-11-23: VRAM-backed buffer objects, opt-in per process first
+
+**Decision (thread 02):** the design in findings/2026-11-23-vram-bo-design.md: a VRAM pool from 512 MiB to below
+Linux's reserved regions, only for `NO_CPU_ACCESS` BOs, cleared by the GPU before use, behind `debug.phxbo_vram` that
+first admits only named test processes. Not chosen: a big-bang switch for WindowServer (a bug there is a black
+desktop), CPU-visible VRAM (BAR0 is 256 MiB with `ResizeAppleGpuBars = 0`). **Revisit:** after the Linux bandwidth
+number and the VRAM reservations.
+
+## 2026-11-23: a plugin/RADV EFI change rides on the cold boot back from Linux
+
+**Decision (thread 02):** the owner wants few restarts. The trust list of 1.0.4 is built from the new files in the
+build folder plus the installed list (`PHXTRUST_KEEP=1`), so the files and the EFI can go in together minutes before the
+owner shuts down for the Linux run; the boot back from Linux (a power-off, so a cold GPU) is change 15's one boot. The
+Linux boot itself goes through Limine (F8), not OpenCore, so it is not an OpenCore boot of either change.
