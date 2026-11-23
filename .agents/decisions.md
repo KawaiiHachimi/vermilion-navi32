@@ -366,3 +366,36 @@ AMFI layout fail safe (the old thread 05's final report): no macOS update before
 redirects the old URLs; the `fork` remote points at the new name). It is the GPU driver fork and still supports the
 XT; the EFI generator moves to `ownback/ryzentosh` in thread 10. Kext, class, sysctl and path names don't change
 (docs/NAMING.md).
+
+## 2026-11-23: A failed DP link is retried as Linux does; a failed fall-back runs once more; the daemon restarts once on a dark display
+
+**Decision (thread 01):** VermilionBoot b151's replay engine trains every link window with Linux's own retry rule for a
+PHY endpoint (4 attempts at the plan's link, link off and 100 / 150 / 200 ms between: `perform_link_training_with_retries`,
+findings 2026-11-23-gpu-stability.md section 2), and runs a from plan that failed (the fall-back, or the leg to the hub)
+once more, at most twice per boot (`kMaxRecoveries`). Only a from plan that fails again, a halt or a DMUB timeout latch
+the engine. The boot daemon reads the engines' latches during its crash watch: a latched engine is `DARK`, not
+`SUCCESS`; it saves the engines' state and restarts once (`/var/db/phxboot.darkrestart`); a second dark boot in a row
+stays up and reports.
+
+**Why:** one failed login switch (2026-11-22 20:19) left the only screen black until the owner restarted by hand, and
+the daemon said `SUCCESS`. Linux would have retried the training three more times before giving up; the engine tried
+once. A from plan is Linux's full sequence into the hub, so running it again from a half-done state sends nothing Linux
+doesn't send. A restart is the one recovery that works from any state, and at the login switch nothing is lost.
+
+**Not chosen:** a lower link rate on failure (Linux doesn't fall back for a conventional DP link at mode set, and the
+plans need their rate); unlocking the engine without a plan that knows the state (no plan does); a restart loop (the
+record stops it); a restart on a fall-back to 144 (the picture is there).
+**Revisit:** if the restart ever hits a session in use (a switch inside the 2-minute watch after login), or the same
+plan fails at every login.
+
+## 2026-11-23: The NVRAM test is its own stage; `phxboot-auto` before it
+
+**Decision (thread 01):** `efi/build.py` stages can override booter quirks; `vermilion-trust-nvram` is `vermilion-trust`
+with `DisableVariableWrite` off. One boot tests it (a test variable written and read back, a restart). Before that boot
+`~/gpu/phxboot-auto` is created, so the daemon re-arms `phxfb-squat` after the squatter's (then real) delete.
+
+**Why:** the quirk is the reason no panic report is ever saved, and it is why `phxfb-squat` can't be cleared from
+macOS. It went in against the macOS installer's hang on Ryzen 7000 boards, which says nothing about small runtime
+writes. Without `phxboot-auto` the boot after the test would be a GOP boot without acceleration
+(findings 2026-11-23-gpu-stability.md section 4).
+**Revisit:** if writes hang or the firmware misbehaves: back to `vermilion-trust` and photos of the panic screen.

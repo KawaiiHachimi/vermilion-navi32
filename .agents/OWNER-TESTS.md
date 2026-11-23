@@ -24,9 +24,17 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       hex digit 0 or 1).
 - [ ] **10-bit banding:** turn HDR on, open a dark grey-to-black gradient full screen (any "gradient test" image) and
       look for steps. Then turn HDR off and compare.
-- [ ] **Login at 60 Hz HDR:** in System Settings > Displays pick HDR at 60 Hz, then Apple menu > Restart. If the
-      screen stays black after login, run `sysctl debug.phxp0odm_stat` (from T3 Code on the phone) and send it.
-      Repeat 3 times. Then set your usual mode back.
+- [ ] **Login at 60 Hz HDR** (after staged change 1, VermilionBoot b151): in System Settings > Displays pick HDR at
+      60 Hz, then Apple menu > Restart. Repeat 3 times. If the screen stays black after login, wait 2 minutes: the
+      daemon should restart the Mac once by itself. If it stays black after that too, run `sysctl debug.phxp0odm_stat`
+      (from T3 Code on the phone) and send it. Then set your usual mode back.
+- [ ] **NVRAM test boot** (staged change 2; I run the commands, you only restart and say whether the Mac came back):
+      one restart into the new EFI, then one more restart. If it hangs at boot or at shutdown, hold power, then the
+      rollback in TODO "Staged now" 2.
+- [ ] **Allow click** (staged change 3, PhxAccel): System Settings > Privacy & Security > **Allow** when asked, then
+      restart. Afterwards: does System Settings > Displays offer more sizes than before?
+- [ ] **Display sleep** (later, after the three changes): `pmset displaysleepnow` in Terminal, wait 10 s, press a key.
+      Does the picture come back? If not: Apple menu > Restart from the phone (T3 Code: `sudo shutdown -r now`).
 - [ ] **Tearing:** at a fixed 60 Hz, drag a window quickly left and right. Film it with the phone (slow motion if
       possible) and note where on screen it tears.
 - [ ] **Input lag:** System Settings > Mouse: "Pointer acceleration" off. Compare the cursor at 60 Hz with 240 Hz:

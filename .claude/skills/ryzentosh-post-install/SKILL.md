@@ -75,8 +75,12 @@ sudo python3 efi/build.py install --esp "/Volumes/<ESP>"    # guardrail 2 and 3:
 - `sysctl debug.phxtrust_stat`: `mode=enforce`, `denied_unlisted=0`.
 - `python3 tools/usbmap/usbwatch.py --ports`: the mapped USB ports.
 - `python3 tools/sensors/cpusensors.py`: CPU temperature and package power (needs SMCProcessorAMD and `smcread`).
-- TODO (thread 01): read the display engine's state (`debug.phxp0odm_stat`) after login, not only the daemon's
-  `SUCCESS`.
+- The display engines (thread 01; VermilionBoot b151+, unverified on the machine yet): bootcheck prints the replay
+  engine's last result and `failed=` latch. The daemon itself reports `DARK` instead of `SUCCESS` when an engine
+  latched, saves `/var/log/phxdark-<time>.txt`, and restarts once (`/var/db/phxboot.darkrestart` records it). After a
+  `DARK` line, show the user that file's first lines and the last `last_fail_train:` line of
+  `sysctl debug.phxp0odm_stat`, and ask before any further restart. Never write `debug.phxp0odm` (root) to "fix" it:
+  every value runs register writes.
 
 ## 6. System settings — to be filled by threads 05 and 09
 

@@ -15,26 +15,55 @@ Rules:
 
 ## Staged now
 
-Nothing. Nothing is staged on the ESP (`<ESP>/vermilion/flags/` empty, no `run-once.sh`), and no EFI change is
-pending (2026-11-23, thread 00).
+Thread 01's three machine changes, one per boot, in this order. Nothing is installed until the owner says when to
+restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
+
+1. **EFI change 9: VermilionBoot b151** (stage `vermilion-trust`, only the kext differs from change 8) **+ the boot
+   daemon with the display check** (`~/gpu/phxboot-navi31.sh`, not an EFI change; it only reads sysctls).
+   - Before: `~/vermilion-rollback/EFI-OC.change8-20261123` (a copy of the live `EFI/OC`) and
+     `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`; `efi/build.py install` turns change 8 into `EFI/OC.prev`.
+   - Check: `sysctl debug.phxp0odm_stat` has the `recovery:` line; `/var/log/phxboot.log` ends in `SUCCESS` with no
+     `DARK`; then OWNER-TESTS 01 "Login at 60 Hz HDR" (3 restarts).
+   - Rollback: boot trouble: `EFI/OC` and `EFI/OC.prev` swapped (PROJECT_KNOWLEDGE "Rollback of the EFI"); a daemon
+     problem: `sudo cp ~/vermilion-rollback/phxboot-navi31.sh.pre-thread01 ~/gpu/phxboot-navi31.sh`, restart.
+2. **EFI change 10: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). First
+   `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
+   the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
+   - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
+     `phxfb-squat re-armed ... read-back ok`; one more restart reaches the accelerated desktop (squat boot); then
+     `sudo nvram -d vermilion-test`.
+   - Rollback: a hang at boot or at shutdown: hold power, power on, F8 > Limine (Linux), rename `/boot/EFI/OC` to
+     `OC.bad` and `OC.prev` to `OC`, **power off fully**, power on. From macOS: the same renames under
+     `/Volumes/NO NAME/EFI`. Then `rm ~/gpu/phxboot-auto` (back to the stuck-squat setup of today).
+   - Worst case named by the old thread 02: a board that hangs on writes may need a CMOS clear (unverified).
+3. **PhxAccel with the physical size** (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
+   Privacy & Security before the restart).
+   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`.
+   - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
+   - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
 
 ## 01 GPU stability
 
-- [ ] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
-      and every later switch refused until reboot. Keep the trainer's CR / EQ details for a failed run, retry once,
-      fall back to the 144 hub instead of locking the engine; lock only on repeated failures. State saved:
-      `~/vermilion-captures/black-20261122-2025.txt`
-- [ ] The daemon reported `SUCCESS` during that black screen: read `debug.phxp0odm_stat` after login and recover or
-      report
-- [ ] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
-      config; not watched failing here). Test one boot without `DisableVariableWrite` (`sudo nvram vermilion-test=1`,
-      read it back); if writes work and nothing hangs, keep it off. This also lets macOS clear `phxfb-squat`.
-      Fallback: photos of the panic screen. Needed first for the restart panic of 2026-11-19 22:44 (cause unknown)
-- [ ] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm: PhxAMDFB doesn't
-      give WindowServer the EDID size / display attributes *(cause inferred)*. Blocks HiDPI / scaled modes. Then
-      check whether macOS offers "looks like" modes ([finding](findings/2026-11-23-macos-integration-inventory.md))
+- [~] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
+      every later switch refused until reboot. **b151** (built, host-tested, staged 1): Linux's 4 training attempts
+      per link window, a failed from plan runs once more (2 per boot), `last_fail_train` keeps the CR / EQ report.
+      Left: the box (OWNER-TESTS 01 "Login at 60 Hz HDR"). Evidence lost for the 20:19 run
+      ([finding](findings/2026-11-23-gpu-stability.md) section 1)
+- [~] The daemon reported `SUCCESS` during that black screen: **done in the repo** (`disp_check`: `DARK`, the engines'
+      state in `/var/log/phxdark-*.txt`, one restart; mocks `disp_*`); deployed with staged 1
+- [~] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
+      config; not watched failing here). Stage `vermilion-trust-nvram` (staged 2). If writes work and nothing hangs,
+      make it the default stage. Then a deliberate test panic is the only way to prove a report is saved (owner's
+      call). Needed first for the restart panic of 2026-11-19 22:44 (cause unknown)
+- [~] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm. Not the EDID's
+      path (IOKit and CoreDisplay read 590 x 330): every mode's `imageWidth / imageHeight` was 0
+      ([finding](findings/2026-11-23-gpu-stability.md) section 3). PhxAccel built with the EDID's size (staged 3). Then
+      check whether macOS offers scaled / "looks like" modes
 - [ ] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
-      floor label is patched into the EDID PhxAccel serves
+      floor label is patched into the EDID PhxAccel serves. **Owner's decision:** keep the patch (label 60-240, reset on a
+      floor change) or drop it (identity stable, label 48-240) ([finding](findings/2026-11-23-gpu-stability.md) section 5)
+- [ ] OpenCore logs are written again (`opencore-2026-11-23-004410.txt`); PROJECT_KNOWLEDGE says none since
+      2026-11-22 23:20: fix the line once the next boots confirm it
 - [ ] Tearing at 1440p60 with GPU present; input lag at 60 Hz. Measure first (a phone video; pointer acceleration
       off). Plugin: the schedule-time copy of the non-async GPU present (present only after completion)
 - [ ] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
