@@ -38,3 +38,30 @@ Next steps, in order:
 4. Resizable BAR in macOS (an EFI change plus kext work: BAR0 is the kext's VRAM window, validated at 256 MiB). That
    also lets Shared buffers live in VRAM, as RADV does on Linux.
 A Linux twin of this Horizon run (same world, `horizon-ctl bench`) should come first, to put a number on "3x".
+
+## GPU time per process (b157, 10:33-10:34, same Horizon setup, VRAM BOs on)
+
+`debug.phxgpu_time` over Horizon's 15 s bench (`~/src/bench/hztime.sh`; the time a process held the gfx queue,
+waits inside its IBs included):
+
+| Run | Horizon | WindowServer | other | GPU total | fps |
+|---|---|---|---|---|---|
+| fullscreen 2560x1440 (2459 frames) | 8.54 s = **3.47 ms per frame** (20502 submissions) | 5.40 s = **2.20 ms per frame** (7383) | - | 92.8 % | 163.9 |
+| 1280x720 window (4819 frames) | 5.57 s = 1.16 ms per frame (41880) | 5.86 s = 1.22 ms per frame (14280) | T3 Code 1.2 % | 77.3 % | 321.1 |
+| idle desktop, 10 s, nothing running | - | 5.4 % | T3 Code 1.8 % | 7.3 % | - |
+
+Reading:
+- The gfx queue is full (93 %), and **WindowServer takes 36 % of it**: ~2.2 ms per Horizon frame to composite the
+  2560x1440 frame from system memory into its VRAM display surface. At ~7 GB/s for a 14.7 MB frame, that is a slow
+  copy: the GPU samples the system-memory IOSurface over PCIe.
+- Horizon's own 3.47 ms per 1440p frame barely changed with a quarter of the pixels (resolutionScale 50: 190 fps), so
+  much of it is size-of-drawable work too: writing the final image into the system-memory IOSurface (unverified
+  split).
+- Without the composite alone, Horizon would reach about 1 / (3.47 + 0.4) ms = ~260 fps (estimate). Linux's >3x
+  (~480+ fps, owner's report) needs both halves: the frame in VRAM (so the final pass writes VRAM) and no composite,
+  or a VRAM-to-VRAM composite.
+
+Next (design, not started): put the app drawables (CAMetalLayer IOSurfaces) in VRAM, so that Horizon writes and
+WindowServer reads VRAM; or let a fullscreen opaque app's frame go to the display directly, as a real Mac does.
+Both touch the accel kext and the plugin. The cheaper first step to measure: how the plugin's WindowServer present
+path reads the app's IOSurface, and whether a DMA copy of it into VRAM beats the shader sampling it.
