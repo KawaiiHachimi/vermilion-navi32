@@ -31,8 +31,10 @@ XFX RX 7900 XTX rev `0xC8`, LG 27GS95QE-B on DP, MT7922 Wi-Fi / Bluetooth, I225-
 Phison E26) shared with Linux.
 
 Disk (macOS view): `disk0s1` EFI (2 GB FAT32, shared with Linux's Limine), `disk0s2` Linux LUKS, `disk0s3` APFS
-container (83.8 GB; Macintosh HD + Data), `disk0s4` "Install macOS Tahoe" (23.6 GB HFS+; kept for now, owner
-2026-11-22; decision in TODO 10).
+container (107.4 GB; Macintosh HD + Data). The installer partition `disk0s4` ("Install macOS Tahoe", 23.6 GB HFS+)
+was deleted on the owner's request on 2026-11-23 06:10 (the Data volume was full: 125 MB free) and the container grown
+into its space (`diskutil eraseVolume free none disk0s4`, `diskutil apfs resizeContainer disk0s3 0`; 22 GiB free
+after). There is no 26.7.1 reinstall path on the disk any more (TODO 10).
 
 ## Machine state (2026-11-23, verified on the machine unless marked)
 

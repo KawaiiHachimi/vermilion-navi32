@@ -309,8 +309,9 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 ## 10 ryzentosh
 
-- [ ] Installer partition `disk0s4`: keep it as the 26.7.1 reinstall path (Recovery would install the newest macOS),
-      or delete it and grow the container. The owner keeps it for now (2026-11-22); decide, then fix `efi/README.md`
+- [x] Installer partition `disk0s4`: deleted on the owner's request (2026-11-23, thread 02: the Data volume was full)
+      and the container grown to 107.4 GB. Left: a 26.7.1 reinstall path off the disk (Recovery would install the
+      newest macOS), and fix `efi/README.md`
 - [ ] NVMe shown as "external": `device_properties` in `efi/build.py` and the profile, `built-in = <01>` on
       `PciRoot(0x0)/Pci(0x1,0x2)/Pci(0x0,0x0)` (from ioreg, not checked with gfxutil); one EFI change (cosmetic)
 - [ ] Generators: DSDT NOP patches (`fix_dsdt.py resolve` emits the plan, the patches were copied by hand),
