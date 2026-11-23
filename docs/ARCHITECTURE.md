@@ -105,7 +105,8 @@ Mesa at commit `f5cb8ee0` with 17 patches:
 
 - **0001-0009 (Cobalt64):** a Darwin backend that replaces the Linux DRM ioctls with the N48N user client.
 - **0010-0015 (nullarc):** Phoenix APU support and the proxy path.
-- **0016-0017:** a "canned" Navi 31 device profile and its shims.
+- **0016-0018:** a "canned" Navi 31 device profile and its shims; 0018 picks the profile by PCI revision (XTX: Mesa's
+  `navi31`, XT: `navi31_xt`).
 
 RADV can't query the hardware the way it does on Linux, so the GPU's identity comes from a **canned profile**: CU
 layout, cache channels, firmware versions. The memory heaps come from the kext. See [XTX.md](XTX.md) for what this
