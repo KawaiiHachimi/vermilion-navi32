@@ -22,6 +22,10 @@
 #   240-10 hdr-240  240 Hz at 10 bpc, and with HDR on (DSC at 10 bpc) [--r240]
 #   240-nodsc       240 Hz at 8 bpc with DSC forced off (debugfs dsc_clock_en = 2, back to 0 after): does Linux light
 #                   1440p240 on HBR3 without DSC? If the mode set fails, that is the answer [--r240]
+#   --dpms (v5, 2026-11-23)  display sleep: for each 1440p rate, SDR and HDR: the mode set, then `hyprctl dispatch dpms
+#                   off` (traced: trace-dpms-off.txt), 5 s off with the state read (regs-off.txt, DPCD), then `dpms on`
+#                   (traced: trace-dpms-on.txt) and the state read again. Linux's own DPMS sequence (stream off, blank,
+#                   dp_disable_link_phy; link up, unblank) for macOS's display sleep (thread 01)
 # At the end the monitor goes back to the config file (hyprctl reload). Forced link settings stay until power-off.
 #
 # Output: <outdir>/display-<date>/<step>/... and a summary.txt. Monitor serials are stripped from the EDID copy (base
@@ -308,6 +312,8 @@ class Cap:
                 open(dsc, "w").write("0")   # back to DSC_CLK_FORCE_DEFAULT (applies at the next mode set)
             except OSError:
                 pass
+        if link == "dpms":
+            self.dpms(d, written)
         time.sleep(2)
         m = self.monitor()
         json.dump(m, open(os.path.join(d, "hyprctl-monitor.json"), "w"), indent=1)
@@ -338,6 +344,54 @@ class Cap:
         mv = regs.get(0x056D2, 0); nv = regs.get(0x056D1, 0); cfg = regs.get(0x056CB, 0); pf = regs.get(0x056C9, 0)
         self.say(f"   now: {m.get('width')}x{m.get('height')} @ {m.get('refreshRate')} Hz; OTG0 frames/s {(f1 - f0) & 0xffffffff}; "
                  f"lanes {(cfg & 3) + 1 if isinstance(cfg, int) else '?'}; VID_M/N 0x{mv:x}/0x{nv:x}; DP_PIXEL_FORMAT 0x{pf:08x}")
+
+    def dpms_cmd(self, state):
+        r = self.hypr("dispatch", "dpms", state, self.cname)
+        if "ok" not in r.lower():   # Hyprland with a Lua config: the dispatcher through eval
+            r += " | eval: " + self.hypr("eval", f'hl.dispatch("dpms", "{state} {self.cname}")')
+        return r.strip()[:120]
+
+    def dpms(self, d, written):
+        """v5: DPMS off and on at the mode just set, each traced; the state read while off and after on."""
+        time.sleep(3)
+        self.trace_start()
+        r = self.dpms_cmd("off")
+        time.sleep(3)
+        woff, n = self.trace_stop(os.path.join(d, "trace-dpms-off.txt"))
+        written |= woff
+        self.say(f"   dpms off: {r}; {n} register writes traced, {len(woff)} distinct")
+        time.sleep(2)
+        f0 = self.readregs([0x0500C]).get(0x0500C, 0)
+        time.sleep(1.0)
+        f1 = self.readregs([0x0500C]).get(0x0500C, 0)
+        regs = self.readregs(set(FIXED) | woff)
+        with open(os.path.join(d, "regs-off.txt"), "w") as f:
+            f.write("# dword value name (while DPMS off)\n")
+            for rg, v in regs.items():
+                f.write(f"0x{rg:05X} {v if isinstance(v, str) else f'0x{v:08x}'} {FIXED.get(rg, '')}\n")
+        for base, b in self.dpcd().items():
+            open(os.path.join(d, f"dpcd-off-{base:04x}.bin"), "wb").write(b)
+        self.say(f"   while off: OTG0_CONTROL 0x{regs.get(0x05001, 0):08x}, OTG0 frames/s {(f1 - f0) & 0xffffffff}")
+        self.trace_start()
+        r = self.dpms_cmd("on")
+        time.sleep(4)
+        won, n = self.trace_stop(os.path.join(d, "trace-dpms-on.txt"))
+        written |= won
+        ncmd = sum(1 for l in open(os.path.join(d, "trace-dpms-on.txt"), errors="replace") if "dmubcmd" in l)
+        self.say(f"   dpms on: {r}; {n} register writes traced, {len(won)} distinct; {ncmd} DMUB commands")
+
+    def dpms_steps(self, rates=None):
+        """v5 (2026-11-23): DPMS off / on at every 1440p rate, SDR (8 bpc) and HDR (10 bpc)."""
+        if rates is None:
+            m = self.monitor()
+            rates = sorted({x.replace("Hz", "").strip().split("@")[1] for x in m.get("availableModes", []) if x.startswith("2560x1440@")}, key=float)
+        self.say(f"1440p rates: {' '.join(rates)}")
+        steps = ["base"]
+        for r in rates:
+            STEPS[f"dpms-{r}"] = (f"2560x1440@{r}", 8, "dpms", False, 0)
+            STEPS[f"dpms-hdr-{r}"] = (f"2560x1440@{r}", 10, "dpms", True, 0)
+            steps += [f"dpms-{r}", f"dpms-hdr-{r}"]
+        return steps
 
     def all_modes(self):
         """v3 (2026-11-20): every mode the monitor offers, each from the 144 Hz hub and back, then Adaptive Sync (vrr 1) and
@@ -396,6 +450,8 @@ class Cap:
             self.cname = "DP-?"
             if self.a.hdr_pairs:   # the live list needs root and Hyprland: the LG's rates (capture v3) stand in
                 steps = self.hdr_pairs(["59.95", "120.00", "143.99", "239.97"])
+            elif self.a.dpms:
+                steps = self.dpms_steps(["59.95", "120.00", "143.99", "239.97"])
             for s in steps:
                 self.step(s, "/nonexistent")
             return
@@ -406,6 +462,8 @@ class Cap:
             steps = self.all_modes()
         elif self.a.hdr_pairs:
             steps = self.hdr_pairs()
+        elif self.a.dpms:
+            steps = self.dpms_steps()
         need = (512 if self.a.all_modes else 64) << 20
         st = shutil.disk_usage(self.a.outdir if os.path.isdir(self.a.outdir) else os.path.dirname(self.a.outdir.rstrip("/")) or "/")
         if st.free < need:
@@ -430,6 +488,11 @@ class Cap:
                     self.say(f"   step {s} failed: {ex!r}")
         finally:
             self.kprobes_remove()
+            if self.a.dpms:
+                try:
+                    self.say(f"restore: dpms on -> {self.dpms_cmd('on')}")
+                except Exception as ex:
+                    self.say(f"dpms on failed: {ex!r} (run 'hyprctl dispatch dpms on' by hand)")
             try:
                 self.say(f"restore: hyprctl reload -> {self.hypr('reload').strip()[:60]}")
             except Exception as ex:
@@ -447,6 +510,7 @@ def main():
     ap.add_argument("--r240", action="store_true", help="add 240-10, hdr-240 and 240-nodsc")
     ap.add_argument("--all-modes", action="store_true", help="v3: every available mode from the 144 hub and back, VRR and HDR at every 1440p rate")
     ap.add_argument("--hdr-pairs", action="store_true", help="v4: HDR only, SDR 144 hub -> HDR at each 1440p rate -> SDR hub")
+    ap.add_argument("--dpms", action="store_true", help="v5: DPMS off / on at every 1440p rate, SDR and HDR (display sleep)")
     ap.add_argument("--steps", help="comma list, overrides the default set")
     ap.add_argument("--dry-run", action="store_true")
     Cap(ap.parse_args()).run()

@@ -133,7 +133,7 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       standby (owner). Wake (`caffeinate -u`) works, the picture comes back at once. A real Mac stops the signal; for
       the OLED that also means no standby-time panel care. Next: a Linux capture of DPMS off / on on this card (the
       sequence Linux sends: stream off, blank, `dp_disable_link_phy`; then link up and unblank), turned into two replay
-      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off)
+      plans run at power state 0 / 1. Needs a Linux session (owner, full power-off). **Capture staged 05:00:** `tools/capture/linux_display_capture.py --dpms` (v5) and `<ESP>/vermilion/DPMS-CAPTURE-FOR-LINUX-CLAUDE.md`; result lands in `<ESP>/vermilion/capture/` (copy off, then delete both from the ESP)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
