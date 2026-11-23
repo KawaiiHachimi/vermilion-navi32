@@ -376,11 +376,11 @@ static int nvmtl_skip_empty_on(void) {
                                                     (uint32_t)IOSurfaceGetBytesPerRow(t->_surf), 0)) {
             static int said; if (said++ < 4) nvlog("scanout TILED: copy to the surface pages could not be encoded"); }
     }
-    // an app drawable drawn tiled (NVMTL_DRAWABLE_TILED) reaches its pages. Presented with -presentDrawable: (wgpu, most
-    // Metal apps): once, in the command buffer that presents it (presentDrawable marks it dirty there, and the queue
-    // orders the copy after every earlier command buffer's drawing). Never presented that way: at the end of every
-    // command buffer that drew it. MoltenVK calls -[CAMetalDrawable present] itself from a scheduled handler, so no
-    // command buffer ever presents its drawables, and Minecraft's Vulkan window stayed black (2026-11-23 17:14).
+    // an app drawable drawn tiled (NVMTL_DRAWABLE_TILED) is copied to its pages here. Presented with -presentDrawable:
+    // (wgpu, most Metal apps): once, in the command buffer that presents it (presentDrawable marks it dirty there, and
+    // the queue orders the copy after every earlier command buffer's drawing). Never presented that way: at the end of
+    // every command buffer that drew it. MoltenVK calls -[CAMetalDrawable present] itself from a scheduled handler, so no
+    // command buffer ever presents its drawables; without this Minecraft's Vulkan window stayed black (2026-11-23 17:14).
     if (_c.cb && !_c.in_rp && _surfDirty.count) {
         NVMTLTexture *pd = _present ? (_present->_parent ?: _present) : nil;
         for (NVMTLTexture *t in _surfDirty) {

@@ -51,7 +51,7 @@ static inline void *nvmtl_buf_cpu(NVMTLBuffer *b) { nvmtl_buf_settle(b); return 
   nvk_buffer _planeHost; BOOL _planeHostOn; size_t _planeOff, _planeRow;   // a plane the GPU cannot sample in place: its pages, GPU-copied into _i
   BOOL _scanTiled;   // NVMTL_WS_SCANOUT_TILED: the display surface drawn into a tiled image _i, copied to _hostBuf at each seal
   BOOL _drawTiled;   // NVMTL_DRAWABLE_TILED: an app's CAMetalLayer drawable drawn into a tiled image _i, copied to _hostBuf when presented
-  BOOL _cbPresented;   // the drawable went through -presentDrawable: once (then copied only by the command buffer that presents it)
+  BOOL _cbPresented;   // a _drawTiled drawable that a command buffer presented (-presentDrawable:) at least once: from then on only the presenting command buffer copies it
   BOOL _stex;
   uint64_t _resid;
   NSUInteger _usage;
