@@ -145,3 +145,29 @@ licence text in each tree into `FSCK0000.000` (same bytes).
 **b154 on the box, 04:36:** the 1440p60 HDR login switch's last window again needed a second attempt (`rc=aux,ok`); the
 redo ran (`redone=1 redos=1/4`): `60hdr-from` (its first window `rc=aux,ok` as well), then `60hdr-to`, both windows
 first time. Picture on (owner). 7 link windows, `train_retried=2`.
+
+## 9. Input lag and tearing at 60 Hz, measured (b154, 04:45-04:55)
+
+Tool (session scratchpad, not in the repo): posts a mouse-moved event (`CGEventPost(kCGHIDEventTap)`, the software
+cursor makes WindowServer composite), then polls through the `N48N` user client (ReadRegs, reads only) HUBP0's
+primary surface address (0x3ACA: changes when GPU present programs a flip) and OTG0's frame count (0x500C). 100 events
+each, 30-50 ms apart. Times in ms, p10 / median / p90 / max:
+
+| 1440p HDR | event -> flip programmed | flip -> next frame start | event -> frame start |
+|---|---|---|---|
+| 60 Hz (run 1) | 7.9 / 16.2 / 22.0 / 42.3 | 10.1 / 13.8 / 14.1 / 15.5 | 21.5 / 29.8 / 34.7 / 52.6 |
+| 60 Hz (run 2) | 6.8 / 13.6 / 21.2 / 39.5 | 10.4 / 13.9 / 14.4 / 15.3 | 19.5 / 27.1 / 34.3 / 53.8 |
+| 60 Hz (run 3, after 240) | 6.3 / 13.0 / 20.9 / 25.8 | 10.6 / 14.1 / 14.7 / 16.0 | 20.6 / 27.1 / 34.9 / 36.4 |
+| 240 Hz | 4.9 / 7.7 / 10.0 / 13.9 | 0.3 / 0.6 / 1.8 / 4.1 | 5.9 / 8.3 / 11.7 / 14.4 |
+
+Reading: at both rates the flip lands about 3 ms after a frame start (WindowServer composites at the vsync it is told
+about, GPU present's copy is 0.7 ms), and it shows at the next frame start. At 60 Hz that leaves the finished frame
+waiting 14 ms for the vblank; at 240 Hz the 3 ms is almost a whole frame. So the 60 Hz lag is the standard
+compose-then-scan pipeline at a 16.7 ms frame, about 3.5x the 240 Hz figure; no extra frame is added by the driver.
+Not measured: the USB HID path (posted events skip it) and the scan from the frame start down to the cursor's line
+(up to one frame). Not compared with a real Mac. A late-latch scheme (tell WindowServer a vsync phase so it composites
+just before the vblank) could save up to ~11 ms at 60 Hz (idea only).
+
+Tearing: HUBPREQ0 DCSURF_FLIP_CONTROL (0x3ADB) sampled 40000 times while the cursor moved: 0x04100000 or 0x04100100
+(bit 8 = an update pending for the vblank), bit 1 (immediate) never set. A flip cannot tear then; what the owner saw
+as tearing (2026-11-19) needs the phone video (OWNER-TESTS 01).

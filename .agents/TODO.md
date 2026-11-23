@@ -106,8 +106,12 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       floor change) or drop it (identity stable, label 48-240) ([finding](findings/2026-11-23-gpu-stability.md) section 5)
 - [ ] OpenCore logs are written again (`opencore-2026-11-23-004410.txt`); PROJECT_KNOWLEDGE says none since
       2026-11-22 23:20: fix the line once the next boots confirm it
-- [ ] Tearing at 1440p60 with GPU present; input lag at 60 Hz. Measure first (a phone video; pointer acceleration
-      off). Plugin: the schedule-time copy of the non-async GPU present (present only after completion)
+- [~] Tearing at 1440p60 with GPU present; input lag at 60 Hz. **Input lag measured 2026-11-23** (finding section 9):
+      posted mouse event -> OTG0 frame start median 27-30 ms at 60 Hz, 8.3 ms at 240 Hz; WindowServer composites at
+      vsync and flips ~3 ms later, the flip waits for the next vblank (14 ms at 60 Hz): the normal one-frame compositor
+      pipeline, no extra driver frame. Idea, not planned: start the composite later in the frame (late latch).
+      **Tearing:** every flip is a vsync flip (FLIP_TYPE 0 in 40000 samples, never immediate), so a tear cannot come
+      from the flip; still needs the owner's phone video (OWNER-TESTS 01) to say what is seen
 - [ ] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
       "Revisit"), then re-verify every plan
 - [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from the old thread 07's
