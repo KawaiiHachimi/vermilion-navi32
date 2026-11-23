@@ -32,6 +32,20 @@ the merge of `ownback/perf-ws`).
   - **Rollback:** `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`: `sudo mv OC OC.c23-bad && sudo mv
     OC.prev OC` (= change 22, trusts the live plugin), restart. VCN alone: `rm ~/gpu/phxboot-vcn`, restart. Copy of
     change 22: `~/vermilion-rollback/EFI-OC.change22-20261123`.
+  - **Verified 2026-11-23 18:18** (booted 18:15:47, first try, owner watched): `SUCCESS`, `done 18:18:11`,
+    `vcn: up, ring adopted, MMHUB VM on`, `list=14 denied_unlisted=0`, WindowServer maps the plugin from
+    `PhxGPU`. `phxdec-off` removed 18:18: the decoder registers in `VTDecoderXPCService` but VideoToolbox picks
+    Apple's decoder (registered too late, at Metal device creation): the system bundle is the fix (next item).
+- [~] **System volume (thread 03, not an EFI change): `PhxVideoDecoder.bundle` into
+  `/System/Library/Video/Plug-Ins`** with `tools/phxctl/sysvol_install.sh` (OCLP-style: the live system volume
+  mounted read-write, a new boot snapshot blessed; authenticated root already off, SIP `0x0A03`). The sealed Apple
+  snapshot `com.apple.os.update-590AC978...` stays. Live after one restart.
+  - **Check:** boots to the desktop; `vtdec_test` without the dylib argument decodes on VCN (`vcn submits` grows,
+    frames equal Apple's); QuickTime plays the clip.
+  - **Rollback:** `sudo sh tools/phxctl/sysvol_install.sh --remove /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle`
+    (another snapshot) and restart; or back to Apple's sealed snapshot: `sudo bless --mount / --last-sealed-snapshot`,
+    restart (from Recovery > Terminal: `bless --mount "/Volumes/Macintosh HD" --last-sealed-snapshot`). Off without
+    a restart: `sudo touch /Library/GPUBundles/nvmtl/phxdec-off`.
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
