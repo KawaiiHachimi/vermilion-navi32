@@ -332,13 +332,19 @@ after the self-test), in one run at 09:45-09:47. GPU time per frame, median. Lin
 | `metalbench render 10` (64 iterations, 2560x1440) | Metal | 0.262 ms | **0.137 ms** (1.9x) | no twin |
 | `metalbench compute 10` | Metal | 0.192 ms | **0.144 ms** (1.3x) | no twin |
 | `metalbench bandwidth 10` | Metal | 44.0 GB/s | **836.9 GB/s** | no twin (Vulkan 823 / 837) |
+| **Horizon** (Minecraft Java 26.3 in Rust, nightly 2026-11-13; fullscreen 2560x1440, render distance 12, Immediate present; `horizon-ctl bench 20`) | Metal (wgpu) | 93.1 / 83.3 fps avg (off before / after); p50 10.8 / 11.5 ms; 1 % low 61 / 53 fps | **158.0 fps** (1.7-1.9x); p50 6.3 ms; 1 % low 118 fps | not measured |
 | clpeak (`metal:0`, `coreml:0`) | Metal, MPS | **hung the GPU** in its MPS pass (VRAM off; [finding](../.agents/findings/2026-11-23-clpeak-hang.md)): out of the set | not run | - |
 | OpenGL (any app, Minecraft Java) | OpenGL | CPU fallback: Apple Software Renderer, not measured | same (VRAM BOs don't apply) | - |
 | OpenCL, Blender Cycles | OpenCL / Metal | CPU fallback (Cycles lists only the CPU), not measured | same | - |
 
 VRAM pass: 48 BOs allocated and freed, peak 565 MiB, 48 clears (2287 MiB, avg 6.1 ms, max 29.8 ms), no fallback,
-no leak, no failed clear. No error in either pass; WindowServer stayed up. Real apps (games, Unigine) are not measured:
-"close to Linux in a real game" is (unverified). OpenGL: the owner saw the GPU warm up during an OpenGL app; with GL on
+no leak, no failed clear. No error in either pass; WindowServer stayed up.
+Horizon (10:04-10:06, `~/src/bench/hzbench.sh`, off / on / off, same world and start point): the player drifted in
+survival (water), so the view was not fixed; sections drawn during the runs were comparable (on 459-498, off 276-536)
+and the VRAM screenshot renders correctly. 395 VRAM BOs allocated and freed in the on pass, peak 675 MiB, no fallback,
+no leak. A first run at 10:02 gave the same picture (92 / 96 off, 163 on). Its built-in `--benchmark standard` fails
+here ("village drew no frames", with VRAM off; not investigated). Linux twin not measured, so "close to Linux in a
+real game" is (unverified). OpenGL: the owner saw the GPU warm up during an OpenGL app; with GL on
 the CPU renderer, the likely load is WindowServer compositing its frames (unverified).
 
 ### Known bottlenecks and limits

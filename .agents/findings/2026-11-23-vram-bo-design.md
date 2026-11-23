@@ -132,4 +132,10 @@ unchanged (32 us). `zerocheck` PASS in both passes. 48 allocs / 48 frees, 0 leak
 The table is in PROJECT_KNOWLEDGE ("Benchmark set"). clpeak is out: it hung the GPU in its MPS pass with the switch
 **off** ([clpeak hang](2026-11-23-clpeak-hang.md)), so that hang is not this code (one sample).
 
-Not yet measured: real apps (a Metal game, WebGL, Minecraft) with the switch on; days of use (M3).
+First real app (10:04-10:06): **Horizon** (the owner's Rust Minecraft client, Metal through wgpu), fullscreen
+1440p, render distance 12, uncapped: 93 / 83 fps with the switch off (before / after), **158 fps** with
+`debug.phxbo_vram_proc=horizon-client` (1.7-1.9x; 1 % low 61 / 53 -> 118 fps). 395 BOs, peak 675 MiB, no leak, no
+fallback; the frame renders correctly. The view drifted (survival, water), sections drawn comparable. Details in
+PROJECT_KNOWLEDGE ("Benchmark set").
+
+Not yet measured: a Linux twin for Horizon; days of use (M3).
