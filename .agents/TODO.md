@@ -140,8 +140,11 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
 - [ ] **A fixed cost per presented frame** (Horizon fullscreen 1440p ~160 fps vs >3x on Linux by the owner's report;
       a 1280x720 window gives 328 fps): the app's drawable IOSurface in system memory plus WindowServer's composite,
       ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). **Measured with b157:**
-      Horizon 3.47 ms + WindowServer's composite 2.20 ms per frame, gfx queue 93 % full. Next: the Linux twin
-      (handoff on the ESP); drawables in VRAM or a direct fullscreen path; Resizable BAR.
+      Horizon 3.47 ms + WindowServer's composite 2.20 ms per frame, gfx queue 93 % full. **Linux twin (10:45):
+      4370 fps, p50 0.22 ms** for the same view ([linux-horizon](findings/2026-11-23-linux-horizon.md)): ~25x. Even
+      Horizon's own GPU time on macOS (3.47 ms) is >15x Linux's whole frame. Next: split Horizon's 8 submissions
+      per frame (which one is slow, waits inside the IBs, the system-memory drawable); drawables in VRAM or a direct
+      fullscreen path; Resizable BAR.
 - [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault; WindowServer
       starved, daemon reverted to GOP: [finding](findings/2026-11-23-clpeak-hang.md)). Find the MPS kernel that does
       not finish (clpeak's `metal:0` runs MPSMatrix, `coreml:0` MPSNDArray); keep clpeak out of the benchmark set until then.
