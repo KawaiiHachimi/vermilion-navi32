@@ -70,6 +70,11 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       it). Before VRAM buffers become the default for every app (M3), they go to the apps used every day; the
       agent picks them from what runs on the machine. Report anything odd (stutter, wrong rendering, a freeze).
       Off again: `rm ~/gpu/phxboot-bovram` and restart.
+- [ ] **App windows with the tiled drawable** (thread 02 part C, since 2026-11-23 16:40): every app that draws with
+      Metal into its window now draws into a fast tiled image that is copied to the window once per frame. Over the
+      next days, watch for a window that shows old content, flickers, stays black or lags behind (games, Electron or
+      Chromium apps such as T3 Code, Blender). Off for every newly opened window, no restart:
+      `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off`, then reopen the app; on again: remove the file.
 - [ ] **A Metal game or benchmark** you own: run it for 20 minutes. Report the frame rate, stutter, wrong rendering,
       and whether the fans behave.
 
