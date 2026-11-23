@@ -335,6 +335,17 @@ ws_cdcopy(){ [ -e "$G/phxboot-wscdcopy" ] || return 0
   if launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1 2>/dev/null; then
     echo "wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted WindowServer (CoreDisplay's display surfaces are presented)"
   else echo "wscdcopy: launchctl setenv failed: SkyLight's targets are presented"; fi; }
+# WindowServer's display surface drawn tiled (thread 02 part C3, 2026-11-23): with $G/phxboot-wstiled, the restarted
+# WindowServer gets NVMTL_WS_SCANOUT_TILED=1 from launchd, so the plugin composes into a TILED image and copies it to the
+# display surface's pages at the end of every command buffer that drew it (upstream's probe: 1.77 ms linear, 88 us
+# tiled, 491 us with the copy). The pages stay what GPU present (and every other reader) reads. Not on the safe desktop.
+# Measured on the XTX machine (2026-11-23 17:11): the desktop draws right, but Horizon runs at 230 fps against 292
+# without the flag (about 3 copies per frame), so the flag is not set there (findings 2026-11-23-horizon-present-cost.md).
+ws_tiled(){ [ -e "$G/phxboot-wstiled" ] || return 0
+  if [ $SAFE = 1 ]; then echo "wstiled: not on the safe desktop: NVMTL_WS_SCANOUT_TILED not set"; return 0; fi
+  if launchctl setenv NVMTL_WS_SCANOUT_TILED 1 2>/dev/null; then
+    echo "wstiled: NVMTL_WS_SCANOUT_TILED=1 for the restarted WindowServer (its display surface drawn tiled)"
+  else echo "wstiled: launchctl setenv failed: the display surface stays linear"; fi; }
 # Fence wait step (2026-11-19, the XTX machine): with $G/phxboot-waitstep, debug.phxwait_step_us gets the value in the
 # file (empty = 200; 20-1000 accepted) before the WindowServer restart. A WAITSEQ that outlasts its 20 us spin sleeps in
 # timed steps of this length while IRQ waits are off; the kext's default is 50. 200 cut WindowServer's wakeups 5-15x
@@ -633,6 +644,7 @@ if [ $DESK = 1 ]; then
   GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}; [ $SAFE = 1 ] && GPUPRESENT=""
   [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
   ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
+  ws_tiled     # C3: the restarted WindowServer composes into a tiled image (flag ~/gpu/phxboot-wstiled)
   waitstep_boot   # the fence wait's timed step for the restarted WindowServer (flag ~/gpu/phxboot-waitstep)
   irqwait_boot    # fence waits by interrupt for the restarted WindowServer (flag ~/gpu/phxboot-irqwait)
   WS1=$(wspid)

@@ -154,3 +154,57 @@ Linux frame suggests. What is left of the ~3.4 ms frame: the once-per-frame copy
 system-memory pages (outside the passes; not timed yet, ~0.6 ms expected) and WindowServer's composite of it (~2.1 ms
 at b158), both the present path. Next: WindowServer's display surface tiled (`NVMTL_WS_SCANOUT_TILED`, a boot-daemon
 environment change), then VRAM-resident IOSurfaces so the copy and the system-memory read go away.
+
+## C3: WindowServer's display surface tiled, as upstream wrote it: worse (2026-11-23 17:11, XTX)
+
+Boot daemon flag `phxboot-wstiled` -> `NVMTL_WS_SCANOUT_TILED=1` for the restarted WindowServer. It took effect (all
+2560x1440 "CoreDisplay Scanout" surfaces drawn TILED) and the desktop looked right (owner). Horizon, per-process GPU
+time (b157, `~/src/bench/results/hztime-20261123-171048`), 15 s bench:
+
+| | fps | WindowServer GPU | Horizon GPU |
+|---|---|---|---|
+| fullscreen 1440p, wstiled | 230.1 (p50 4.33 ms) | 10.43 s = 69.4 % of wall, 10362 subs (~3.0 ms per frame, 3 subs) | 3.16 s = 21.0 % (~0.92 ms per frame) |
+| 1280x720 window, wstiled | 317.0 | 72.2 % of wall | 12.9 % |
+| fullscreen, linear WindowServer (16:43 run / 10:33 timing) | 292 | ~2.2 ms per frame (10:33, b157) | - |
+
+Upstream's mode copies the whole tiled surface to its pages at the end of every command buffer that drew it, and
+WindowServer submits ~3 per Horizon frame: three 14.7 MB writes across PCIe per frame instead of none. Switched off
+again. The redo: one copy per frame at the swap commit (as the app drawables do), or GPU present copying the tiled
+image straight into its VRAM slot (no page write at all while GPU present runs; the pages only for other readers).
+Horizon's own GPU time is now ~0.9 ms per frame (its passes ~0.22 ms plus the drawable copy): WindowServer's composite
+(~2.2 ms) is the largest part of the frame.
+
+## Minecraft Java (Fabulously Optimized, Vulkan through MoltenVK) on the XTX, 2026-11-23 17:14-17:20
+
+- The owner's instance (Prism, Fabulously Optimized 15.0.0-beta.4 for 26.3, `preferredGraphicsBackend:"vulkan"`) runs
+  Vulkan through MoltenVK 1.4.2 on our Metal plugin: "NVMTL over AMD Radeon RX 7900 XTX (RADV NAVI31)".
+- **Its window stayed black with the tiled drawable** (`NVMTL_DRAWABLE_TILED`, C2): the drawables (854x480) were made
+  TILED and no copy error was logged, yet nothing reached the window. With `/Library/GPUBundles/nvmtl/drawable-tiled-off`
+  it draws. Cause not found yet (MoltenVK presents differently from wgpu); the off switch stays until it is fixed.
+- 854x480 window, `java` not in `debug.phxbo_vram_proc` (all its BOs in system memory): GPU 99 % busy at 3.1 GHz,
+  java 65.8 % of it (4.84 s in 7.35 s, 1363 submissions, 3.55 ms each), WindowServer 28.3 %.
+- Same with `java` added to `debug.phxbo_vram_proc` (and to `~/gpu/phxboot-bovram`): java 8.1 % (0.60 s, 888
+  submissions, 0.68 ms each: 5.2x less per submission), WindowServer 26.0 %, GPU 36 % busy. The GPU stops being
+  the limit; 825 MiB in the VRAM pool, no leak, 32 fallbacks.
+- Systemic causes this shows: VRAM BOs are still opt-in per process name (M3 would make them default); Minecraft's
+  Vulkan goes through two translation layers (MoltenVK to Metal, our plugin back to Vulkan) where Linux runs RADV
+  directly (a native Vulkan ICD for macOS apps would remove both); WindowServer's composite costs ~0.9 ms per
+  submission even for a small window.
+
+### Minecraft after EFI change 22 (2026-11-23 17:41, the black-window fix booted)
+
+- The drawables are drawn TILED and the window draws (MoltenVK presents with `-[CAMetalDrawable present]`; the plugin's
+  frame counter in `-presentDrawable:` never fired for any Minecraft process, which is how the cause was found).
+- 854x480 window, `java` on the VRAM list, F3: **134 fps** (Immediate; p50 138, p99.5 103; was ~70 with vsync at
+  1440p before). GPU 37 % busy (java 14.1 %, WindowServer 20.8 %): **CPU-bound**.
+- `sample` of the render (main) thread, 3 s (`~/src/bench/results/minecraft-20261123-1742.sample`): 65 % inside
+  `-[NVMTLRenderCommandEncoder drawIndexedPrimitives:...indirectBuffer:...]`, one call per section draw:
+  - 555 / 2011 samples in RADV's `radv_CmdDrawIndexedIndirect` (per-draw state work in `radv_before_draw`, inlined
+    as `radv_CmdDrawIndexedIndirect2KHR.cold.1`, and `radv_emit_indirect_draw_packets`);
+  - 371 in `objc_release` called by the draw method itself;
+  - 305 in `nvmtlBindSamplerPipeline` (re-binding per draw).
+- Why: Sodium issues one `vkCmdDrawIndexedIndirect` with many draws; MoltenVK turns it into one Metal indirect draw
+  per section (Metal has no multi-draw indirect), and our plugin turns each back into a single-draw Vulkan call with
+  its own state checks. On Linux it stays one RADV call. Fixes, by reach: the plugin's per-draw overhead (the release
+  and the re-binding, cheap); folding consecutive indirect draws with the same state into one multi-draw; a native
+  Vulkan driver for macOS apps (RADV directly, with a CAMetalLayer swapchain), which removes both layers.

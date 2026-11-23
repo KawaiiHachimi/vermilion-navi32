@@ -5462,6 +5462,7 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
     if ([drawable respondsToSelector:@selector(texture)]) {
         _present = (NVMTLTexture *)[(id<CAMetalDrawable>)drawable texture];
         nvmtl_surf_dirty(self, _present);
+        if ([_present isKindOfClass:[NVMTLTexture class]]) { NVMTLTexture *root = _present->_parent ?: _present; root->_cbPresented = YES; }
     }
     if (!_presentations) _presentations = [NSMutableArray new];
     [_presentations addObject:[action copy]];

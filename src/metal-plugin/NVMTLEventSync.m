@@ -376,13 +376,17 @@ static int nvmtl_skip_empty_on(void) {
                                                     (uint32_t)IOSurfaceGetBytesPerRow(t->_surf), 0)) {
             static int said; if (said++ < 4) nvlog("scanout TILED: copy to the surface pages could not be encoded"); }
     }
-    // an app drawable drawn tiled (NVMTL_DRAWABLE_TILED) reaches its pages once, in the command buffer that presents it:
-    // presentDrawable marks it dirty there, and the queue orders this copy after every earlier command buffer's drawing
-    if (_c.cb && !_c.in_rp && _present) {
-        NVMTLTexture *pd = _present->_parent ?: _present;
-        if (pd->_drawTiled && pd->_hostOn && pd->_surf && [_surfDirty containsObject:pd]) {
-            if (nvmtl_vk_cmd_copy_image_to_buffer_layer(&_c, &pd->_i, 0, 0, pd->_i.w, pd->_i.h, &pd->_hostBuf, 0,
-                                                        (uint32_t)IOSurfaceGetBytesPerRow(pd->_surf), 0)) {
+    // an app drawable drawn tiled (NVMTL_DRAWABLE_TILED) is copied to its pages here. Presented with -presentDrawable:
+    // (wgpu, most Metal apps): once, in the command buffer that presents it (presentDrawable marks it dirty there, and
+    // the queue orders the copy after every earlier command buffer's drawing). Never presented that way: at the end of
+    // every command buffer that drew it. MoltenVK calls -[CAMetalDrawable present] itself from a scheduled handler, so no
+    // command buffer ever presents its drawables; without this Minecraft's Vulkan window stayed black (2026-11-23 17:14).
+    if (_c.cb && !_c.in_rp && _surfDirty.count) {
+        NVMTLTexture *pd = _present ? (_present->_parent ?: _present) : nil;
+        for (NVMTLTexture *t in _surfDirty) {
+            if (!t->_drawTiled || !t->_hostOn || !t->_surf || (t->_cbPresented && t != pd)) continue;
+            if (nvmtl_vk_cmd_copy_image_to_buffer_layer(&_c, &t->_i, 0, 0, t->_i.w, t->_i.h, &t->_hostBuf, 0,
+                                                        (uint32_t)IOSurfaceGetBytesPerRow(t->_surf), 0)) {
                 static int said; if (said++ < 4) nvlog("drawable TILED: copy to the surface pages could not be encoded"); }
         }
     }

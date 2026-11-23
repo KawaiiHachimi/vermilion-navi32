@@ -81,27 +81,34 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 The configuration the owner uses every day. Change it only through the active thread, one EFI change per boot, and
 add each change here with the thread's number.
 
-- **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 15** (change 8
-  with VermilionBoot b155, thread 01; VermilionTrust 1.0.4, thread 02; 2026-11-23). On 2026-11-23 thread 00 rebuilt
-  change 8's VermilionBoot and VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder serials: every file
-  equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the serials). Changes 9-15
-  were built and installed from the repo. **The repo is the source of truth for the EFI.**
+- **EFI: `efi/build.py build --stage vermilion-trust-bar1g` (machine `b650e-i-xtx`) = EFI change 22** (thread 02
+  part C, booted 2026-11-23 17:24, verified: `phxtrust_stat` enforce, `list=10`, `denied_unlisted=0`; desktop
+  1440p240 HDR + VRR; VRAM self-test 1). The stage is the profile's default `vermilion-trust` plus OpenCore
+  `ResizeAppleGpuBars` 10 (BAR0 1 GiB for macOS, since change 19); `efi/build.py build` without `--stage` still builds
+  `vermilion-trust` (BAR0 256 MiB: no CPU-visible VRAM pool). On 2026-11-23 thread 00 rebuilt change 8's
+  VermilionBoot and VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder
+  serials: every file equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the
+  serials). Changes 9-22 were built and installed from the repo. **The repo is the source of truth for the EFI.**
   - OpenCore 1.0.8. Kexts, in load order: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
     AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0, UTBMap, SMCProcessorAMD 1.0.1, BlueToolFixup
-    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b155** (sha256 `f95b4baf`), VermilionTrust **1.0.4**
-    (`63481dc4`; 8 cdhashes, among them RADV `801ae178` and the plugin `3be1ec3c`). Pinned in [`efi/components.json`](../efi/components.json).
+    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b160** (sha256 `5c043312`), VermilionTrust **1.0.4**
+    (sha256 `ffa6c25d`; 10 cdhashes, among them the plugin `344c621f` and its two previous builds `005b45b2` and
+    `e162a385`, and RADV `d5251b0b`). Pinned in [`efi/components.json`](../efi/components.json).
   - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, 5 DSDT NOP patches (derived for BIOS 4005; `efi/build.py`
     refuses another version).
   - NVRAM (Apple GUID, set by OpenCore every boot): `bluetoothInternalControllerInfo`, `bluetoothExternalDongleFailed`.
   - boot-args: `-v keepsyms=1 debug=0x100 pci=0x8000000 amtk_awdl_offchan=0 ipc_control_port_options=0 phxdebug=1`;
     `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
-  - `EFI/OC.prev` = change 13: the same EFI with VermilionBoot b154 (`78f560cc`). `EFI/OC.bad` = change 12 (the
-    NVRAM test stage, inconclusive). Change 7 (VermilionTrust 1.0.2 `2e4f3562`, which trusts only the previous plugin
-    build) is kept as `~/vermilion-rollback/EFI-OC.change7-20261122`. To boot change 7, first restore that plugin: `sudo cp ~/vermilion-rollback/plugin-20261123/NVMTLDriver
-    /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/`.
+  - `EFI/OC.prev` = change 21: the same stage with VermilionBoot b160 and the trust list of the first tiled-drawable
+    plugin (`005b45b2`). `EFI/OC.bad` = change 12 (the NVRAM test stage, inconclusive). Copies of changes 14-21 are in
+    `~/vermilion-rollback/EFI-OC.change<N>-20261123` (change 19 = the last one before VermilionBoot b159, the revert
+    target if the boot hangs come back: OWNER-TESTS 01). An EFI older than change 21 doesn't trust the live plugin:
+    restore the plugin it trusts first (the change's TODO entry in the git history names it). Change 7 (VermilionTrust
+    1.0.2 `2e4f3562`) is kept as `~/vermilion-rollback/EFI-OC.change7-20261122`; to boot it, first restore that
+    plugin: `sudo cp ~/vermilion-rollback/plugin-20261123/NVMTLDriver /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/`.
   - **Rollback of the EFI** (from macOS): `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`:
-    `sudo mv OC OC.bad && sudo mv OC.prev OC`, restart (while `OC.bad` exists, as it does since change 12, pick
-    another name: `mv` would put `OC` inside it). If macOS doesn't boot: hold power, power on, F8 > Limine, the
+    `sudo mv OC OC.c22-bad && sudo mv OC.prev OC`, restart (not `OC.bad`: it exists since change 12, and `mv` would
+    put `OC` inside it). If macOS doesn't boot: hold power, power on, F8 > Limine, the
     same renames under `/boot/EFI`, **power off fully**, power on.
   - Older EFIs (contain serials, never publish): `~/vermilion-rollback/EFI-OC.awdl-20261122` (stage `vermilion`, with
     `amfi=0x80`, no VermilionTrust: the fallback before change 7), `EFI-OC.bt-20261122` (Bluetooth, before
@@ -129,6 +136,9 @@ add each change here with the thread's number.
   | 17 | 2026-11-23 10:27 (booted 10:29, verified: desktop, aperture, self-test 1) | 02 C | VermilionBoot b157 (`5110437b`): GPU time per context (`debug.phxgpu_time`, off at boot). Same boot, outside the EFI: mesboot with the system aperture from FB_LOCATION (24 GiB) |
   | 18 | 2026-11-23 ~10:55 (booted 10:57, verified: desktop, trace) | 02 C | VermilionBoot b158: per-submission GPU trace (`debug.phxgpu_trace`, off at boot) |
   | 19 | 2026-11-23 ~11:07 (booted 11:09, verified: BAR0 1 GiB, desktop, self-test 1) | 02 C | stage `vermilion-trust-bar1g`: `ResizeAppleGpuBars` 10 (BAR0 1 GiB for macOS); kext unchanged |
+| 20 | 2026-11-23 (restart 15:45: the first boot attempt failed with no log, OpenCore without GOP: OWNER-TESTS 01; booted 15:49, verified: aperture 1 GiB, self-test 1 with the BAR0 read-back) | 02 C | VermilionBoot b159: CPU-visible VRAM BOs in [352 MiB, 1 GiB) of BAR0, opt-in per process |
+| 21 | 2026-11-23 (booted 16:40, verified: trust enforce, self-test 1, Horizon 292 fps) | 02 C | VermilionBoot b160 (`5c043312`: parked mapped BOs can't run out) and VermilionTrust for the plugin with tiled app drawables (`005b45b2`) |
+| 22 | 2026-11-23 (booted 17:24, verified: trust enforce, `denied_unlisted=0`, Minecraft draws TILED) | 02 C | VermilionTrust (`ffa6c25d`) for the plugin that also copies drawables MoltenVK presents itself (`344c621f`) |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
@@ -137,20 +147,24 @@ add each change here with the thread's number.
     (AuxKC; sha256 `26685255`, since 2026-11-23 04:15). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`
     (`c6341e87`), then `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
     the kext": the **Allow** click rebuilds the AuxKC, not the restart).
-  - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: cdhash `3be1ec3c` since EFI change 15 (thread 02: its
-    two environment variables no longer reach child processes). Before it: NVMTLDriver sha256 `6840fbe3`, cdhash
-    `33b9a186` (the old thread 05's Music fix on top of b149), still in the trust list. Older rollbacks:
-    `~/vermilion-rollback/plugin-20261123/` (b149), then `NVMTLDriver.b139`.
-  - RADV `/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib`: cdhash `801ae178` since EFI change 15 (Mesa patches
-    0001-0019: the XTX profile by PCI revision). Before it: `8054fbe4` (0001-0017, the XT profile), still in the trust
-    list.
-  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo, thread 02), flags
-    `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin`
-    (60), `irqwait`, `idledpm`, `idledpm-dcf` (thread 02, since 2026-11-23 07:51), `autologin`, `auto` (re-arms
-    `phxfb-squat` at SUCCESS; created 2026-11-23 for the NVRAM test). Thread 01's version (display check `DARK`, one
-    restart; an `engine run` record per run) plus thread 02's `irqwait_boot` and `idledpm_boot`. Previous daemons:
-    `~/vermilion-rollback/phxboot-navi31.sh.pre-thread02`, `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`,
-    `~/gpu/phxboot-navi31.sh.prev`, `~/vermilion-rollback/phxboot-navi31.sh.pre-vrrmin`.
+  - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver cdhash `344c621f` (sha256 `cf531a38`) since
+    EFI change 22 (thread 02 C2: app `CAMetalLayer` drawables drawn into a tiled image and copied to their pages, once
+    at `-presentDrawable:` or at the end of every command buffer that drew one presented with `-[CAMetalDrawable
+    present]`, as MoltenVK does). Off switch without a restart: `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off`
+    and relaunch the app (absent now). Rollbacks, newest first: `~/vermilion-rollback/NVMTLDriver.drawtiled-v1-20261123`
+    (`005b45b2`, change 21's: MoltenVK windows stay black), `NVMTLDriver.pre-drawtiled-20261123` (`e162a385`), both in
+    the trust list; older: `plugin-20261123/` (b149), `NVMTLDriver.b139`. Install a rollback as `.new` + `mv`.
+  - RADV `/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib`: cdhash `d5251b0b` (sha256 `801ae178`) since EFI change
+    15 (Mesa patches 0001-0019: the XTX profile by PCI revision). Before it: `8054fbe4` (0001-0017, the XT profile).
+  - mesboot `/usr/local/sbin/mesboot` (sha256 `0fb1feb1`) with the GFXHUB system aperture from FB_LOCATION (24 GiB on
+    the XTX) since EFI change 17. Rollback: `~/vermilion-rollback/mesboot.pre-aperture`.
+  - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo apart from two comments
+    of the pre-merge clean-up, thread 02 part C, with `ws_tiled` and `bovram_boot`), flags `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`,
+    `wscdcopy`, `waitstep` (200), `vrrmin` (60), `irqwait`, `idledpm`, `idledpm-dcf` (thread 02, since 2026-11-23
+    07:51), `bovram` (`horizon-client,java`: the processes whose BOs live in VRAM), `autologin`, `auto` (re-arms
+    `phxfb-squat` at SUCCESS). `wstiled` is absent on purpose (C3 measured worse). Previous daemons:
+    `~/vermilion-rollback/phxboot-navi31.sh.pre-wstiled`, `.pre-bovram`, `.pre-thread02`, `.pre-thread01`,
+    `~/gpu/phxboot-navi31.sh.prev`.
   - `/Library/GPUBundles/nvmtl/ws-gpu-present` and `ws-gpu-present-async` (GPU present on).
   - Network: `NetworkInterfaces.plist` / `preferences.plist` with Ethernet `en0`, Wi-Fi `en1` (2026-11-23; backup
     `~/vermilion-rollback/netcfg-20261122/`).
@@ -167,8 +181,10 @@ add each change here with the thread's number.
   `NVMTLDriver.b139`, `VermilionBoot.kext.b149`, `VermilionAccel.kext.pre-hdrvrr`, `AuxiliaryKernelExtensions.kc.0222`,
   `phxboot-navi31.sh.pre-vrrmin`, `netcfg-20261122`; thread 01 added `EFI-OC.change7-20261122`,
   `EFI-OC.change8-20261123`, `EFI-OC.change11-20261123`, `EFI-OC.change12-nvram-20261123`, `VermilionBoot.kext.b151`,
-  `.b152`, `.b154`, `VermilionAccel.kext.pre-thread01`, `phxboot-navi31.sh.pre-thread01`), `EFI/OC.prev`,
-  `~/gpu/*.prev`.
+  `.b152`, `.b154`, `VermilionAccel.kext.pre-thread01`, `phxboot-navi31.sh.pre-thread01`; thread 02 added
+  `EFI-OC.change14-20261123` to `EFI-OC.change21-20261123`, `NVMTLDriver.pre-drawtiled-20261123`,
+  `NVMTLDriver.drawtiled-v1-20261123`, `mesboot.pre-aperture`, `gpubundles-20261123-thread02`,
+  `phxboot-navi31.sh.pre-thread02`, `.pre-bovram`, `.pre-wstiled`), `EFI/OC.prev`, `~/gpu/*.prev`.
 - **Outside git, never to commit:** `~/.config/vermilion/` (SMBIOS serials, ACPI dump incl. the VBIOS),
   `~/vermilion-captures/` (display captures, EDIDs, crash reports), every `build/` folder (built EFIs contain the
   serials).
@@ -351,13 +367,32 @@ here ("village drew no frames", with VRAM off; not investigated). Linux twin not
 real game" is (unverified). OpenGL: the owner saw the GPU warm up during an OpenGL app; with GL on
 the CPU renderer, the likely load is WindowServer compositing its frames (unverified).
 
+### Parity baselines at the end of thread 02 (2026-11-23, EFI change 22)
+
+The numbers thread 13 (Performance parity) starts from; its ranked backlog is in TODO, "Performance parity (after 09)".
+XTX machine, VermilionBoot b160, 1440p240 HDR, thread 02 daemon (idle DPM, interrupt waits, `bovram`
+`horizon-client,java`). Linux: Omarchy, kernel 7.2.15, same machine.
+
+| Workload | macOS | Linux twin | Gap |
+|---|---|---|---|
+| Horizon, fullscreen 2560x1440 (`horizon-ctl bench 15`) | **292 fps**, p50 3.41 ms; Horizon's own GPU ~0.9 ms per frame, WindowServer's composite ~2.2 ms | 4370 fps, p50 0.22 ms | ~15x |
+| Minecraft Java (Fabulously Optimized, Vulkan through MoltenVK), 854x480 window, F3 | **134 fps**, CPU-bound (GPU 37 % busy; 65 % of the render thread in per-draw indirect calls) | not measured | unknown |
+| Buffer bandwidth, `vkbench bandwidth 10` | 841.9 GB/s with VRAM BOs (opt-in); 43.7 GB/s without | 823 / 837 GB/s | parity for opted-in processes only |
+| Compute, `vkbench compute 10` (64 iterations) | 0.140 ms (VRAM BOs on) | 0.134 ms | ~4 % |
+| Waited submit, `vkbench submit 10` (16x16) | 32 us; Metal adds ~55-80 us per waited submit (`metalbench` 207 vs `vkbench` 124 us median, 512x512 job) | 37 us (512x512 job 114 us) | Vulkan parity; Metal +55-80 us |
+| VRAM BO clear | ~8 GB/s (256 MiB in 31 ms) | not measured (amdgpu clears with SDMA) | unknown |
+| GPU idle, socket | 23 W at 1440p240 HDR | 35 W at 240 HDR, 22-23 W at 240 SDR | none |
+| CPU | 1 thread 5.02-5.12 GHz; idle package 39.5-41.3 W | 5.16 GHz; 37.8 W, CC6 98 % | ~2-3 W idle |
+
 ### Known bottlenecks and limits
 
 - CPU: no clock above 5.15 GHz, idle package ~40 W. Linux does the same (5.16 GHz, 37.8 W) with the BIOS at Auto: not a
   macOS problem; a `_CST` idle kext would gain ~2-3 W (decisions 2026-11-23). Per-core clocks only through `cpuclk.c`.
-- Buffer objects live in system memory, not VRAM (`phx_client.cpp` allocates every BO as an
-  `IOBufferMemoryDescriptor`): a buffer copy runs at 44.7 GB/s (PCIe), against ~960 GB/s for VRAM. The 1440p target
-  written at ~50 GB/s (2026-11-22) is probably DCC compression *(unverified)*.
+- Buffer objects live in system memory (`IOBufferMemoryDescriptor`, a copy at 44.7 GB/s over PCIe) except for the
+  processes in `debug.phxbo_vram_proc` (daemon flag `bovram`: `horizon-client,java`), whose BOs live in VRAM (b156)
+  or, when the CPU maps them, in the CPU-visible pool [352 MiB, 1 GiB) of BAR0 (b159-b160): ~840 GB/s, as Linux.
+  Every other app still gets system memory (M3, VRAM BOs by default, is open). IOSurfaces (drawables,
+  WindowServer's surfaces) are system memory for everyone.
 - Fence waits: by interrupt since 2026-11-23 07:51 (`phxboot-irqwait`; a short waited job 265 -> 113-115 us median, as
   Linux). Without the flag they poll: a 20 us spin, then 200 us steps. Open: a day of use; the tail with a second GPU
   client (perf / power section 4).
@@ -402,3 +437,5 @@ the CPU renderer, the likely load is WindowServer compositing its frames (unveri
 - 2026-11-23: thread 01 (GPU stability): EFI changes 9-14 (VermilionBoot b151-b155), PhxAccel with the physical
   size, the daemon's display check; the display rows of the machine state.
 - 2026-11-23: thread 02 part B: the benchmark table, VRAM BOs off vs on.
+- 2026-11-23: thread 02 wrap-up: known-good = EFI change 22 (b160, the tiled-drawable plugin), change-log rows
+  20-22, the parity baselines thread 13 starts from.

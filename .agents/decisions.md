@@ -511,3 +511,12 @@ ROADMAP row 02 says what is left, so it is clear when 03 can start. Translator s
 it is the top cause. Each branch is pushed to `fork` under its own name (`git push -u fork <branch>`), never left local.
 **Why:** coordination thread, 2026-11-23: one long branch is hard to review and loses work if the machine fails.
 **Revisit:** if a fix can't be measured on its own.
+
+## 2026-11-23: thread 02 ends at EFI change 22; the rest of performance becomes thread 13
+**Choice:** no new fixes in 02 after the MoltenVK drawable fix (EFI change 22, booted). The remaining GPU, CPU and
+per-app performance work is a ranked backlog in TODO, "13 Performance parity (after 09)", run as thread 13 after 09
+and before 10 (series 03 → 04 → 05 → 06 → 07 → 09 → 13 → 10 → 11 → 12). 03 keeps the API-level work (Zink / OpenGL /
+OpenCL on the GPU, VCN decode, WebGL). The per-draw / multi-draw plugin fix found with Minecraft is not built in 02.
+**Why:** owner, via the coordination thread, 2026-11-23: the GPU phase should move on to the missing APIs and
+features; doing performance last, before ryzentosh, lets ryzentosh pin the final driver.
+**Revisit:** if a later thread is blocked by a performance gap (then that one item moves forward).
