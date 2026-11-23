@@ -115,6 +115,8 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxgpu_time_on);        // b157
         sysctl_register_oid(&sysctl__debug_phxgpu_time_reset);
         sysctl_register_oid(&sysctl__debug_phxgpu_time);
+        sysctl_register_oid(&sysctl__debug_phxgpu_trace);          // b158
+        sysctl_register_oid(&sysctl__debug_phxgpu_trace_dump);
         sysctl_register_oid(&sysctl__debug_phxwait_step_us);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped);
         sysctl_register_oid(&sysctl__debug_phxwait_scoped_stat);

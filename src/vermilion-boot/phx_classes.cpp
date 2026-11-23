@@ -139,6 +139,9 @@ private:
         volatile uint32_t head, tail;
         uint16_t fctx[64];      // b157: the context of each history entry for GPU time (phxgputime::kNoCtx: unstamped)
         uint64_t tsLastEnd;     // b157: bottom-of-pipe stamp of the last accounted submission on this queue
+        uint64_t fsub[64];      // b158: GOLDEN_TSC when the CPU queued the entry (trace only)
+        uint32_t fdw[64];       // b158: the entry's IB dwords, summed (trace only)
+        uint8_t fnib[64];       // b158: its IB count (trace only)
     };
     GpuQueue gq[3]{};
     uint64_t gSeq{0};
@@ -155,6 +158,9 @@ private:
 public:
     int gpuTimeStat(char *b, size_t cap);
     void gpuTimeReset();
+    int gpuTraceSet(int on);                 // b158: per-submission trace (phx_gputime.cpp)
+    char *gpuTraceDump(size_t *len);         // IOMalloc'd text, *len bytes allocated
+    uint64_t goldenTsc() const;
 private:
     // One GPUVM context (page tables) per client, and the eight hardware VMIDs lent to contexts at submission time,
     // as amdgpu does: a fixed VMID per client capped Metal at eight processes, and with every app allowed Metal the
@@ -174,6 +180,10 @@ private:
     // b157: GPU time per queue and context since the last reset (index kMaxCtx: the context was closed and reused)
     uint64_t ctxGpuTicks[3][kMaxCtx + 1]{}, ctxGpuSubs[3][kMaxCtx + 1]{};
     uint64_t gpuTimeResetAbs{0}, gpuTimeLost{0};
+    struct TraceRec { uint64_t sub, start, end; uint32_t dw; uint16_t ctx; uint8_t q, nib; };   // b158
+    static constexpr uint32_t kTraceN = 4096;
+    TraceRec *trace{nullptr};
+    uint32_t traceN{0};   // records written (the ring holds the last kTraceN)
 public:
     IOLock *scanLockForEngines() const { return scanLock; }   // b131: debug.phxp0odm holds it so no flip runs mid-plan
     bool scanYieldForModeLocked(uint32_t targetH);

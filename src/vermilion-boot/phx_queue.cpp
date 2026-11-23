@@ -130,6 +130,14 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
     q.fseq[q.tail & 63] = seq;
     q.fend[q.tail & 63] = q.wptr;
     q.fctx[q.tail & 63] = stamp ? static_cast<uint16_t>(handle - 1) : phxgputime::kNoCtx;
+    if (stamp && trace) {   // b158: per-submission trace
+        uint32_t dw = 0;
+        for (uint32_t i = 0; i < n; i++)
+            dw += ibDw[i];
+        q.fdw[q.tail & 63] = dw;
+        q.fnib[q.tail & 63] = static_cast<uint8_t>(n > 255 ? 255 : n);
+        q.fsub[q.tail & 63] = goldenTsc();
+    }
     __asm__ __volatile__("" ::: "memory");
     q.tail = q.tail + 1;
     // BAR0 is write-combined: drain the WC buffers so the packets are in VRAM before the CP is told about them

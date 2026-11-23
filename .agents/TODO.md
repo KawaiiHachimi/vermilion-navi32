@@ -34,6 +34,12 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
+Thread 02 part C: **EFI change 18** (VermilionBoot b158: per-submission GPU trace, off by default), installed
+2026-11-23 ~11:00, restart pending the owner's OK. Check after the boot: accelerated desktop 1440p240 HDR; `sysctl
+debug.phxgpu_trace` answers; pool `[512, 24464)` MiB. Rollback: `EFI/OC.prev` = change 17 (copy in
+`~/vermilion-rollback/EFI-OC.change17-20261123`). The same install replaced a file Linux's fsck had renamed on the
+ESP (`MtkWirelessBT.kext/Contents/Resources/FSCK0000.000`, the libsbc license text).
+
 Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
 
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
