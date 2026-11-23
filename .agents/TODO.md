@@ -45,15 +45,17 @@ Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each change
 Thread 02 part C: **EFI change 22** (stage `vermilion-trust-bar1g`): VermilionTrust rebuilt for an NVMTLDriver whose
 tiled drawable also copies at the end of every command buffer that drew a drawable never presented with
 `-presentDrawable:` (MoltenVK presents with `-[CAMetalDrawable present]` itself: Minecraft's black window). Installed
-2026-11-23, not booted yet. After the boot: remove `/Library/GPUBundles/nvmtl/drawable-tiled-off`, then Minecraft
+2026-11-23, **booted 17:24 and verified** (trust enforce, denied_unlisted 0; Minecraft draws TILED). After the boot: remove `/Library/GPUBundles/nvmtl/drawable-tiled-off`, then Minecraft
 (Vulkan) draws, Horizon still logs "drawn TILED" and runs ~290 fps; `phxtrust_stat` enforce, denied_unlisted 0.
 Rollbacks: the switch file back (no restart); the previous plugin `~/vermilion-rollback/NVMTLDriver.drawtiled-v1-20261123`
 (.new + mv; trusted as `-previous`); EFI `EFI/OC.prev` = change 21 (copy `~/vermilion-rollback/EFI-OC.change21-20261123`).
 
 Thread 02 part C, from Minecraft (2026-11-23 17:20, finding horizon-present-cost, "Minecraft"):
-- [ ] **The tiled drawable leaves MoltenVK windows black** (Minecraft Vulkan). Off switch
-  `/Library/GPUBundles/nvmtl/drawable-tiled-off` is set (every new window takes the old path, Horizon too). Trace a
-  MoltenVK present (plugin trace with the switch off for that run), fix, remove the switch.
+- [x] **The tiled drawable left MoltenVK windows black** (Minecraft Vulkan): fixed in EFI change 22 (booted 17:24,
+  verified 17:41: Minecraft draws, 134 fps in its 854x480 window); the off switch is removed.
+- [ ] Minecraft is CPU-bound in the per-draw path (finding horizon-present-cost, "Minecraft after EFI change 22"):
+  the plugin's per-draw `objc_release` and sampler/pipeline re-binding, then folding consecutive indirect draws into
+  one multi-draw.
 - [x] `java` added to `debug.phxbo_vram_proc` and `~/gpu/phxboot-bovram` (Minecraft's GPU cost 5x lower).
 - [ ] Decide M3 (VRAM BOs for every app by default) now that b160 is in: opt-in by name misses every new app.
 - [ ] Look at a native Vulkan path for macOS apps (RADV as the Vulkan driver, without MoltenVK + Metal in between).

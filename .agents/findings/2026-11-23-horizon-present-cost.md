@@ -190,3 +190,21 @@ Horizon's own GPU time is now ~0.9 ms per frame (its passes ~0.22 ms plus the dr
   Vulkan goes through two translation layers (MoltenVK to Metal, our plugin back to Vulkan) where Linux runs RADV
   directly (a native Vulkan ICD for macOS apps would remove both); WindowServer's composite costs ~0.9 ms per
   submission even for a small window.
+
+### Minecraft after EFI change 22 (2026-11-23 17:41, the black-window fix booted)
+
+- The drawables are drawn TILED and the window draws (MoltenVK presents with `-[CAMetalDrawable present]`; the plugin's
+  frame counter in `-presentDrawable:` never fired for any Minecraft process, which is how the cause was found).
+- 854x480 window, `java` on the VRAM list, F3: **134 fps** (Immediate; p50 138, p99.5 103; was ~70 with vsync at
+  1440p before). GPU 37 % busy (java 14.1 %, WindowServer 20.8 %): **CPU-bound**.
+- `sample` of the render (main) thread, 3 s (`~/src/bench/results/minecraft-20261123-1742.sample`): 65 % inside
+  `-[NVMTLRenderCommandEncoder drawIndexedPrimitives:...indirectBuffer:...]`, one call per section draw:
+  - 555 / 2011 samples in RADV's `radv_CmdDrawIndexedIndirect` (per-draw state work in `radv_before_draw`, inlined
+    as `radv_CmdDrawIndexedIndirect2KHR.cold.1`, and `radv_emit_indirect_draw_packets`);
+  - 371 in `objc_release` called by the draw method itself;
+  - 305 in `nvmtlBindSamplerPipeline` (re-binding per draw).
+- Why: Sodium issues one `vkCmdDrawIndexedIndirect` with many draws; MoltenVK turns it into one Metal indirect draw
+  per section (Metal has no multi-draw indirect), and our plugin turns each back into a single-draw Vulkan call with
+  its own state checks. On Linux it stays one RADV call. Fixes, by reach: the plugin's per-draw overhead (the release
+  and the re-binding, cheap); folding consecutive indirect draws with the same state into one multi-draw; a native
+  Vulkan driver for macOS apps (RADV directly, with a CAMetalLayer swapchain), which removes both layers.
