@@ -14,7 +14,8 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       the ACPI dump, the monitor capture and `phxfb-squat` all need Linux. (thread 10)
 - [ ] **Installer partition `disk0s4`:** keep it as the 26.7.1 reinstall path, or delete it and grow the macOS
       container? (thread 10)
-- [ ] **HiDPI:** do you want scaled modes ("looks like 1920x1080") once the reported size is fixed? (thread 01)
+- [ ] **HiDPI:** do you want scaled modes ("looks like 1920x1080") now that the reported size is right (2026-11-23)? macOS lists none by
+      itself (TODO 01, "Scaled modes"). (thread 01)
 - [ ] **File Sharing:** your Public folder is set up as a guest-writable share. Keep that? (thread 11)
 
 ## 01 GPU stability
@@ -25,11 +26,10 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 - [ ] **10-bit banding:** turn HDR on, open a dark grey-to-black gradient full screen (any "gradient test" image) and
       look for steps. Then turn HDR off and compare.
 - [x] **Login at 60 Hz HDR:** 2026-11-23, about a dozen restarts on b151-b155, every one landed (one needed the
-      b154 re-switch). Kept for the record:
-      in System Settings > Displays pick HDR at
-      60 Hz, then Apple menu > Restart. Repeat 3 times. If the screen stays black after login, wait 2 minutes: the
-      daemon should restart the Mac once by itself. If it stays black after that too, run `sysctl debug.phxp0odm_stat`
-      (from T3 Code on the phone) and send it. Then set your usual mode back.
+      b154 re-switch). Kept for the record: in System Settings > Displays pick HDR at 60 Hz, then Apple menu >
+      Restart. Repeat 3 times. If the screen stays black after login, wait 2 minutes: the daemon should restart the
+      Mac once by itself. If it stays black after that too, run `sysctl debug.phxp0odm_stat` (from T3 Code on the
+      phone) and send it. Then set your usual mode back.
 - [ ] **NVRAM test boot:** inconclusive on 2026-11-23 (the change may never have booted); redone with the Linux
       session (TODO 01 "Panic reports").
 - [x] **Allow click** (PhxAccel with the physical size): done 2026-11-23; size now 591 x 332 mm.

@@ -414,7 +414,8 @@ someone changes `~/gpu/phxboot-vrrmin`. Not chosen: drop the patch (identity nev
 retry (once per run, at most 4 per boot), because the LG once kept a black picture on a locked, in-sync link after such
 a retry and a new mode set brought it back (finding 2026-11-23-gpu-stability.md section 8). Nothing on the GPU side
 tells that black state apart, so the rule acts on the retry itself. b155 gives the trainers' DPCD accesses drm's
-32-try rule (Linux's DC path), which should make the retries themselves rarer (unverified until the b155 boot).
+32-try rule (Linux's DC path), which should make the retries themselves rarer (unverified until the b155 boot;
+afterwards: it did not, the LG NACKed all 32 tries at one boot, finding section 11).
 Not chosen: detecting the black picture (no readable signal for it), or a fixed redo after every HDR switch (an extra
-~1.5 s blank each time). **Revisit:** if b155 removes the first-attempt AUX misses, b154's redo becomes a rare fallback;
+~1.5 s blank each time). **Revisit:** if a later build removes the first-attempt AUX misses, b154's redo becomes a rare fallback;
 keep it.

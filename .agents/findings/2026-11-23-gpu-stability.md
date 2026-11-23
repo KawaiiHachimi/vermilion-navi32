@@ -1,8 +1,10 @@
 # 2026-11-23: GPU stability (thread 01): black screen recovery, physical size, NVRAM writes
 
 Machine: RX 7900 XTX (rev `0xC8`), LG 27GS95QE-B on DP, macOS 26.7.1 25G241, EFI change 8 (VermilionBoot b150,
-VermilionTrust 1.0.3), PhxAccel `c6341e87`, display 2560x1440 @ 240 Hz HDR. Everything below was read on this machine
-on 2026-11-23 between 02:30 and 04:00, unless a line says otherwise. Nothing on the machine was changed for it.
+VermilionTrust 1.0.3), PhxAccel `c6341e87`, display 2560x1440 @ 240 Hz HDR. Sections 1-5 were read on this machine
+on 2026-11-23 from 02:30, before the first change of thread 01 (03:08). Sections 6-11 were added the same night as
+the changes went in (EFI changes 9-14, VermilionBoot b151-b155, the new PhxAccel and daemon); each names its build
+and time.
 
 ## 1. The 2026-11-22 20:19 black screen: what is left of it
 
@@ -47,7 +49,8 @@ right as stated: the EDID and the size reach IOKit and CoreDisplay. The one plac
 information, documented in IOGraphicsTypes.h as "physical width of active image if known, in millimeters, otherwise
 zero". Inferred, not shown: CoreGraphics takes the screen size from the current mode and falls back to 72 dpi when it
 is 0. The PhxAccel change of this thread fills both fields from the EDID (`phxhead::edidImageMm`); the test is the
-install (TODO "Staged now" 3).
+install (TODO "Staged now" 3). Result, 04:15: `CGDisplayScreenSize` 591.1 x 332.5 mm (section 8), which fits the
+inference.
 
 Probes (built in the session scratchpad, not in the repo): a Swift `CGDisplayScreenSize` print, a C call of
 `IODisplayCreateInfoDictionary`, a C call of CoreDisplay's dictionary through `dlsym` (no EDID or serial printed).
@@ -61,7 +64,7 @@ Probes (built in the session scratchpad, not in the repo): a Swift `CGDisplayScr
 - With writes allowed, the removal is real: the next boot is a squat boot only if the daemon re-armed it, which it does
   at SUCCESS only while `~/gpu/phxboot-auto` exists. **That file does not exist on the machine** (`ls ~/gpu`). Without
   it, the boot after the NVRAM test would come up on the GOP desktop without acceleration (recoverable: create the
-  file and restart; the GOP boot with `phxboot-auto` re-arms). TODO "Staged now" 2 creates it first.
+  file and restart; the GOP boot with `phxboot-auto` re-arms). TODO "Staged now" 2 creates it first (created 04:00).
 - `nvram phxfb-squat` reads "not found" in this boot: macOS's copy was removed at probe; the firmware still holds it.
 
 ## 5. Smaller observations
@@ -73,7 +76,8 @@ Probes (built in the session scratchpad, not in the repo): a Swift `CGDisplayScr
   and product. The display-polish log (2026-11-22) saw a new display UUID and colour profile each time the floor
   changed (48 / 90 / 60), because PhxAccel's floor patch changes the EDID macOS reads. Options for the owner: keep the
   patch (the menu says "Variable (60-240 Hz)"; a floor change resets the display's settings, the floor is fixed at 60
-  now), or drop it (the identity never changes; the menu says 48-240 although the floor stays 60). Decision open.
+  now), or drop it (the identity never changes; the menu says 48-240 although the floor stays 60). Decided the same
+  day: keep the patch (decisions.md, "the VRR floor stays in the EDID PhxAccel serves").
 
 ## 6. On the box: b151 / b152 at the 1440p60 HDR login switch (03:11-03:46)
 
@@ -90,8 +94,8 @@ The owner restarted 3 times on b151 and 2 times on b152 with 1440p60 HDR saved; 
 The first window of the same plan always trained at once, 8 ms after its link off. Linux's capture v4 of the same switch
 (`to-hdr-59.95`): every window trains at its first ENABLE (`DIS EN ... DIS EN ...`), and 179.8 ms pass from window 1's
 FEC-on write to window 2's DISABLE: Linux's commit sleeps there, the replay runs the writes in between in ~46 ms. Reading
-(inferred, not shown): the LG is still busy with the first HDR mode set when the second training starts. b151 at 20:19
-(2026-11-22) would have had one attempt: the black screen. b153 adds Linux's time there (CHANGELOG 153).
+(inferred, not shown): the LG is still busy with the first HDR mode set when the second training starts. b150 at 20:19
+(2026-11-22) had one attempt: the black screen. b153 adds Linux's time there (CHANGELOG 153).
 
 At 03:43:19 a shutdown during the daemon's watch caught a run in flight (`target=60 phase=leg1`, the `60hdr-from`
 window trained): macOS asked for SDR 60 Hz as the session ended (seen once; whether every logout does is unknown).
@@ -146,7 +150,7 @@ licence text in each tree into `FSCK0000.000` (same bytes).
 redo ran (`redone=1 redos=1/4`): `60hdr-from` (its first window `rc=aux,ok` as well), then `60hdr-to`, both windows
 first time. Picture on (owner). 7 link windows, `train_retried=2`.
 
-## 9. Input lag and tearing at 60 Hz, measured (b154, 04:45-04:55)
+## 9. Input lag and tearing at 60 Hz, measured (b154, between the 04:36 boot and 04:46)
 
 Tool (session scratchpad, not in the repo): posts a mouse-moved event (`CGEventPost(kCGHIDEventTap)`, the software
 cursor makes WindowServer composite), then polls through the `N48N` user client (ReadRegs, reads only) HUBP0's

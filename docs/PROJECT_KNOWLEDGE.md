@@ -40,12 +40,12 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 
 | Area | State | Evidence | Thread |
 |---|---|---|---|
-| Boot | OpenCore 1.0.8, stage `vermilion-trust` (EFI change 8); live `EFI/OC` = this repo's build (below) | rebuilt and compared 2026-11-23 | 09 |
+| Boot | OpenCore 1.0.8, stage `vermilion-trust` (EFI change 14 = change 8 with VermilionBoot b155); live `EFI/OC` = this repo's build (below) | change 8 rebuilt and compared 2026-11-23; changes 9-14 installed with `efi/build.py install` | 09 |
 | GPU acceleration (Metal) | works: the device reports Metal 3; one render and one compute shader exercised. Ray tracing, MetalFX, BC textures, function pointers: flags only, never exercised | [GPU baseline](../.agents/findings/2026-11-22-gpu-performance-baseline.md) | 02 |
 | Display 2560x1440 | 60 / 120 / 144 / 240 Hz, Variable 60-240 with the ramp, 10-bit HDR, HDR + Variable, from System Settings; the login screen comes up at the saved rate. 10-bit banding not checked | [XTX.md](XTX.md) | 01 |
 | Other LG modes | fixed rates only (1080p60/120, 1280x1024@75, 1024x768, 800x600, 640x480), no VRR / HDR (owner's choice, decisions 2026-11-22) | same | 01 |
-| Display identity, scaling | reports 903 x 508 mm (= 2560 x 1440 at 72 dpi; the EDID says 590 x 333 mm): no HiDPI / scaled modes | [macOS integration](../.agents/findings/2026-11-23-macos-integration-inventory.md) | 01 |
-| Failed DP link training | once (2026-11-22 20:19, login switch to 1440p60 HDR): black screen, switching locked until reboot; the daemon still said `SUCCESS` | [Bluetooth finding, "Boots"](../.agents/findings/2026-11-22-bluetooth.md) (seen during that boot) | 01 |
+| Display identity, scaling | reports 591 x 332 mm since 2026-11-23 04:15 (PhxAccel gives every mode the EDID's size; before: 903 x 508 mm = 2560 x 1440 at 72 dpi). macOS lists no HiDPI / scaled modes | [GPU stability](../.agents/findings/2026-11-23-gpu-stability.md) sections 3 and 8 | 01 |
+| Failed DP link training | once on b150 (2026-11-22 20:19, login switch to 1440p60 HDR): black screen, switching locked until reboot; the daemon still said `SUCCESS`. Since 2026-11-23 (b151-b155): Linux's training retries, a failed from plan runs once more, a switch whose last link window needed a retry runs again, and the daemon reports `DARK` for a latched engine; about a dozen login switches at 1440p60 HDR landed. The LG still misses the first AUX access after D3 at times (the retry and the re-switch cover it) | [Bluetooth finding, "Boots"](../.agents/findings/2026-11-22-bluetooth.md) (seen during that boot), [GPU stability](../.agents/findings/2026-11-23-gpu-stability.md) | 01 |
 | OpenGL / OpenCL / Vulkan | Apple Software Renderer; CPU-only OpenCL; no Vulkan loader | GPU baseline | 03 |
 | Video decode | no hardware decoder for any codec (VCN off): HEIC, Quick Look, Photos, video on the CPU | GPU baseline, macOS integration | 03 |
 | Shader cache | apps started normally have Mesa's disk cache (`~/.cache/mesa_shader_cache` fills). Processes started from T3 Code inherit a `MESA_SHADER_CACHE_DIR` pointing at root's cache and get `Permission denied` | thread 00.1's final report (2026-11-23) | 02 |
@@ -61,7 +61,7 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 | Fans | GPU fan from SMU metrics; no motherboard / CPU fan readings (no Super I/O plugin) | same | 02 |
 | NVMe | Apple's driver + NVMeFix 1.1.3 (APST on), Gen 5 x4, TRIM capability yes (runtime TRIM not seen), SMART clean, no thermal throttling. Shown as "external" (cosmetic) | [storage](../.agents/findings/2026-11-22-storage-baseline.md) | 10 |
 | APFS / backups | System volume sealed (booted from its snapshot), Data separate, FileVault off; no Time Machine destination | same | 11 |
-| Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0) and **manual sleep blocked** since 2026-11-23 00:58 (`pmset -a disablesleep 1`; undo `sudo pmset -a disablesleep 0`): Vermilion has no GPU resume path. Display sleep and S3 untested | sleep / power | 05 |
+| Sleep | **off on purpose** (`pmset` sleep 0, displaysleep 0, hibernatemode 0) and **manual sleep blocked** since 2026-11-23 00:58 (`pmset -a disablesleep 1`; undo `sudo pmset -a disablesleep 0`): Vermilion has no GPU resume path. Display sleep tested 2026-11-23: the picture comes back, but the signal stays up and the LG never goes to standby (TODO 05). S3 untested | sleep / power | 05 |
 | Shutdown / restart | clean: 15 boots with previous-shutdown cause 5, SMART "Unsafe Shutdowns" unchanged over 6+ restarts (cold shutdown not checked); restart to accelerated desktop ~67 s | same | 11 |
 | Panics | one at a restart (2026-11-19 22:44), cause unknown; no report is ever saved (`DisableVariableWrite` blocks the NVRAM panic log: from the config, not watched failing) | [flicker / heat](../.agents/findings/2026-11-19-gpu-present-flicker-heat.md) | 01 |
 | NVRAM | read-only from macOS (`DisableVariableWrite`, against the Ryzen 7000 installer hang) | efi/machines | 01 |
@@ -79,24 +79,27 @@ The "Thread" column is the series thread in [ROADMAP.md](../ROADMAP.md) that own
 The configuration the owner uses every day. Change it only through the active thread, one EFI change per boot, and
 add each change here with the thread's number.
 
-- **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 8.** On
-  2026-11-23 thread 00 rebuilt VermilionBoot and VermilionTrust from source (both byte-identical to the live ones) and
-  the EFI with placeholder serials: every file equals the live `EFI/OC`, and `config.plist` is identical apart from
-  `PlatformInfo` (the serials). **The repo is the source of truth for the EFI.**
+- **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 14** (change 8
+  with VermilionBoot b155; thread 01, 2026-11-23). On 2026-11-23 thread 00 rebuilt change 8's VermilionBoot and
+  VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder serials: every file
+  equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the serials). Changes 9-14
+  were built and installed from the repo. **The repo is the source of truth for the EFI.**
   - OpenCore 1.0.8. Kexts, in load order: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
     AppleMCEReporterDisabler, MtkWirelessWifi 1.1.1, USBToolBox 1.2.0, UTBMap, SMCProcessorAMD 1.0.1, BlueToolFixup
-    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b150** (sha256 `3806555e`), VermilionTrust **1.0.3**
+    2.7.2, MtkWirelessBT 1.1.1, AMFIPass 1.4.1, VermilionBoot **b155** (sha256 `f95b4baf`), VermilionTrust **1.0.3**
     (`8e0dcd84`). Pinned in [`efi/components.json`](../efi/components.json).
   - ACPI: `SSDT-CPUR-B650EI`, `SSDT-EC-USBX-B650EI`, 5 DSDT NOP patches (derived for BIOS 4005; `efi/build.py`
     refuses another version).
   - NVRAM (Apple GUID, set by OpenCore every boot): `bluetoothInternalControllerInfo`, `bluetoothExternalDongleFailed`.
   - boot-args: `-v keepsyms=1 debug=0x100 pci=0x8000000 amtk_awdl_offchan=0 ipc_control_port_options=0 phxdebug=1`;
     `csr-active-config` `030A0000`. SMBIOS MacPro7,1.
-  - `EFI/OC.prev` = change 7: the same EFI with VermilionTrust 1.0.2 (`2e4f3562`), which trusts only the previous
-    plugin build. To boot it, first restore that plugin: `sudo cp ~/vermilion-rollback/plugin-20261123/NVMTLDriver
+  - `EFI/OC.prev` = change 13: the same EFI with VermilionBoot b154 (`78f560cc`). `EFI/OC.bad` = change 12 (the
+    NVRAM test stage, inconclusive). Change 7 (VermilionTrust 1.0.2 `2e4f3562`, which trusts only the previous plugin
+    build) is kept as `~/vermilion-rollback/EFI-OC.change7-20261122`. To boot change 7, first restore that plugin: `sudo cp ~/vermilion-rollback/plugin-20261123/NVMTLDriver
     /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/`.
   - **Rollback of the EFI** (from macOS): `sudo diskutil mount disk0s1`, then in `/Volumes/NO NAME/EFI`:
-    `sudo mv OC OC.bad && sudo mv OC.prev OC`, restart. If macOS doesn't boot: hold power, power on, F8 > Limine, the
+    `sudo mv OC OC.bad && sudo mv OC.prev OC`, restart (while `OC.bad` exists, as it does since change 12, pick
+    another name: `mv` would put `OC` inside it). If macOS doesn't boot: hold power, power on, F8 > Limine, the
     same renames under `/boot/EFI`, **power off fully**, power on.
   - Older EFIs (contain serials, never publish): `~/vermilion-rollback/EFI-OC.awdl-20261122` (stage `vermilion`, with
     `amfi=0x80`, no VermilionTrust: the fallback before change 7), `EFI-OC.bt-20261122` (Bluetooth, before
@@ -118,6 +121,7 @@ add each change here with the thread's number.
   | 11 | 2026-11-23 03:51 | 01 | VermilionBoot b153 (`bd3f72fa`): the HDR plans wait Linux's 100-180 ms before their second link window |
   | 12 | 2026-11-23 ~04:00 | 01 | `vermilion-trust-nvram` (`DisableVariableWrite` false), as a test; rolled back from Linux at an unknown time (kept as `EFI/OC.bad`), so whether it ever booted is unknown: NVRAM write test still open |
   | 13 | 2026-11-23 04:36 | 01 | VermilionBoot b154 (`78f560cc`) on change 11's config: a switch whose last link window needed a retry runs once more (the LG stayed black after such a retry at 04:15) |
+  | 14 | 2026-11-23 04:52 | 01 | VermilionBoot b155 (`f95b4baf`): drm's 32-try rule for the trainers' DPCD accesses; the live switch `debug.phxp0odm_dbuf` (0 at boot) |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
@@ -148,7 +152,10 @@ add each change here with the thread's number.
   05:10 CET boot), which made it look as if logging had stopped.
 - **Rollback copies:** `~/vermilion-rollback/` (pruned 2026-11-23 to: the 3 EFIs above, `plugin-20261123`,
   `NVMTLDriver.b139`, `VermilionBoot.kext.b149`, `VermilionAccel.kext.pre-hdrvrr`, `AuxiliaryKernelExtensions.kc.0222`,
-  `phxboot-navi31.sh.pre-vrrmin`, `netcfg-20261122`), `EFI/OC.prev`, `~/gpu/*.prev`.
+  `phxboot-navi31.sh.pre-vrrmin`, `netcfg-20261122`; thread 01 added `EFI-OC.change7-20261122`,
+  `EFI-OC.change8-20261123`, `EFI-OC.change11-20261123`, `EFI-OC.change12-nvram-20261123`, `VermilionBoot.kext.b151`,
+  `.b152`, `.b154`, `VermilionAccel.kext.pre-thread01`, `phxboot-navi31.sh.pre-thread01`), `EFI/OC.prev`,
+  `~/gpu/*.prev`.
 - **Outside git, never to commit:** `~/.config/vermilion/` (SMBIOS serials, ACPI dump incl. the VBIOS),
   `~/vermilion-captures/` (display captures, EDIDs, crash reports), every `build/` folder (built EFIs contain the
   serials).
@@ -329,3 +336,5 @@ No Linux reference exists yet for any row: [HANDOFF-LINUX-REFERENCE.md](../.agen
 - 2026-11-23: thread 00 (Housekeeping) reconciled it to the live machine (EFI change 8), fixed every stale claim
   from the first round's final reports, dropped the workstream table (now ROADMAP.md) and the issue index (now
   TODO.md), and renumbered the owners to the series.
+- 2026-11-23: thread 01 (GPU stability): EFI changes 9-14 (VermilionBoot b151-b155), PhxAccel with the physical
+  size, the daemon's display check; the display rows of the machine state.

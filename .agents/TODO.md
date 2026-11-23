@@ -62,13 +62,13 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 3. **PhxAccel with the physical size** (**booted 04:15:** loaded, `CGDisplayScreenSize` 591.1 x 332.5 mm; the black
    screen of that boot was the LG after a training retry, not this: section 8 of the finding) (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
    Privacy & Security before the restart).
-   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged 04:20**
-     (`26685255`, `kmutil load -p`: "not approved"), waiting for the owner's Allow click and the restart.
+   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged ~04:12**
+     (`26685255`, `kmutil load -p`: "not approved"); the owner's Allow click rebuilt the AuxKC at 04:14, restart 04:15.
    - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
    - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
 4. **EFI change 13: VermilionBoot b154** (a switch whose last link window needed a retry runs once more from the
    target; [finding](findings/2026-11-23-gpu-stability.md) section 8) on stage `vermilion-trust` (= change 11's
-   config, `DisableVariableWrite` true; only the kext differs from the live `EFI/OC`). Owner's OK 2026-11-23 ~04:30. **Installed 04:40:** `EFI/OC` = change 13 (b154 `78f560cc`), `EFI/OC.prev` = change 11 (b153 `bd3f72fa`), config.plist byte-identical; `EFI/OC.bad` (change 12) left on the ESP. **Booted 04:36:** the login switch's last window retried (`rc=aux,ok`), the redo ran (`redone=1`; its own from plan's first window retried too, every later window first time), picture on (owner).
+   config, `DisableVariableWrite` true; only the kext differs from the live `EFI/OC`). Owner's OK 2026-11-23 ~04:30. **Installed** between the 04:33 build and the 04:36 boot: `EFI/OC` = change 13 (b154 `78f560cc`), `EFI/OC.prev` = change 11 (b153 `bd3f72fa`), config.plist byte-identical; `EFI/OC.bad` (change 12) left on the ESP. **Booted 04:36:** the login switch's last window retried (`rc=aux,ok`), the redo ran (`redone=1`; its own from plan's first window retried too, every later window first time), picture on (owner).
    - Found before the install: the live `EFI/OC` was already change 11 (b153, `DisableVariableWrite` true), change 12 sat
      in `EFI/OC.bad`, no `EFI/OC.prev`: the Linux rollback of 2 had been carried out, at a time not yet known (ask the
      owner). So the NVRAM result of 2 is unsure: the boots 04:06 / 04:10 / 04:15 may all have run change 11.
@@ -83,7 +83,7 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      `/boot/EFI`, then power off fully).
 5. **EFI change 14: VermilionBoot b155** (`f95b4baf`: drm's 32-try rule for the trainers' DPCD accesses, the
    `dpcd_aux:` stat line, the live switch `debug.phxp0odm_dbuf`, 0 at boot) on stage `vermilion-trust`; only the kext
-   differs from change 13. **Installed 05:00** (`EFI/OC` = b155 `f95b4baf`, `EFI/OC.prev` = change 13 b154 `78f560cc`, config identical) so that the next restart, whenever the owner makes one, boots it.
+   differs from change 13. **Installed ~04:49** (`EFI/OC` = b155 `f95b4baf`, `EFI/OC.prev` = change 13 b154 `78f560cc`, config identical). **Booted 04:52:** the login switch trained every window first time (`dpcd_aux: retried=0`); the `debug.phxp0odm_dbuf=1` test ran for the 1440p HDR plans; at the boot after the Linux session the LG NACKed all 32 tries twice and b154's redo ran ([finding](findings/2026-11-23-gpu-stability.md) sections 10-11).
    - Before: `~/vermilion-rollback/VermilionBoot.kext.b154`; `efi/build.py install` makes change 13 `EFI/OC.prev`
      (change 11 stays in `~/vermilion-rollback/EFI-OC.change11-20261123`).
    - Check: `debug.phxp0odm_stat` has `dpcd_aux:`; the login switch's `train_w` lines; `redone=0` if the AUX misses
@@ -95,9 +95,11 @@ change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
-      trainer stopped after 4 timeouts or 1 NACK. **b155** (built `f95b4baf` with `debug.phxp0odm_dbuf`, host-tested, not installed): drm's rule
-      for the trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Goes in with the next boot that is
-      needed anyway; check: `train_w` attempts `tries=1` where b154 had `rc=aux,ok`, `dpcd_aux: retried=` > 0
+      trainer stopped after 4 timeouts or 1 NACK. **b155** (`f95b4baf`, on the box since 04:52): drm's rule for the
+      trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Result: it does not cover this miss. At
+      the boot after the Linux session the LG NACKed all 32 tries twice (`gave_up=2 nacks=74`), the training attempt
+      failed and b154's redo ran (finding section 11). Open: what Linux does differently at that first access (it
+      trains every window first time in the captures)
 - [x] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
       every later switch refused until reboot. b151: Linux's 4 training attempts per link window, a failed from plan
       runs once more (2 per boot); b152 / b153: per-window record, Linux's pause; b154: a retried last window re-runs
