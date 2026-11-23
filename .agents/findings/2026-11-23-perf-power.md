@@ -86,7 +86,20 @@ First run, quiet desktop (05:49):
 - Everything was set back to 0 at 06:00 (`phxwait_irq`, `phxirq`, `phxeopirq`, `phxih`, `phxih_vram`); `IH_RB_CNTL`
   reads 0x40310120 again.
 
-Not decided: the better median against the worse tail. To do before it can be a default: an interleaved A/B on an
+**Quiet A/B (06:25-06:30, owner away, nothing else on the GPU; `irqab.sh`: three rounds, poll and interrupt
+alternated, 5 s per command), wall per frame:**
+
+| Command | poll median / p99 (3 rounds) | interrupt median / p99 (3 rounds) |
+|---|---|---|
+| `vkbench submit 5` (flat) | 34 us / 35-260 us | 34 us / 47-139 us |
+| `vkbench submit 5 200 512 512` | 265 us / 0.70-2.47 ms | **113-115 us / 0.44-0.56 ms** |
+| `metalbench submit 5 200 512 512` | 324 us / 0.76-0.78 ms | **213-214 us / 0.64-0.65 ms** |
+| `vkbench submit 5 2000 1024 1024` | 1.38-1.39 ms / 3.56-3.58 ms | 1.30 ms / 3.16-3.55 ms |
+
+On a quiet desktop the interrupt wait is better in median **and** p99 in every row; the earlier worse tail came with
+the second GPU client. 1.12 M MSIs in the run, no storm, no overflow. All five sysctls back to 0 at the end.
+
+Superseded by the quiet A/B: the better median against the worse tail. To do before it can be a default: an interleaved A/B on an
 idle desktop (only with the owner's OK: it loads the GPU), the tail's cause (a waiter woken by another queue's EOP
 re-sleeps for the full deadline?), and a daemon flag to set it at boot.
 

@@ -30,7 +30,9 @@ Thread 02 (2026-11-23):
    `NVMTLDriver.bundle/Contents/MacOS/`. Built in `~/src/vermilion/build-02/` (contains `efi/` with serials: delete it
    after the install).
    - When: installed right before the owner shuts down for the Linux run, so the cold boot back from Linux is the
-     change's only boot (the Linux boot doesn't go through OpenCore). Not installed yet.
+     change's only boot (the Linux boot doesn't go through OpenCore). **Installed 2026-11-23 06:31** (owner's "go"):
+     `EFI/OC` = change 15 (diff against the build: none), `EFI/OC.prev` = change 14, the two files in place (the old
+     plugin carried the `restricted` file flag; the new one doesn't). Not booted yet.
    - Before: `~/vermilion-rollback/EFI-OC.change14-20261123` (a copy of the live `EFI/OC`) and
      `~/vermilion-rollback/gpubundles-20261123-thread02/` (the installed `NVMTLDriver` `6840fbe3` and
      `libvulkan_radeon.dylib` `8054fbe4`); `efi/build.py install` makes change 14 `EFI/OC.prev`.
@@ -121,7 +123,8 @@ Thread 02 (2026-11-23):
       first: `.agents/findings/2026-11-23-vram-bo-design.md`)
 - [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
       storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
-      Left: an interleaved A/B on an idle desktop (owner's OK: GPU load), the tail's cause, a daemon flag
+      Quiet interleaved A/B (06:25): better in median and p99 everywhere. Left: a daemon flag (`phxboot-irqwait`, sets
+      the five sysctls after the bring-up; mock tests), then a day of use
       ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
 - [ ] Idle power (62-70 W board; UCLK pinned at 456 MHz, FCLK 2301): only what Linux sends, after the Linux numbers
 - [ ] Fan readings: `SMCSuperIO` (in the pinned VirtualSMC 1.3.8 zip) once Linux names the Super I/O chip. One EFI
