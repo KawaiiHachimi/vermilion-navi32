@@ -2,7 +2,8 @@
 // vtdec_test <movie> <frames> [<libphxdec_hevc.dylib>]: decodes the first <frames> video samples of <movie> through a
 // VTDecompressionSession (x420 / 420v output) and prints one md5 per output frame (Y rows then CbCr rows, visible
 // width only) plus the PTS. With a decoder dylib it registers our VCN decoder in this process first (WP6 B5 test);
-// without, Apple's decoder runs. Prints whether the session reports a hardware decoder.
+// without, VideoToolbox chooses: our decoder when PhxVideoDecoder.bundle is installed (INSTALL.md 5.5), else Apple's.
+// Prints whether the session reports a hardware decoder.
 // VTTEST_I420=1 adds an "i420" md5 per frame: the frame as planar I420 (Y, then Cb, then Cr), 16-bit little-endian
 // samples with the value in the low 10 bits for x420, the format of the conformance md5 files (libaom's
 // test vectors, <vector>.md5), so a decoder can be checked against them.
@@ -14,6 +15,7 @@
 #include <dlfcn.h>
 
 static int gFrames;
+enum { kMaxI420Width = 8192 };   // md5_i420's row buffer; wider frames get no i420 md5
 
 // md5 of a biplanar 4:2:0 frame (420v / x420) as planar I420, the layout libaom's test-vector md5s use
 static void md5_i420(CVImageBufferRef img, unsigned char d[16])
@@ -23,7 +25,7 @@ static void md5_i420(CVImageBufferRef img, unsigned char d[16])
     const uint8_t *y0 = CVPixelBufferGetBaseAddressOfPlane(img, 0), *c0 = CVPixelBufferGetBaseAddressOfPlane(img, 1);
     const size_t ys = CVPixelBufferGetBytesPerRowOfPlane(img, 0), cs = CVPixelBufferGetBytesPerRowOfPlane(img, 1);
     const size_t w = CVPixelBufferGetWidth(img), h = CVPixelBufferGetHeight(img), cw = (w + 1) / 2, ch = (h + 1) / 2;
-    uint8_t row[2 * 8192];
+    uint8_t row[2 * kMaxI420Width];
     for (size_t y = 0; y < h; y++) {
         if (!ten) { CC_MD5_Update(&c, y0 + y * ys, (CC_LONG)w); continue; }
         const uint16_t *src = (const uint16_t *)(y0 + y * ys);
@@ -44,6 +46,7 @@ static void md5_i420(CVImageBufferRef img, unsigned char d[16])
         }
     CC_MD5_Final(d, &c);
 }
+
 static void out_cb(void *ref, void *frameRef, OSStatus st, VTDecodeInfoFlags flags, CVImageBufferRef img, CMTime pts, CMTime dur)
 {
     if (st || !img) { printf("frame %d: status %d flags 0x%x no image\n", gFrames++, (int)st, (unsigned)flags); return; }
@@ -59,7 +62,7 @@ static void out_cb(void *ref, void *frameRef, OSStatus st, VTDecodeInfoFlags fla
     }
     unsigned char d[16]; CC_MD5_Final(d, &c);
     unsigned char di[16];
-    const bool i420 = getenv("VTTEST_I420") && CVPixelBufferGetWidth(img) <= 8192;
+    const bool i420 = getenv("VTTEST_I420") && CVPixelBufferGetWidth(img) <= kMaxI420Width;
     if (i420) md5_i420(img, di);
     CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
     printf("frame %d pts %lld fmt %.4s %zux%zu md5 ", gFrames++, pts.value, (const char *)&(OSType){CFSwapInt32HostToBig(fmt)},

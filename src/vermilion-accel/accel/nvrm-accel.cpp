@@ -718,6 +718,7 @@ public:
             ALOG("phxfb-go cleared on %s", gAccel->fPCI->getName());
         }
     }
+#ifdef PHX_FB
     // OpenGL on the GPU (thread 03): OpenGL.framework picks a hardware renderer from the IOGLBundleName property of an
     // IOAccelerator. AppleMetalOpenGLRenderer.bundle (x86_64 slice present on macOS 26.7.1) runs OpenGL on the
     // accelerator's Metal device. The NVIDIA path publishes it in onCountGrewLocked; the PHX_FB flow never got there,
@@ -733,7 +734,6 @@ public:
             ALOG("IOGLBundleName removed -- OpenGL processes started from now get the Apple Software Renderer");
         }
     }
-#ifdef PHX_FB
     // M7 S3a (debug.phxhead2=1): a second PhxDisplay nub, phx-display-index 1, for PhxAMDFB's phantom head. Only once head
     // 0 has published (fFBs[0]); never at boot; the nub is never taken back (debug.phxhead2=0 disconnects head 1 instead,
     // a reboot removes it). Head 1 then needs debug.nvaccelfb=3 (its display pipe) and a WindowServer restart (CoreDisplay

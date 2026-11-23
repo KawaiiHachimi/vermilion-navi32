@@ -104,9 +104,9 @@ fails for the original too (the plugin is signed as a binary without sealed reso
 
 ## 6. Smaller results
 
-- `apiprobe`: Metal device "AMD Radeon RX 7900 XTX (RADV NAVI31)", Metal 3 families, 6 GiB working set; OpenGL only
-  "Apple Software Renderer" (no accelerated pixel format); OpenCL only the CPU; Core Image on Metal; MetalFX spatial
-  and temporal supported.
+- `apiprobe`, before sections 8 and 9 (which put OpenGL and OpenCL on the GPU): Metal device "AMD Radeon RX 7900 XTX
+  (RADV NAVI31)", Metal 3 families, 6 GiB working set; OpenGL only "Apple Software Renderer" (no accelerated pixel
+  format); OpenCL only the CPU; Core Image on Metal; MetalFX spatial and temporal supported.
 - Quick Look vs `sips` (`Mac Blue.heic`, 512 px, warm): Quick Look 1.00-1.19 s (n=6), `sips` 1.01-1.05 s (n=5). The
   12.2 s of 2026-11-23 was the cold first run; no gap. (The file is 9.3 MB now; the inventory noted 21-25 MB, likely a
   different file.)
@@ -178,7 +178,7 @@ over Metal (Apple silicon's OpenGL). OpenGL.framework picks a hardware renderer 
 `IOGLBundleName`. `NMXAccel` publishes `MetalPluginName` from its personality but no `IOGLBundleName`: upstream sets it
 only in `onCountGrewLocked`, on the NVIDIA display path, which the `PHX_FB` flow never runs. Hence the Apple Software
 Renderer for every OpenGL app (section 6). `IORegistryEntrySetCFProperty` from user space returns success but changes
-nothing. **Built, not installed:** `debug.phxgl` in VermilionAccel (default 0; 1 publishes
+nothing. **Built:** `debug.phxgl` in VermilionAccel (default 0; 1 publishes
 `IOGLBundleName=AppleMetalOpenGLRenderer`, 0 removes it; only processes started afterwards see the change). The
 branch's source rebuilt the installed kext byte-identically first (UUID `0D8DC116`), so the new build differs only by
 this.
@@ -190,6 +190,7 @@ test (FBO, one shaded triangle, three pixels read back) gives the same pixels as
 off by 1 in the clear colour, rounding); 200 draws + `glFinish`: 0.82 ms vs 158.34 ms. Minecraft 26.3 (Prism
 Launcher, plain instance, owner at the machine): F3 "OpenGL 4.1 Metal", 40-80 fps, no crash report, java ~190 % CPU.
 Daemon flag `phxboot-gl` (mock-tested) sets it at every boot.
+
 Zink is the fallback, not the plan: on macOS Mesa's GL front ends are GLX (XQuartz) and EGL, not CGL / NSOpenGL, so
 LWJGL / GLFW apps can't load it as is.
 
@@ -209,7 +210,10 @@ AMD GPU is CPU-only there too. Renaming our device to pass that check would misl
 Blender 4.1 and older had an AMD Metal path (unverified on this machine). EEVEE and the viewport use Metal (not
 checked here).
 
-## Not done yet
+## Not done in thread 03
 
-Photos and video wallpaper by use, the AV1
-fallback, H.264 on VCN, the Fable clean-up pass.
+- By eye, the owner's (OWNER-TESTS 03): Photos, a video wallpaper, an HEVC `.mov` in QuickTime, the WebGL Aquarium,
+  YouTube at 1440p.
+- Moved to thread 13: 4K playback in Safari (TODO 13 item 11), the WebGPU sample failures (item 12), the AV1 fallback
+  and H.264 on VCN (item 13).
+- Thread 09: a decoder location that keeps the system volume's seal (TODO 09).

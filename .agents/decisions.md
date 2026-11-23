@@ -566,7 +566,7 @@ apps that work today; that switch, and the swapchain's speed (a host copy plus a
 13's (TODO 13 item 6). The plugin looks for `libvulkan.dylib` / `radeon_icd.json` in `nvmtl/`, so nothing goes there.
 Patch 0020 is under `VK_USE_PLATFORM_METAL_EXT`, so the plugin's RADV build stays the same code.
 
-## 2026-11-23: OpenGL through Apple's OpenGL-over-Metal renderer, on by default; Zink not pursued
+## 2026-11-23: OpenGL through Apple's OpenGL-over-Metal renderer, behind a daemon flag; Zink not pursued
 
 **Decision:** OpenGL apps use `AppleMetalOpenGLRenderer.bundle` (shipped with macOS 26.7.1, x86_64 slice) on our
 Metal device: VermilionAccel publishes `IOGLBundleName` when `debug.phxgl=1`, and the boot daemon sets it with the flag

@@ -22,8 +22,9 @@ change 23 and the system-volume change: git history of this file (`ownback/apis-
 PROJECT_KNOWLEDGE.
 
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
-  OpenGL over Metal verified 23:25 (finding section 8). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`,
-  `kmutil load -p`, Allow, restart; or just `rm ~/gpu/phxboot-gl` (GL off from the next boot) / `sysctl -w debug.phxgl=0`.
+  OpenGL over Metal verified 23:25 (finding section 8). Rollback:
+  `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just
+  `rm ~/gpu/phxboot-gl` (GL off from the next boot) / `sysctl -w debug.phxgl=0`.
 
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
@@ -321,16 +322,17 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
 - [ ] **12. GPU robustness leftovers** (13 is the last GPU thread before ryzentosh: it takes these too). From 03's
   webgpu-samples run (finding section 7): AIR -> SPIR-V translator failures ("native emitter: unknown SSA value",
   "graph walk ... opcode=tail", `ImageQuerySizeLod` contract, a sampler operand), indirect command buffers
-  (`newIndirectCommandBufferWithDescriptor` -> nil: WebGPU render bundles; they **crash Safari's GPU process**, SIGTRAP in `icbCommandClampFunction`, 4 reports on 2026-11-23), textures that sample black (`texturedCube`,
+  (`newIndirectCommandBufferWithDescriptor` -> nil: WebGPU render bundles; they **crash Safari's GPU process**,
+  SIGTRAP in `icbCommandClampFunction`, 4 reports on 2026-11-23), textures that sample black (`texturedCube`,
   `cameras`, `generateMipmap`, `timestampQuery`). Rerun `tools/metaltest/wgsamples.m` after each fix. Effort M-L.
   Translator / plugin: trust + EFI change.
-- [ ] **13. Decode leftovers from 03** (each changes the decoder bundle on the system volume: owner's OK first, decisions
-  2026-11-23; plus trust + EFI for the dylibs):
+- [ ] **13. Decode leftovers from 03** (each changes the decoder bundle on the system volume: owner's OK first,
+  decisions 2026-11-23; plus trust + EFI for the dylibs):
   - [ ] AV1 has no fallback: with the bundle installed, an AV1 session our decoder refuses (VCN down, `phxdec-off`)
-        fails (`-12906`) instead of falling back, while `VTIsHardwareDecodeSupported(av1)` says true. VideoToolbox's decoder list
-        has Apple's "SW AV1 Decoder" (`com.apple.videotoolbox.videodecoder.av1.sw`, 2026-11-23); find out why it is not
-        tried; then either refuse AV1 in the bundle's matching when VCN
-        is down (a second bundle entry?) or document. `phxdec-av1` is set meanwhile
+        fails (`-12906`) instead of falling back, while `VTIsHardwareDecodeSupported(av1)` says true. VideoToolbox's
+        decoder list has Apple's "SW AV1 Decoder" (`com.apple.videotoolbox.videodecoder.av1.sw`, 2026-11-23); find
+        out why it is not tried; then either refuse AV1 in the bundle's matching when VCN is down (a second bundle
+        entry?) or document. `phxdec-av1` is set meanwhile
   - [ ] H.264 on VCN (a real Mac decodes it in hardware): FFmpeg's `h264_vulkan` + RADV's H.264 decode are there;
         `phxdec_hevc.c` and the bundle handle HEVC / AV1 only
 

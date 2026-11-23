@@ -509,13 +509,13 @@ sc_bovram_ws() {        world; bv_flag 'vkbench,WindowServer'; expect_writes 'ph
 sc_bovram_bad() {       world; bv_flag 'a;rm -rf /'; expect_writes 'phxbo_vram' 0; expect_log 'bovram: .*not a list of process names'; expect_log 'SUCCESS'; go bovram_bad; }
 sc_bovram_empty() {     world; bv_flag ''; expect_writes 'phxbo_vram' 0; expect_log 'bovram: .*not a list of process names'; go bovram_empty; }
 sc_bovram_oldkext() {   world; bv_flag 'vkbench'; SIM_BOVRAM_NOOID=1; expect_writes 'phxbo_vram' 0; expect_log 'bovram: VermilionBoot before b156'; go bovram_oldkext; }
+sc_bovram_nodesk() {    world; DESK=0; bv_flag 'vkbench'; expect_writes 'phxbo_vram' 0; expect_log 'bovram: not a desktop boot'; go bovram_nodesk; }
 # 11-23 (thread 03) gl: ~/gpu/phxboot-gl -> debug.phxgl=1, read back
 sc_gl_off() {           world; expect_nolog 'gl: '; expect_writes 'phxgl' 0; expect_log 'SUCCESS'; go gl_off; }
 sc_gl_on() {            world; : >"$FR/gpu/phxboot-gl"; expect_writes '^-w debug.phxgl=1$' 1; expect_log 'gl: OpenGL over Metal on'; expect_log 'SUCCESS'; go gl_on; }
 sc_gl_oldkext() {       world; : >"$FR/gpu/phxboot-gl"; SIM_GL_NOOID=1; expect_writes 'phxgl' 0; expect_log 'gl: VermilionAccel without debug.phxgl'; expect_log 'SUCCESS'; go gl_oldkext; }
 sc_gl_fail() {          world; : >"$FR/gpu/phxboot-gl"; SIM_SYSCTL_FAIL=debug.phxgl; expect_log 'gl: debug.phxgl=1 refused: off'; expect_log 'SUCCESS'; go gl_fail; }
 sc_gl_nodesk() {        world; DESK=0; : >"$FR/gpu/phxboot-gl"; expect_writes 'phxgl' 0; expect_log 'gl: not a desktop boot'; go gl_nodesk; }
-sc_bovram_nodesk() {    world; DESK=0; bv_flag 'vkbench'; expect_writes 'phxbo_vram' 0; expect_log 'bovram: not a desktop boot'; go bovram_nodesk; }
 # M7 boot bring-up: the stub prints whether the AGDC was armed and WindowServer restarted when it ran (order proof)
 m7_stub(){ printf '#!/bin/sh\nk=no; [ -e "$SIM_STATE/killed" ] && k=yes\na=no; grep -q "debug.phxagdc=1" "$SIM_STATE/sysctl.log" 2>/dev/null && a=yes\necho "m7: stub $1 agdc_written=$a killed=$k"\n[ "$1" = light ] && exit ${M7_LIGHT_RC:-0}\n[ "$1" = bind ] && { [ "${M7_BIND_RC:-0}" = 0 ] && touch "$SIM_STATE/bound"; exit ${M7_BIND_RC:-0}; }\nexit 0\n' > "$FR/gpu/m7_boot.sh"; }
 sc_m7_off() {           world; m7_stub; expect_log 'SUCCESS'; expect_nolog 'm7:'; expect_killall; expect_no_reboot; go m7_off; }

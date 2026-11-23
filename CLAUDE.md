@@ -52,7 +52,7 @@ only the owner can do: [`.agents/OWNER-TESTS.md`](.agents/OWNER-TESTS.md).
 | `tools/firmware/` | pinned linux-firmware fetcher (`fw.lock`) | MIT |
 | `tools/capture/` | Linux-side capture tools: `gpuinfo.c`, `linux_display_capture.py` (mode-set traces), `linux_pci_capture.sh`, and the replay-plan generators (`p0odm_from_trace.py`, `p0plan_from_regs.py`) | MIT |
 | `tools/linux/` | the Linux reboot guard (a Linux reboot goes back to Linux; only a power-off reaches macOS) | MIT |
-| `tools/metaltest/` | `metalbench`, `apiprobe`: Metal performance and what each graphics API reports | MIT |
+| `tools/metaltest/` | `metalbench`, `apiprobe`: Metal performance and what each graphics API reports; `webprobe`, `wgsamples` (WebGL / WebGPU / media in WebKit's GPU process), `vkwindow` (a Vulkan window surface), `mkclip` (HEVC test clips) | MIT |
 | `tools/sensors/`, `tools/storage/`, `tools/audio/`, `tools/usbmap/`, `tools/validation/` | read-only measurement tools: CPU temperature / power / clock, NVMe benchmarks, CoreAudio probes, the USB port walk, a per-boot report (`bootcheck.sh`) | MIT |
 | `scripts/build/` | one build script per component | MIT |
 | `efi/` | reproducible OpenCore EFI builder: pinned components, machine profiles, stages ([`efi/README.md`](efi/README.md)) | MIT |

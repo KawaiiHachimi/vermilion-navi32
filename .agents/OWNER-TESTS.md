@@ -87,7 +87,8 @@ and reopen Safari once before these tests (a Safari that was open before 18:07 k
       Triaged by 03 (finding section 7: translator failures, render bundles, black textures): thread 13 fixes them.
 - [ ] **WebGL Aquarium** in Safari: does it draw, is it smooth?
 - [ ] **The same in a Chromium browser** (Chrome, Brave, Edge).
-- [ ] **Minecraft:** start it in Prism Launcher, press F3, and read the renderer line and the frame rate.
+- [x] **Minecraft** (2026-11-23, with `phxboot-gl`): Minecraft 26.3 in Prism Launcher, F3 shows "OpenGL 4.1 Metal",
+      40-80 fps, no crash report (finding section 8). Its speed is thread 13's.
 - [x] **4K YouTube in Safari** (2026-11-23): stutters and glitches. Decode is bit-exact at 4K (03 checked), so the
       cause is presentation / timing; thread 13 fixes it (TODO 13 item 11).
 - [ ] **YouTube at 1440p meanwhile:** play the same 4K video, set the quality to 1440p60 in the gear menu, right-click

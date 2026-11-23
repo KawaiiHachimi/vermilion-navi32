@@ -339,11 +339,11 @@ to `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU` and l
 sandboxed GPU processes (WebKit's `com.apple.WebKit.GPU`, Chromium and Electron helpers) may map executables only from
 system paths, and `/Library/GPUBundles` is readable but not executable for them. That `CoreTypes.bundle` directory is a
 firmlink into the writable Data volume, so the sealed system volume is not touched and no `csr` bit is needed. The
-originals are kept in `/Library/GPUBundles-backup`; the script is idempotent and checks the plugin's signature at the
-end. Run it as root after the plugin is installed. The reference machine runs relocated since 2026-11-23: before, Safari's GPU
-process was refused (`file system sandbox blocked mmap()`) and WebGL contexts were lost at creation; after, WebGL 1 / 2
-and WebGPU work in it (RX 7900 XTX). Later installs into `/Library/GPUBundles/...` land in the relocated copy through
-the symlinks. The script ends by checking that the moved executables keep their cdhashes.
+originals are kept in `/Library/GPUBundles-backup`; the script is idempotent and ends by checking that the moved
+executables keep their cdhashes. Run it as root after the plugin is installed. The reference machine runs relocated
+since 2026-11-23: before, Safari's GPU process was refused (`file system sandbox blocked mmap()`) and WebGL contexts
+were lost at creation; after, WebGL 1 / 2 and WebGPU work in it (RX 7900 XTX). Later installs into
+`/Library/GPUBundles/...` land in the relocated copy through the symlinks.
 
 ## 6. The tools directory `~/gpu`
 
@@ -542,8 +542,8 @@ A reasonable first set on one monitor is `sdma`, `cg` and `uclk` (`456`); add `a
 (section 8).
 
 The LaunchDaemon can also pass `PHXBOOT_NO_SDMA=1`, `PHXBOOT_NO_CG=1`, `PHXBOOT_NO_UCLK=1`, `PHXBOOT_NO_AOC=1`,
-`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1`, `PHXBOOT_NO_BOVRAM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
-skip a step regardless of the flags.
+`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1`, `PHXBOOT_NO_BOVRAM=1`, `PHXBOOT_NO_GL=1` or
+`PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to skip a step regardless of the flags.
 
 ### 7.4 The login-window guard
 

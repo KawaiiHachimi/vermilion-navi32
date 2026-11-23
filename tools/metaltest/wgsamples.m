@@ -21,7 +21,7 @@ static NSArray<NSString *> *allSamples(void) {
           componentsSeparatedByString:@" "];
 }
 
-// Injected before the page's own scripts: forwards errors to the host and counts animation frames.
+// Injected before the page's own scripts: forwards errors and warnings to the host and counts animation frames.
 static NSString *const kHook = @"(()=>{const post=(k,m)=>{try{webkit.messageHandlers.s.postMessage(k+' '+m)}catch(e){}};\n"
 "const oe=console.error.bind(console);console.error=(...a)=>{post('error',a.map(String).join(' '));oe(...a)};\n"
 "const ow=console.warn.bind(console);console.warn=(...a)=>{post('warn',a.map(String).join(' '));ow(...a)};\n"
@@ -31,6 +31,9 @@ static NSString *const kHook = @"(()=>{const post=(k,m)=>{try{webkit.messageHand
 " const d=await rd.apply(this,a);d.addEventListener('uncapturederror',e=>post('error','gpu '+e.error.message));\n"
 " d.lost.then(i=>post('error','device lost '+i.reason+' '+i.message));return d;};}\n"
 "let n=0;const f=()=>{n++;requestAnimationFrame(f)};requestAnimationFrame(f);self.__wgFrames=()=>n;})();";
+
+// The hook's frame count, -1 when the hook did not run (the page failed to load).
+static NSString *const kFrames = @"self.__wgFrames?__wgFrames():-1";
 
 static NSString *jsonString(NSString *s) {
   NSData *d = [NSJSONSerialization dataWithJSONObject:@[ s ?: @"" ] options:0 error:nil];
@@ -74,12 +77,12 @@ static NSString *jsonString(NSString *s) {
   const double t0 = self.seconds / 3, t1 = self.seconds;
   __block double f0 = -1;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(t0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-    [self.view evaluateJavaScript:@"self.__wgFrames?__wgFrames():-1" completionHandler:^(id r, NSError *e) {
+    [self.view evaluateJavaScript:kFrames completionHandler:^(id r, NSError *e) {
       f0 = r ? [r doubleValue] : -1;
     }];
   });
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(t1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-    [self.view evaluateJavaScript:@"self.__wgFrames?__wgFrames():-1" completionHandler:^(id r, NSError *e) {
+    [self.view evaluateJavaScript:kFrames completionHandler:^(id r, NSError *e) {
       const double f1 = r ? [r doubleValue] : -1;
       const double fps = (f0 >= 0 && f1 >= f0) ? (f1 - f0) / (t1 - t0) : -1;
       // the window's real pixels (a WKWebView snapshot leaves WebGPU canvases empty)
@@ -87,14 +90,12 @@ static NSString *jsonString(NSString *s) {
       NSTask *t = [NSTask launchedTaskWithLaunchPath:@"/usr/sbin/screencapture"
           arguments:@[ @"-x", @"-o", [NSString stringWithFormat:@"-l%ld", (long)self.window.windowNumber], png ]];
       [t waitUntilExit];
-      {
-        NSMutableArray *errs = [NSMutableArray new];
-        for (NSString *x in self.errors) [errs addObject:jsonString(x)];
-        printf("{\"sample\":\"%s\",\"fps\":%.1f,\"warnings\":%lu,\"errors\":[%s]}\n", name.UTF8String, fps,
-               (unsigned long)self.warnings, [errs componentsJoinedByString:@","].UTF8String);
-        fflush(stdout);
-        [self next];
-      }
+      NSMutableArray *errs = [NSMutableArray new];
+      for (NSString *x in self.errors) [errs addObject:jsonString(x)];
+      printf("{\"sample\":\"%s\",\"fps\":%.1f,\"warnings\":%lu,\"errors\":[%s]}\n", name.UTF8String, fps,
+             (unsigned long)self.warnings, [errs componentsJoinedByString:@","].UTF8String);
+      fflush(stdout);
+      [self next];
     }];
   });
 }

@@ -103,8 +103,9 @@ int main(int argc, char **argv)
         CHECK(vkCreateSwapchainKHR(dev, &swci, NULL, &sc));
         uint32_t ni = 0;
         vkGetSwapchainImagesKHR(dev, sc, &ni, NULL);
-        VkImage imgs[8];
-        ni = ni > 8 ? 8 : ni;
+        enum { kMaxImages = 8 };
+        VkImage imgs[kMaxImages];
+        ni = ni > kMaxImages ? kMaxImages : ni;
         vkGetSwapchainImagesKHR(dev, sc, &ni, imgs);
         printf("swapchain: %u images\n", ni);
 
@@ -117,7 +118,7 @@ int main(int argc, char **argv)
         VkCommandBufferAllocateInfo cai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = pool,
                                            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = kInFlight};
         CHECK(vkAllocateCommandBuffers(dev, &cai, cb));
-        VkSemaphore acq[kInFlight], done[8];
+        VkSemaphore acq[kInFlight], done[kMaxImages];   // done: one per swapchain image
         VkFence fence[kInFlight];
         VkSemaphoreCreateInfo semi = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         VkFenceCreateInfo fci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};

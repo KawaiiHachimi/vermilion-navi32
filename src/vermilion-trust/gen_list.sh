@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # gen_list.sh: writes phxtrust_list.inc, the cdhashes VermilionTrust lets through library validation.
-# Usage: ./gen_list.sh [file ...]   (default: the Vermilion code installed in /Library/GPUBundles)
+# Usage: ./gen_list.sh [file ...]   (default: the Vermilion code installed in /Library/GPUBundles, plus the video
+# decoder's VideoToolbox bundle in /System/Library/Video/Plug-Ins when it is installed)
 # Each file must be a thin x86_64 Mach-O with an embedded (ad-hoc) signature. Rebuild the kext after every install
 # of the plugin, translator, RADV or decoder: a new build has a new cdhash, and AMFI refuses what isn't listed.
 # PHXTRUST_KEEP=1 also keeps the cdhashes of the current phxtrust_list.inc, so one kext accepts the installed build and

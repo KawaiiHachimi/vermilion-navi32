@@ -101,13 +101,17 @@ Metal.framework in every process that uses Metal (if `/Library/GPUBundles/nvmtl-
 
 ### RADV (`patches/mesa`)
 
-Mesa at commit `f5cb8ee0` with 19 patches:
+Mesa at commit `f5cb8ee0` with 20 patches:
 
 - **0001-0009 (Cobalt64):** a Darwin backend that replaces the Linux DRM ioctls with the N48N user client.
 - **0010-0015 (nullarc):** Phoenix APU support and the proxy path.
 - **0016-0018:** a "canned" Navi 31 device profile and its shims; 0018 picks the profile by PCI revision (XTX: Mesa's
   `navi31`, XT: `navi31_xt`).
 - **0019:** the kext handshake line goes to the unified log (stderr only with `RADV_DARWIN_VERBOSE=1`).
+- **0020:** a window surface for apps. Built with `-Dplatforms=macos` (`RADV_PLATFORMS=macos sh scripts/build/radv.sh`),
+  RADV offers `VK_KHR_surface`, `VK_EXT_metal_surface` and swapchains through Mesa's Metal WSI (a copy to host memory
+  plus a Metal blit per frame). The default build, the one the plugin loads, has no window-system platform and
+  compiles to the same code as before.
 
 RADV can't query the hardware the way it does on Linux, so the GPU's identity comes from a **canned profile**: CU
 layout, cache channels, firmware versions. The memory heaps come from the kext. See [XTX.md](XTX.md) for what this

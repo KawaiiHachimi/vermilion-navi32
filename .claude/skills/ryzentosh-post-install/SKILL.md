@@ -119,6 +119,10 @@ volume. Evidence: `.agents/findings/2026-11-23-apis-video.md`.
 4. **Vulkan for apps (opt-in):** Vulkan-Loader v1.3.296 and `RADV_PLATFORMS=macos sh scripts/build/radv.sh` into
    `/usr/local/lib/vermilion`, the manifest into `/usr/local/share/vermilion/vulkan/icd.d/`. Check:
    `VK_DRIVER_FILES=<manifest> vkwindow 240 <png>` (`tools/metaltest/vkwindow.m`).
+5. **OpenGL and OpenCL on the GPU:** needs a VermilionAccel with `debug.phxgl` (section 3). `touch ~/gpu/phxboot-gl`
+   (the daemon sets `debug.phxgl=1` after `done` on a desktop boot), or `sudo sysctl -w debug.phxgl=1` for this boot.
+   Only apps started afterwards use it. Check: `apiprobe` (`tools/metaltest/apiprobe.m`) names the Radeon as the
+   OpenGL renderer ("4.1 Metal") and as an OpenCL GPU device. Off: `rm ~/gpu/phxboot-gl`, `debug.phxgl=0`.
 
 ## 6. System settings — to be filled by threads 05 and 09
 

@@ -3,7 +3,7 @@
 //
 // webprobe: what a WebKit page gets on this machine, through the same WebKit GPU process (and sandbox) Safari uses.
 // Loads an inline page in an off-screen WKWebView and prints, as JSON: the WebGL 1 / WebGL 2 renderer and vendor
-// (WEBGL_debug_renderer_info), a few limits, whether WebGPU gives an adapter (and its info), and how long a small WebGL
+// (WEBGL_debug_renderer_info), a few limits, whether WebGPU gives an adapter (and its info), how long a small WebGL
 // draw loop takes (100 full-viewport draws of a 512x512 canvas, read back once), and what MSE / Media Capabilities say
 // about AV1, VP9, HEVC and H.264 at the sizes YouTube serves (what a site picks its stream from). Draws only into its
 // own canvas.
@@ -88,19 +88,20 @@ static NSString *const kVideoPage = @"<!doctype html><html><body><video id=v mut
 int main(int argc, char **argv) {
   @autoreleasepool {
     const double timeout = argc > 1 ? atof(argv[1]) : 20;
+    const BOOL video = argc > 2;   // <video> mode: on screen, because WebKit presents video frames only there
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     Probe *p = [Probe new];
     WKWebViewConfiguration *cfg = [WKWebViewConfiguration new];
     [cfg.userContentController addScriptMessageHandler:p name:@"probe"];
-    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(argc > 2 ? 64 : -4000, argc > 2 ? 64 : -4000, 512, 512)
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(video ? 64 : -4000, video ? 64 : -4000, 512, 512)
                                               styleMask:NSWindowStyleMaskBorderless
                                                 backing:NSBackingStoreBuffered defer:NO];
     WKWebView *v = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 512, 512) configuration:cfg];
     v.navigationDelegate = p;
     w.contentView = v;
-    if (argc > 2) [w orderFrontRegardless]; else [w orderBack:nil];   // <video> presents frames only on screen
-    if (argc > 2) {
+    if (video) [w orderFrontRegardless]; else [w orderBack:nil];
+    if (video) {
       NSURL *movie = [NSURL fileURLWithPath:@(argv[2])].URLByStandardizingPath;
       NSURL *dir = movie.URLByDeletingLastPathComponent;
       NSURL *page = [dir URLByAppendingPathComponent:@".webprobe-video.html"];
