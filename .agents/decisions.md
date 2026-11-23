@@ -487,3 +487,19 @@ WebGL / WebGPU and others) are the measuring sticks.
 **Why:** the owner wants macOS "just as performant as Linux in any game, application, workload" (2026-11-23); Horizon
 was installed only to compare (160 fps on macOS vs 4370 on Linux, same view).
 **Revisit:** when a measuring stick disagrees with the others (a cause that only one app hits).
+
+## 2026-11-23: BAR0 1 GiB for macOS (`ResizeAppleGpuBars` 10), replacing 0
+
+**Decision:** a stage `vermilion-trust-bar1g` resizes the GPU's BAR0 to 1 GiB for macOS (OpenCore Booter quirk
+`ResizeAppleGpuBars` 10), first with the kext unchanged (one boot to prove macOS takes it), then the kext places
+CPU-visible client BOs in real VRAM inside the window ([256 MiB, 1 GiB) minus the scan slots), instead of system
+memory behind a 256 MiB budget as today (`kVisTotal`, "E1 backs every BO with system memory").
+**Why:** the owner wants Linux parity in every workload (decision above). On Linux, Resizable BAR (on in the BIOS)
+makes all 24 GiB CPU-visible and RADV puts mappable buffers in VRAM; on macOS every CPU-written buffer is read over
+PCIe (Horizon's main pass: 2.35 ms against Linux's 0.22 ms frame). Apple's PCI support stops at 1 GiB (OpenCore docs),
+so 1 GiB is the most macOS can get: 4x today, not 24 GiB. ocvalidate flags any value but 0 as "unstable with macOS
+sleep-wake"; this machine has no sleep resume path, so the stage accepts that one message (`ocvalidate_accept`
+in efi/build.py; any other error still fails the build).
+**Replaces:** "2026-11-18: `ResizeAppleGpuBars = 0`, Resizable BAR stays on" for the vermilion-trust-bar1g stage; the
+default stage stays at 0 until the stage is verified.
+**Revisit:** if macOS fails PCI configuration or the desktop with 1 GiB; when sleep gets a resume path.

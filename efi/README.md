@@ -110,7 +110,7 @@ from macOS). Which one is the default is open (TODO, thread 10).
 - **Booter quirks:** as the ASUS B650E-F config (same chipset family) uses them, including `SetupVirtualMap` and
   `DevirtualiseMmio`. `DisableVariableWrite`: the installer froze while writing NVRAM on this board; side effect,
   macOS can't write NVRAM at all (no startup-disk change, no panic log in NVRAM).
-- **`ResizeAppleGpuBars = 0`:** Resizable BAR stays on for Linux. macOS sees the default BAR sizes (BAR0 256 MiB),
+- **`ResizeAppleGpuBars = 0`** (stage `vermilion-trust-bar1g`: 10, BAR0 1 GiB, decisions 2026-11-23): Resizable BAR stays on for Linux. macOS sees the default BAR sizes (BAR0 256 MiB),
   which is what Vermilion was validated with.
 - **ACPI:**
   - **DSDT patches in place.** BIOS 4005 creates the whole chipset (`GPP7.UP00`: its USB, SATA, LAN, Wi-Fi)

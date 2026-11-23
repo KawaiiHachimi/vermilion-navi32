@@ -132,9 +132,10 @@ def resolve_stage(machine, stage):
             die(f"stage inheritance loop at {s}")
         chain.append(s)
         s = stages[s].get("inherits")
-    kexts, boot_args, csr, nvram, booter = [], [], None, {}, {}
+    kexts, boot_args, csr, nvram, booter, accept = [], [], None, {}, {}, []
     for s in reversed(chain):
         st = stages[s]
+        accept += [a for a in st.get("ocvalidate_accept", []) if a not in accept]
         nvram.update({k: v for k, v in st.get("nvram_add", {}).items() if not k.startswith("_")})
         booter.update({k: v for k, v in st.get("booter_quirks", {}).items() if not k.startswith("_")})
         if "kexts" in st:
@@ -146,7 +147,7 @@ def resolve_stage(machine, stage):
         boot_args = [a for a in boot_args if a not in st.get("boot_args_remove", [])]
         csr = st.get("csr_active_config", csr)
     return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram,
-            "booter_quirks": booter}
+            "booter_quirks": booter, "ocvalidate_accept": accept}
 
 
 # ---------------------------------------------------------------------------------------------------------- SMBIOS
@@ -365,9 +366,18 @@ def build(args):
         validator = oc / "ocvalidate" / ("ocvalidate.linux" if sys.platform.startswith("linux") else "ocvalidate")
         validator.chmod(0o755)
         r = subprocess.run([str(validator), str(ocd / "config.plist")], capture_output=True, text=True)
-        print("  " + "\n  ".join((r.stdout + r.stderr).strip().splitlines()[-3:]))
+        out = (r.stdout + r.stderr).strip().splitlines()
+        print("  " + "\n  ".join(out[-3:]))
         if r.returncode != 0:
-            die("ocvalidate failed (output above)")
+            # a stage may accept named ocvalidate messages it takes on purpose (ocvalidate_accept, with its reason in the
+            # stage's _comment); any other error still fails the build
+            accept = stage.get("ocvalidate_accept", [])
+            errs = [l.strip() for l in out if l.strip() and not l.lstrip().startswith(("Completed validating", "Serialisation", "Check")) and "returns" not in l and "OCS:" not in l and not l.lstrip().startswith("NOTE")]
+            unknown = [l for l in errs if l not in accept]
+            if not accept or unknown or not errs:
+                print("  " + "\n  ".join(out))
+                die("ocvalidate failed (output above)")
+            print("  ocvalidate: accepted on purpose by this stage: " + "; ".join(errs))
 
         if args.placeholder_smbios:
             (out / "NOT-BOOTABLE-placeholder-smbios").write_text("built with placeholder SMBIOS serials\n")
