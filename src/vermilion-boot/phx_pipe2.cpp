@@ -142,6 +142,11 @@ static int p0PairArmed();
 static bool p0PairGate(char *why, size_t n);
 static int p0PairSwitch(int from1Hz, int to1Hz, int (*sw)(void *, uint32_t), char *why, size_t n, bool *ran);
 static void p0PairCounts(uint32_t *postFails, uint32_t *rollbacks);
+static uint64_t p2NowUs(void *) {   // b152: the replay engine's link-window timing (no register access)
+    uint64_t ns = 0;
+    absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
+    return ns / 1000u;
+}
 static phxp2::Env p2Env() {
     phxp2::Env e{};
     e.io = {gPhx, p2IoRd, p2IoWr, p2IoMmRd, p2IoMmWr, p2IoDelay};
@@ -152,6 +157,7 @@ static phxp2::Env p2Env() {
     e.pmfwIdle = p2PmfwIdle;
     e.p0Pair = p0PairArmed();
     e.i2cLock = p2I2cLock;
+    e.nowUs = p2NowUs;
     return e;
 }
 static bool p2Up() { return gPhx && gPhx->p2Ready() && gMmIdxLock && gPhx->p2VramBytes(); }

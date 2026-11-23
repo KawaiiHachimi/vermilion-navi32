@@ -210,6 +210,48 @@ gpu_dump(){ local d="$HANGDIR/phxhang-$(date '+%Y%m%d-%H%M%S')"; mkdir -p "$d"
             ps -axo pid,stat,comm > "$d/ps.txt" 2>&1
             find /tmp /private/var/folders -name 'nvmtl*.log' 2>/dev/null | while read -r f; do cp "$f" "$d/$(echo "$f" | tr '/' '_')" 2>/dev/null; done
             grep -E 'fault|VMID' "$d/state.txt" | head -12; }
+# Display check (thread 01, 2026-11-23): the display engines' own state, read during the crash watch and before SUCCESS.
+# A latched engine means a mode switch left pipe 0 where no plan knows it, the screen most likely dark (2026-11-22 20:19:
+# a login switch to 1440p60 HDR failed link training, black screen, every later switch refused, and the daemon said
+# SUCCESS). debug.phxp0odm_stat line 2 "failed=1" (the replay engine; b151 latches only after a from plan failed twice,
+# a halt or a DMUB timeout), debug.phxpipe0_stat "dark=1" (the pipe-0 engine's revert failed). Reads only.
+# Recovery: one clean restart (the TERM trap below clears the in-progress mark and re-arms as a clean shutdown does).
+# $DARKF records it; a second dark boot in a row stays up and reports (no restart loop); a boot that ends clean removes it.
+DARKF=${PHXBOOT_DARKF:-/var/db/phxboot.darkrestart}
+disp_state(){ local st p0
+  st=$(sysctl -n debug.phxp0odm_stat 2>/dev/null); p0=$(sysctl -n debug.phxpipe0_stat 2>/dev/null)
+  if printf '%s\n' "$st" | grep -q '^state: .* failed=1 '; then echo "dark: the replay engine latched ($(printf '%s\n' "$st" | head -1))"; return 0; fi
+  if printf '%s\n' "$p0" | grep -q ' dark=1 '; then echo "dark: the pipe-0 engine latched dark ($(printf '%s\n' "$p0" | sed -n 's/.*\(last=[^ ]*\).*\( why=.*\)/\1\2/p' | head -1))"; return 0; fi
+  if printf '%s\n' "$st" | grep -q '^result=FELL-BACK-TO-144 '; then echo "fell back: $(printf '%s\n' "$st" | head -1)"; return 0; fi
+  return 1; }
+DISPNOTE=""
+# The replay engine's last run into this log, once per new run (the run counter in line 2): its result, the recoveries,
+# each link window's training and timing (b152). The kernel's own lines don't reach the unified log, and the sysctl
+# keeps only the last run of the current boot. Reads only.
+DISPRUNS=""
+disp_log(){ local st a
+  st=$(sysctl -n debug.phxp0odm_stat 2>/dev/null) || return 0
+  a=$(printf '%s\n' "$st" | sed -n 's/^state: .* attempts=\([0-9]*\) .*/\1/p')
+  [ -n "$a" ] && [ "$a" != "$DISPRUNS" ] || return 0
+  DISPRUNS=$a; echo "engine run $a at $(date '+%T'):"
+  printf '%s\n' "$st" | grep -E '^(result=|recovery:|train_w[0-9]+:|last_fail:|last_fail_train:)' | grep -v '^last_fail: target=0 ' | sed 's/^/  /'; }
+disp_check(){ local d
+  d=$(disp_state) || return 0
+  case "$d" in
+    fell*) [ "$DISPNOTE" = "$d" ] || { DISPNOTE=$d; echo "display: $d (a visible picture at 144 Hz; the saved mode was not reached)"; }; return 0;;
+  esac
+  echo "DARK at $(date '+%T'): $d"
+  local f="$HANGDIR/phxdark-$(date '+%Y%m%d-%H%M%S').txt"; mkdir -p "$HANGDIR"
+  { echo "$d"; date; sysctl debug.phxp0odm_stat debug.phxpipe0_stat debug.phxvrr_stat debug.phxfb0_vrr debug.phxfb0_hdr debug.phxscan 2>&1; } > "$f" 2>&1
+  echo "  engine state saved to $f"
+  if [ -e "$DARKF" ]; then
+    echo "  dark again on the boot after a dark restart ($DARKF): no restart, staying up (ssh / T3 reach the machine; Apple menu > Restart, or pick another mode in System Settings once the engine allows it)"
+    DARK=1; return 0
+  fi
+  echo "dark at $(date '+%F %T'): $d" > "$DARKF"; sync
+  echo "  recovery: one clean restart now ($DARKF set: a second dark boot in a row will not restart)"
+  shutdown -r now; DARK=1; return 0; }
+DARK=0
 # A sleep that a TERM ends at once. Bash runs a trap only after the foreground child exits, so a plain `sleep 5` held
 # the TERM trap below for up to 5 s, the time launchd gives the job before SIGKILL at shutdown (its default ExitTimeOut);
 # `wait` returns as soon as the trapped signal arrives.
@@ -515,7 +557,7 @@ if [ $DESK = 1 ]; then
   touch "$MARK"; sync         # in-progress: a hang before we finish -> next boot reverts
   # a clean restart or shutdown (launchd sends TERM; a hang never does) is not a failed attempt: clear the mark and
   # re-arm the next boot as SUCCESS would, so a restart from the login window during the watch keeps acceleration
-  trap 'echo "clean shutdown (TERM) at $(date "+%T") during the desktop attempt: in-progress mark cleared"; rm -f "$MARK"
+  trap 'echo "clean shutdown (TERM) at $(date "+%T") during the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; disp_log
         [ -e "$AUTO" ] && nvram phxfb-squat=1 && echo "phxfb-squat re-armed for the next boot (phxboot-auto present)"; sync
         b21_on "shutdown (TERM) during the desktop attempt"; exit 0' TERM
   # 1) PhxAMDFB should already be on the panel (took it at claim via nmxgpu-claimed match).
@@ -603,9 +645,13 @@ if [ $DESK = 1 ]; then
   for ((t=0;t<120;t+=5)); do nap 5; n=$(( $(ls "$DR" 2>/dev/null | grep -c '^WindowServer[-_]') - before ))
     p=$(wspid); if [ -n "$p" ] && [ "$p" != "$wsr" ]; then died=$((died+1)); echo "watch: WindowServer pid ${wsr:-none} -> $p at $(date '+%T') (a silent crash counts too)"; wsr=$p; fi
     [ $died -gt $n ] && n=$died
-    [ $n -ge 3 ] && { gpu_dump "WindowServer crashed/hung $n times"; m2_fail "WindowServer crashed/hung $n times after the clean restart"; }; done
+    [ $n -ge 3 ] && { gpu_dump "WindowServer crashed/hung $n times"; m2_fail "WindowServer crashed/hung $n times after the clean restart"; }
+    disp_log; [ $DARK = 1 ] || disp_check; done
   pgrep -qx WindowServer || m2_fail "no WindowServer after the restart"
-  echo "SUCCESS at $(date '+%T'): WindowServer pid $(pgrep -x WindowServer), frames=$(sysctl -n debug.nvaccel_iop_ok 2>/dev/null) -- accelerated desktop survived"
+  disp_log; [ $DARK = 1 ] || disp_check
+  if [ $DARK = 1 ]; then echo "DARK at $(date '+%T'): the accelerated desktop survived, the display engine did not (above)"
+  else rm -f "$DARKF"; fi
+  [ $DARK = 1 ] || echo "SUCCESS at $(date '+%T'): WindowServer pid $(pgrep -x WindowServer), frames=$(sysctl -n debug.nvaccel_iop_ok 2>/dev/null) -- accelerated desktop survived"
   # the session's shutdown TERM: login-window guard ON for the next boot's first loginwindow, then die of the TERM as before
   trap 'b21_on "shutdown (TERM)"; trap - TERM; kill -TERM $$' TERM; rm -f "$MARK"
   if [ $SAFE = 1 ]; then echo "safe desktop up (the stuck squat stays: $OFF / $FAILF kept, nothing re-armed)"

@@ -181,6 +181,22 @@ int main() {
         uint8_t z[128] = {};
         CHECK(!edidRange(z, sizeof z, &r) && !edidRange(kLgEdid, 64, &r) && !edidRange(nullptr, 128, &r));
     }
+    // ---- thread 01: the panel's image size for IODisplayModeInformation (the LG: DTD 590 x 333 mm, base block 59 x 33 cm) ----
+    {
+        uint16_t w = 1, h = 1;
+        CHECK(edidImageMm(kLgEdid, sizeof kLgEdid, &w, &h) && w == 590 && h == 333);
+        uint8_t e[128];
+        std::memcpy(e, kLgEdid, 128);
+        e[54 + 14] = 0; e[54 + 12] = 0; e[54 + 13] = 0;   // no size in the DTD: the base block's cm
+        CHECK(edidImageMm(e, 128, &w, &h) && w == 590 && h == 330);
+        e[21] = 16; e[22] = 9;                             // an aspect ratio stored as a size (16 x 9 cm) is still a size
+        CHECK(edidImageMm(e, 128, &w, &h) && w == 160 && h == 90);
+        e[21] = 0; e[22] = 0;                              // nothing: 0 x 0, macOS keeps its own
+        CHECK(!edidImageMm(e, 128, &w, &h) && w == 0 && h == 0);
+        e[54 + 12] = 0x10; e[54 + 13] = 0x01; e[54 + 14] = 0x00;   // 16 x 1 mm: not a panel
+        CHECK(!edidImageMm(e, 128, &w, &h));
+        CHECK(!edidImageMm(kLgEdid, 64, &w, &h) && !edidImageMm(nullptr, 128, &w, &h));
+    }
     std::printf("head0_1440_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }

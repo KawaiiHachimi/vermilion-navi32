@@ -38,9 +38,13 @@ echo "ESP panic logs (OpenCore ApplePanic): $(ls /Volumes/*/panic-*.txt 2>/dev/n
 
 if [ -r "$PHXLOG" ]; then
     hdr=$(grep -n '^== .*phxboot' "$PHXLOG" | tail -1 | cut -d: -f1)
-    res=$(tail -n +"${hdr:-1}" "$PHXLOG" | grep -E 'SUCCESS|FAIL|safe desktop|GOP' | tail -1)
+    res=$(tail -n +"${hdr:-1}" "$PHXLOG" | grep -E 'SUCCESS|FAIL|DARK|safe desktop|GOP' | tail -1)
     echo "boot daemon: $(sed -n "${hdr:-1}p" "$PHXLOG" | cut -c1-60) -> ${res:-no result yet}"
+    tail -n +"${hdr:-1}" "$PHXLOG" | grep -E '^display: ' | tail -1
 fi
+# the display engines (VermilionBoot b151+): the replay engine's last result and its boot-long state
+p0=$(sysctl -n debug.phxp0odm_stat 2>/dev/null)
+[ -n "$p0" ] && echo "replay engine: $(printf '%s\n' "$p0" | head -1 | cut -c1-160)" && printf '%s\n' "$p0" | sed -n 's/^state: /  /p; s/^recovery: /  recovery: /p'
 
 pm=$(pmset -g)
 echo "pmset: sleep $(awk '$1=="sleep"{print $2}' <<<"$pm"), displaysleep $(awk '$1=="displaysleep"{print $2}' <<<"$pm"), hibernatemode $(awk '$1=="hibernatemode"{print $2}' <<<"$pm"), SleepDisabled $(ioreg -rd1 -c IOPMrootDomain | awk -F'= ' '/"SleepDisabled"/{print $2}')"

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // edid_full_test.cpp: host test of src/vermilion-boot/PhxDdc.h readEdidFull / readEdidBlocks / auxEdidBlock(segment)
 // (kext b127, debug.phxedid_full), against a fake DP AUX engine + E-DDC sink built from the register layout auxOnce uses.
+// b155: dpcdAccess (drm's 32-try rule for native DPCD reads / writes) against the same engine with injected failures.
 //   c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o /tmp/edid_full_test tests/kext/edid_full_test.cpp && /tmp/edid_full_test
 #include "PhxDdc.h"
 #include <cstdio>
@@ -24,6 +25,9 @@ struct Sink {
     size_t replyPos = 0;
     uint32_t stat = 0;
     std::vector<std::string> log;   // one line per AUX transaction
+    uint8_t dpcd[0x700] = {};       // b155: native DPCD space for 0x80 / 0x90
+    std::vector<int> fails;         // b155: per coming transaction: 't' timeout, 'n' NACK, 'd' DEFER, 's' short read
+    uint32_t delayUs = 0;
     uint32_t base() const { return phxddc::kAux0 + phxddc::kAuxStride * eng; }
 
     uint32_t rd(uint32_t r) {
@@ -57,7 +61,18 @@ struct Sink {
         uint8_t rep = 0;
         std::vector<uint8_t> out;
         char line[64];
-        if (action == 0x40 && addr == 0x30) {
+        const int f = fails.empty() ? 0 : fails.front();
+        if (!fails.empty()) fails.erase(fails.begin());
+        if (f == 't') {   // AUX_SW_STATUS: done with the RX timeout bit (7)
+            log.push_back("TIMEOUT"); reply.clear(); replyPos = 0; stat = 1u | (1u << 7); done = true; return;
+        }
+        if (action == 0x90 || action == 0x80) {
+            std::snprintf(line, sizeof line, "%s %x %u", action == 0x90 ? "DR" : "DW", addr, len);
+            if (f == 'n') rep = 1;
+            else if (f == 'd') rep = 2;
+            else if (action == 0x80) for (unsigned i = 0; i < len && addr + i < sizeof dpcd; i++) dpcd[addr + i] = data[i];
+            else for (unsigned i = 0; i < (f == 's' ? len - 1 : len); i++) out.push_back(addr + i < sizeof dpcd ? dpcd[addr + i] : 0);
+        } else if (action == 0x40 && addr == 0x30) {
             std::snprintf(line, sizeof line, "W30 %u", data.empty() ? 999u : data[0]);
             if (!segments) rep = 4; else seg = data[0];
         } else if (action == 0x40 && addr == 0x50) {
@@ -86,7 +101,8 @@ struct Sink {
 };
 static phxddc::Io io(Sink &s) {
     return phxddc::Io{&s, [](void *c, uint32_t r) { return static_cast<Sink *>(c)->rd(r); },
-                      [](void *c, uint32_t r, uint32_t v) { static_cast<Sink *>(c)->wr(r, v); }, [](void *, uint32_t) {}};
+                      [](void *c, uint32_t r, uint32_t v) { static_cast<Sink *>(c)->wr(r, v); },
+                      [](void *c, uint32_t us) { static_cast<Sink *>(c)->delayUs += us; }};
 }
 
 // A synthetic EDID of 1 + ext blocks, each summing to 0 (block 1 CTA-861, block 2 DisplayID, as the LG's).
@@ -183,6 +199,35 @@ int main() {
     {   // a source that is neither AUX nor DC_I2C
         Sink s; s.edid = makeEdid(1);
         CHECK(phxddc::readEdidFull(io(s), 0x30, out, &len, &ann, nullptr) == phxddc::kErrArg && s.log.empty());
+    }
+    // ---- b155: dpcdAccess = drm_dp_dpcd_access's rule: 32 tries, at once after a timeout, else 500 us later ----
+    {
+        Sink s; phxddc::DpcdStat st{};
+        s.dpcd[0x202] = 0x77; s.dpcd[0x203] = 0x77;
+        uint8_t b[2] = {};
+        CHECK(phxddc::dpcdAccess(io(s), 2, false, 0x202, b, 2, &st) == phxddc::kOk && b[0] == 0x77 && b[1] == 0x77);
+        CHECK(st.calls == 1 && st.ok == 1 && st.retried == 0 && s.log.size() == 1 && s.delayUs == 0);
+        // a timeout then an ACK: the second try goes at once (no 500 us)
+        s.log.clear(); s.delayUs = 0; s.fails = {'t'};
+        uint8_t d0 = 1;
+        CHECK(phxddc::dpcdAccess(io(s), 2, true, 0x600, &d0, 1, &st) == phxddc::kOk && s.dpcd[0x600] == 1);
+        CHECK(s.log.size() == 2 && s.delayUs == 0 && st.retried == 1 && st.timeouts == 1 && st.lastFirstErr == phxddc::kErrTimeout);
+        // a NACK, a DEFER, a short read, then the read lands: 500 us before each retry; the old aux() stopped at the NACK
+        s.log.clear(); s.delayUs = 0; s.fails = {'n', 'd', 's'};
+        CHECK(phxddc::dpcdAccess(io(s), 2, false, 0x202, b, 2, &st) == phxddc::kOk && b[0] == 0x77);
+        CHECK(s.log.size() == 4 && s.delayUs == 1500 && st.nacks == 2 && st.defers == 1 && st.maxTries == 4);
+        CHECK(st.lastFirstErr == phxddc::kErrNack);
+        s.log.clear(); s.fails = {'n'};
+        uint8_t got = 0;
+        CHECK(phxddc::aux(io(s), 2, 0x90, 0x202, nullptr, 2, b, 2, &got, nullptr) == phxddc::kErrNack && s.log.size() == 1);
+        // every try fails: 32 transactions, the first error returned
+        s.log.clear(); s.delayUs = 0; s.fails.assign(40, 't'); s.fails[0] = 'n';
+        CHECK(phxddc::dpcdAccess(io(s), 2, false, 0x0, b, 1, &st) == phxddc::kErrNack && s.log.size() == 32);
+        CHECK(st.gaveUp == 1 && st.calls == 4 && st.ok == 3 && s.delayUs == 500);   // only after the NACK; timeouts back to back
+        // an argument error never reaches the wire
+        s.log.clear();
+        uint8_t big[17] = {};
+        CHECK(phxddc::dpcdAccess(io(s), 2, false, 0x0, big, 17, &st) == phxddc::kErrArg && s.log.empty());
     }
     std::printf("edid_full_test: %d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;

@@ -15,32 +15,128 @@ Rules:
 
 ## Staged now
 
-Nothing. Nothing is staged on the ESP (`<ESP>/vermilion/flags/` empty, no `run-once.sh`), and no EFI change is
-pending (2026-11-23, thread 00).
+Thread 01's machine changes, one per boot, in the order made (2026-11-23). **State at the end of thread 01:** `EFI/OC`
+= change 14 (VermilionBoot b155, stage `vermilion-trust`), `EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12
+(the NVRAM test, inconclusive); PhxAccel with the physical size; the daemon with the display check. No further EFI
+change in 01. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
+
+1. **EFI change 9: VermilionBoot b151** (stage `vermilion-trust`, only the kext differs from change 8) **+ the boot
+   daemon with the display check** (`~/gpu/phxboot-navi31.sh`, not an EFI change; it only reads sysctls).
+   **Installed 2026-11-23 03:08** (owner's OK): `EFI/OC` = change 9 (VermilionBoot sha256 `a23a2766`), `EFI/OC.prev` =
+   change 8; change 7 kept as `~/vermilion-rollback/EFI-OC.change7-20261122`. **Booted 03:11:** b151 loaded (the `recovery:` line), the 240 HDR login switch DONE in 1 training attempt, daemon `SUCCESS`, no `DARK`, shutdown cause 5, VermilionTrust enforcing (`denied_unlisted=0`). Left: OWNER-TESTS "Login at 60 Hz HDR".
+   - Before: `~/vermilion-rollback/EFI-OC.change8-20261123` (a copy of the live `EFI/OC`) and
+     `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`; `efi/build.py install` turns change 8 into `EFI/OC.prev`.
+   - Check: `sysctl debug.phxp0odm_stat` has the `recovery:` line; `/var/log/phxboot.log` ends in `SUCCESS` with no
+     `DARK`; then OWNER-TESTS 01 "Login at 60 Hz HDR" (3 restarts).
+   - Rollback: boot trouble: `EFI/OC` and `EFI/OC.prev` swapped (PROJECT_KNOWLEDGE "Rollback of the EFI"); a daemon
+     problem: `sudo cp ~/vermilion-rollback/phxboot-navi31.sh.pre-thread01 ~/gpu/phxboot-navi31.sh`, restart.
+1b. **EFI change 10: VermilionBoot b152** (diagnostics only: every link window's attempts and timing, `train_wN` in
+   `debug.phxp0odm_stat`) **+ the daemon's per-boot engine record** (`engine run N` lines in `/var/log/phxboot.log`).
+   Why: the 03:28 boot's last link window trained at its 4th attempt. Owner's OK 2026-11-23 ~03:45. **Installed:** `EFI/OC` = change 10 (VermilionBoot `9ca53007`), `EFI/OC.prev` = change 9 (b151 `a23a2766`); daemon deployed.
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b151`; `EFI/OC.prev` becomes change 9.
+   - Check: `train_w` lines in the stat, `engine run` lines in the daemon log; 2-3 restarts at 1440p60 HDR.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped; the daemon: `~/gpu/phxboot-navi31.sh` from git `47c4543`
+     (`git show 47c4543:tools/phxctl/phxboot-navi31.sh`).
+1c. **EFI change 11: VermilionBoot b153** (the eight HDR plans wait Linux's 100-180 ms before their second link
+   window; [finding](findings/2026-11-23-gpu-stability.md) section 6). Owner's OK 2026-11-23 ~03:55. **Installed:** `EFI/OC` = change 11 (`bd3f72fa`), `EFI/OC.prev` = change 10 (b152 `9ca53007`). **Booted 03:51-03:57:** 3 restarts landed; window 2 `since_prev` ~227 ms; tries 2 / 1 / 1 (the 2: no AUX answer at the first attempt) ([finding](findings/2026-11-23-gpu-stability.md) section 7).
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b152`; `EFI/OC.prev` becomes change 10.
+   - Check: 2-3 restarts at 1440p60 HDR; every `train_w3` of the daemon log's `engine run` lines `tries=1`, with
+     `since_prev_us` about 225000.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped.
+2. **EFI change 12: stage `vermilion-trust-nvram`** (`DisableVariableWrite` off; nothing else). Built on b153; owner's OK 2026-11-23 ~04:00; `~/gpu/phxboot-auto` created 04:00. For a hang: `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` tells Claude on Linux the swap (owner's wish; delete it once the change is verified). First
+   `touch ~/gpu/phxboot-auto`: with writes working, the squatter's delete of `phxfb-squat` at boot is real, and only
+   the daemon's re-arm (`phxboot-auto`) keeps the next boot accelerated.
+   - Check after the boot: `sudo nvram vermilion-test=1; nvram vermilion-test` (reads back), the daemon log's
+     `phxfb-squat re-armed ... read-back ok`; one more restart reaches the accelerated desktop (squat boot); then
+     `sudo nvram -d vermilion-test`.
+   - Rollback: a hang at boot or at shutdown: hold power, power on, F8 > Limine (Linux), rename `/boot/EFI/OC` to
+     `OC.bad` and `OC.prev` to `OC`, **power off fully**, power on. From macOS: the same renames under
+     `/Volumes/NO NAME/EFI`. Then `rm ~/gpu/phxboot-auto` (back to the stuck-squat setup of today).
+   - Worst case named by the old thread 02: a board that hangs on writes may need a CMOS clear (unverified).
+   - **Result: inconclusive** (the Linux rollback ran at an unknown time; see 4). Recorded at the time:
+     **Booted 04:06 and 04:10:** no hang at boot or shutdown, but the write did **not** persist: `vermilion-test` was
+     gone after the restart, `phxfb-squat` stayed in the firmware (squat boot), and
+     `nvram IONVRAM-FORCESYNCNOW-PROPERTY=...` returns "general error". Second test armed: `vermilion-test2=forced`,
+     checked after the next restart (with staged 3). If it is gone too: back to change 11 (`DisableVariableWrite` buys
+     nothing then) and find the real block from Linux (efivars).
+3. **PhxAccel with the physical size** (**booted 04:15:** loaded, `CGDisplayScreenSize` 591.1 x 332.5 mm; the black
+   screen of that boot was the LG after a training retry, not this: section 8 of the finding) (`/Library/Extensions`, AuxKC; needs the owner's **Allow** click in
+   Privacy & Security before the restart).
+   - Before: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01` (`c6341e87`). **Copied and staged ~04:12**
+     (`26685255`, `kmutil load -p`: "not approved"); the owner's Allow click rebuilt the AuxKC at 04:14, restart 04:15.
+   - Check: `CGDisplayScreenSize` about 590 x 333 mm (thread 01's `sz` probe), System Settings > Displays.
+   - Rollback: the copy back into `/Library/Extensions`, `kmutil load -p`, Allow, restart (INSTALL.md section 4).
+4. **EFI change 13: VermilionBoot b154** (a switch whose last link window needed a retry runs once more from the
+   target; [finding](findings/2026-11-23-gpu-stability.md) section 8) on stage `vermilion-trust` (= change 11's
+   config, `DisableVariableWrite` true; only the kext differs from the live `EFI/OC`). Owner's OK 2026-11-23 ~04:30. **Installed** between the 04:33 build and the 04:36 boot: `EFI/OC` = change 13 (b154 `78f560cc`), `EFI/OC.prev` = change 11 (b153 `bd3f72fa`), config.plist byte-identical; `EFI/OC.bad` (change 12) left on the ESP. **Booted 04:36:** the login switch's last window retried (`rc=aux,ok`), the redo ran (`redone=1`; its own from plan's first window retried too, every later window first time), picture on (owner).
+   - Found before the install: the live `EFI/OC` was already change 11 (b153, `DisableVariableWrite` true), change 12 sat
+     in `EFI/OC.bad`, no `EFI/OC.prev`: the Linux rollback of 2 had been carried out, at a time not yet known (ask the
+     owner). So the NVRAM result of 2 is unsure: the boots 04:06 / 04:10 / 04:15 may all have run change 11.
+     In `EFI/OC` a FAT repair had turned `MtkWirelessBT.kext/Contents/Resources/google-libsbc-LICENSE.txt` into
+     `FSCK0000.000` (the same text; the kext's binary unchanged).
+   - Before: `~/vermilion-rollback/EFI-OC.change11-20261123` (a copy of the live `EFI/OC`) and
+     `~/vermilion-rollback/EFI-OC.change12-nvram-20261123` (`EFI/OC.bad`); `efi/build.py install` makes change 11
+     `EFI/OC.prev`; `<ESP>/vermilion/ROLLBACK-NVRAM-TEST.md` removed (its swap would now undo b154).
+   - Check: `debug.phxp0odm_stat` `recovery:` line has `redone=`; at a login whose last window retried, `redone=1` and
+     a picture. 2-3 restarts at 1440p60 HDR.
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (from macOS under `/Volumes/NO NAME/EFI`, or from Linux under
+     `/boot/EFI`, then power off fully).
+5. **EFI change 14: VermilionBoot b155** (`f95b4baf`: drm's 32-try rule for the trainers' DPCD accesses, the
+   `dpcd_aux:` stat line, the live switch `debug.phxp0odm_dbuf`, 0 at boot) on stage `vermilion-trust`; only the kext
+   differs from change 13. **Installed ~04:49** (`EFI/OC` = b155 `f95b4baf`, `EFI/OC.prev` = change 13 b154 `78f560cc`, config identical). **Booted 04:52:** the login switch trained every window first time (`dpcd_aux: retried=0`); the `debug.phxp0odm_dbuf=1` test ran for the 1440p HDR plans; at the boot after the Linux session the LG NACKed all 32 tries twice and b154's redo ran ([finding](findings/2026-11-23-gpu-stability.md) sections 10-11).
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b154`; `efi/build.py install` makes change 13 `EFI/OC.prev`
+     (change 11 stays in `~/vermilion-rollback/EFI-OC.change11-20261123`).
+   - Check: `debug.phxp0odm_stat` has `dpcd_aux:`; the login switch's `train_w` lines; `redone=0` if the AUX misses
+     are gone. Then the live `debug.phxp0odm_dbuf=1` test (TODO 01, DRR double buffer).
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (macOS: `/Volumes/NO NAME/EFI`; Linux: `/boot/EFI`, then power off
+     fully).
 
 ## 01 GPU stability
 
-- [ ] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
-      and every later switch refused until reboot. Keep the trainer's CR / EQ details for a failed run, retry once,
-      fall back to the 144 hub instead of locking the engine; lock only on repeated failures. State saved:
-      `~/vermilion-captures/black-20261122-2025.txt`
-- [ ] The daemon reported `SUCCESS` during that black screen: read `debug.phxp0odm_stat` after login and recover or
-      report
+- [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
+      DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
+      trainer stopped after 4 timeouts or 1 NACK. **b155** (`f95b4baf`, on the box since 04:52): drm's rule for the
+      trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Result: it does not cover this miss. At
+      the boot after the Linux session the LG NACKed all 32 tries twice (`gave_up=2 nacks=74`), the training attempt
+      failed and b154's redo ran (finding section 11). Open: what Linux does differently at that first access (it
+      trains every window first time in the captures)
+- [x] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
+      every later switch refused until reboot. b151: Linux's 4 training attempts per link window, a failed from plan
+      runs once more (2 per boot); b152 / b153: per-window record, Linux's pause; b154: a retried last window re-runs
+      the switch. On the box 2026-11-23 03:11-04:36: every login switch at 1440p60 HDR trained, 5 needed a retry, one
+      (04:15, b153) stayed black on a locked link until a re-switch, which b154 now does by itself (04:36)
+- [x] The daemon reported `SUCCESS` during that black screen: `disp_check` (`DARK`, the engines' state in
+      `/var/log/phxdark-*.txt`, one restart) for a failed engine; deployed 03:08. Its limit: the 04:15 kind of black
+      (link locked, frames presented) reads as healthy; b154 covers that case at the source
 - [ ] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
-      config; not watched failing here). Test one boot without `DisableVariableWrite` (`sudo nvram vermilion-test=1`,
-      read it back); if writes work and nothing hangs, keep it off. This also lets macOS clear `phxfb-squat`.
-      Fallback: photos of the panic screen. Needed first for the restart panic of 2026-11-19 22:44 (cause unknown)
-- [ ] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm: PhxAMDFB doesn't
-      give WindowServer the EDID size / display attributes *(cause inferred)*. Blocks HiDPI / scaled modes. Then
-      check whether macOS offers "looks like" modes ([finding](findings/2026-11-23-macos-integration-inventory.md))
-- [ ] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
-      floor label is patched into the EDID PhxAccel serves
-- [ ] Tearing at 1440p60 with GPU present; input lag at 60 Hz. Measure first (a phone video; pointer acceleration
-      off). Plugin: the schedule-time copy of the non-async GPU present (present only after completion)
-- [ ] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
-      "Revisit"), then re-verify every plan
-- [ ] Display sleep (`pmset displaysleepnow`, wake with a key; GPU power while dark), from the old thread 07's
-      inventory. Rollback: Apple menu > Restart
+      config; not watched failing here). The NVRAM test (change 12) is **inconclusive**: change 12 was rolled back from
+      Linux at an unknown time, so the boots 04:06 / 04:10 / 04:15 may all have run change 11 (writes blocked). Open
+      for the Linux session: read the firmware's variables from Linux (efivars) and redo the test as its own EFI
+      change. Then a deliberate test panic is the only way to prove a report is saved (owner's call). Needed first for
+      the restart panic of 2026-11-19 22:44 (cause unknown)
+- [x] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm: every mode's
+      `imageWidth / imageHeight` was 0 ([finding](findings/2026-11-23-gpu-stability.md) section 3). PhxAccel with the
+      EDID's size installed 2026-11-23 04:15: `CGDisplayScreenSize` 591.1 x 332.5 mm
+- [ ] Scaled ("looks like") modes: macOS lists only the native-pixel 2560-wide modes (no HiDPI twins); find what a
+      real Mac's driver reports for them before adding any (low priority)
+- [x] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
+      floor label is patched into the EDID PhxAccel serves. **Owner's decision 2026-11-23:** keep the patch (label
+      60-240); documented in [XTX.md](../docs/XTX.md) ("A floor change resets the display's settings")
+- [x] OpenCore logs: written at every boot, named in UTC (one hour behind CET); PROJECT_KNOWLEDGE fixed
+- [~] Tearing at 1440p60 with GPU present; input lag at 60 Hz. **Input lag measured 2026-11-23** (finding section 9):
+      posted mouse event -> OTG0 frame start median 27-30 ms at 60 Hz, 8.3 ms at 240 Hz; WindowServer composites at
+      vsync and flips ~3 ms later, the flip waits for the next vblank (14 ms at 60 Hz): the normal one-frame compositor
+      pipeline, no extra driver frame. Idea, not planned: start the composite later in the frame (late latch).
+      **Tearing:** every flip is a vsync flip (FLIP_TYPE 0 in 40000 samples, never immediate), so a tear cannot come
+      from the flip; still needs the owner's phone video (OWNER-TESTS 01) to say what is seen
+- [~] DRR double buffer for the whole boot as on Linux, not only while Variable is on (decisions 2026-11-22,
+      "Revisit"), then re-verify every plan. **b155** adds `debug.phxp0odm_dbuf` (live, 0 at boot): after the b155
+      boot, set 1 and run session switches through every 1440p rate (SDR / HDR), post checks and the owner's eye; if
+      all land, make 1 the default in a later build. **2026-11-23 04:56:** HDR 144, 240 (ODM + DSC), 120, 60 under
+      mode 2: all DONE, first-attempt training, no underflow, owner saw every one land. Left: the SDR plans and the
+      1080p / small modes under mode 2
+- [x] Display sleep: tested 2026-11-23 (b155): the signal stays up while macOS's display sleeps; the LG never goes to
+      standby. Linux's DPMS sequence captured; the fix moved to **05 Sleep and wake** (coordination thread, owner's OK)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
 - [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
@@ -95,6 +191,21 @@ pending (2026-11-23, thread 00).
 
 ## 05 Sleep and wake
 
+- [ ] **Display sleep (DPMS), from thread 01.** Today `pmset displaysleepnow` puts PhxAMDFB in power state 0, but
+      OTG0, the link and the stream stay up (DPCD lanes locked, frames counting): the LG shows black and never goes to
+      standby (owner, 2026-11-23 04:58, b155); wake (`caffeinate -u`) brings the picture back at once. A real Mac stops
+      the signal; for the OLED that also means no standby-time panel care.
+      - Capture (done 2026-11-23 05:05, Linux 7.2.15, capture v5 `tools/capture/linux_display_capture.py --dpms`):
+        `~/vermilion-captures/dpms/display-20261123-050500` (not in git; no serials), every 1440p rate SDR and HDR:
+        `trace-dpms-off.txt` (549-2409 writes; while off `OTG0_CONTROL 0x00001200`, no frames), `regs-off.txt`,
+        `dpcd-off-*`, `trace-dpms-on.txt` (3778-10310 writes, 502-2127 DMUB commands: a full stream enable with link
+        training). Finding: [2026-11-23-gpu-stability.md](findings/2026-11-23-gpu-stability.md) sections 10-11.
+      - Plan: (1) a DPMS mode for `tools/capture/p0odm_from_trace.py` (its burst detection refuses both traces today:
+        "no OTG0 unlock", "fewer than 2 bursts"); generate `phx_p0odm_<mode>_dpmsoff/_dpmson.inc` per 1440p mode;
+        (2) replay engine: a `dark` state (off plan from the current mode, on plan back to it; b154's retry rule and
+        the redo apply to the on plan's link windows); (3) PhxAccel: run them at power state 0 / 1 (IOFramebuffer
+        power), with GPU present yielding the plane while OTG0 is off; (4) host tests, then one boot + the Allow click.
+        Other resolutions: fixed rates today, keep the signal (or capture them too)
 - [ ] Platform S3 test on a `-phxbringupoff` boot (one EFI change, `disablesleep 0` for that boot): wake by keyboard,
       mouse, power button; then USB, NVMe, Wi-Fi, Bluetooth, audio
 - [ ] GPU resume path (the driver assumes a cold GPU today), after the S3 test

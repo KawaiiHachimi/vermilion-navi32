@@ -275,6 +275,26 @@ inline uint32_t vrrFloor(uint32_t edidMinHz, uint32_t edidMaxHz, uint32_t wantHz
     return f < edidMaxHz ? f : 0u;
 }
 
+// The physical size of the image in mm, for IODisplayModeInformation imageWidth / imageHeight (thread 01, 2026-11-23).
+// With both 0 macOS reported 2560 x 1440 at 72 dpi (903 x 508 mm, CGDisplayScreenSize, XTX machine) although IOKit's
+// display dictionary read 590 x 330 from the same EDID. The first detailed timing descriptor's image size (bytes 12-14,
+// mm), else the base block's maximum image size (bytes 21-22, cm). 0 when neither is given; a size whose aspect is far
+// from the panel's (w / h outside 1 / 4 .. 4) is treated as not given (EDIDs that store an aspect ratio there).
+inline bool edidImageMm(const uint8_t *e, uint32_t len, uint16_t *w, uint16_t *h) {
+    *w = *h = 0;
+    if (!e || len < 128) return false;
+    auto ok = [](uint32_t a, uint32_t b) { return a && b && a <= 4 * b && b <= 4 * a; };
+    for (unsigned k = 0; k < 4; k++) {
+        const uint8_t *d = e + 54 + 18 * k;
+        if (!d[0] && !d[1]) continue;   // a display descriptor, not a timing
+        const uint32_t dw = d[12] | ((d[14] >> 4) << 8), dh = d[13] | ((d[14] & 0xfu) << 8);
+        if (ok(dw, dh)) { *w = static_cast<uint16_t>(dw); *h = static_cast<uint16_t>(dh); return true; }
+        break;                          // only the first (preferred) timing describes the panel
+    }
+    if (ok(e[21], e[22])) { *w = static_cast<uint16_t>(e[21] * 10u); *h = static_cast<uint16_t>(e[22] * 10u); return true; }
+    return false;
+}
+
 // Adaptive Sync's floor in macOS's copy of the EDID. CoreDisplay names System Settings' "Variable (N-M Hz)" after the
 // EDID's own minimum, not IOFBTimingRange's (seen on the XTX machine: range published 60-240, the menu said 48-240), and
 // the LG has 48 twice: the base block's range limits descriptor (0xFD, byte 5) and AMD's FreeSync VSDB in the CTA block

@@ -121,11 +121,27 @@ static phxodm::VrrRegs gVrrSet{};  // the range last written
 static uint32_t gVrrMinHz = 48, gVrrOns = 0, gVrrOffs = 0, gVrrRefusals = 0;
 static const char *gVrrWhy = "never run";
 static uint32_t gVrrOffWaitUs = 0, gVrrOffWaitMaxUs = 0, gVrrOffTimeouts = 0;   // off's wait for the frame-start latch
+// b155: debug.phxp0odm_dbuf (root, live; 0 at boot = b150's rule). 1 = Linux's OTG_DRR_TIMING_DBUF_UPDATE_MODE 2 for the
+// whole boot, as optc3_tg_init sets it at driver load (decisions 2026-11-22, "Revisit": a plan run under mode 2 tried on
+// the box): every replay run and the range's off keep mode 2. 0 again puts back the mode found at the first 1 (VRR off).
+static int gDbufLinux = 0;
+static bool gDbufSaved = false;
+static uint32_t gDbufGop = 0;      // OTG0's double-buffer control before the first 1
+static uint32_t gDbufSets = 0;     // mode-2 writes made for it
+static void dbufLinuxLocked(const phxp2::Env &e) {
+    if (!gDbufLinux) return;
+    const uint32_t db = phxp2::rd(e, phxodm::kOtg0Dbuf);
+    if (!gDbufSaved) { gDbufGop = db; gDbufSaved = true; }
+    if ((db & phxodm::kDbufDrrMode) != phxodm::kDbufDrrFrameStart) {
+        e.io.wr(e.io.c, phxodm::kOtg0Dbuf, phxodm::dbufWith(db, phxodm::kDbufDrrFrameStart));
+        gDbufSets++;
+    }
+}
 static void vrrOffLocked(const phxp2::Env &e) {
     if (!gVrrOn) return;
     gVrrOn = 0;   // first: no flip writes a window or a trigger from here (scanPresent runs under the same scanLock)
     bool timedOut = false;
-    gVrrOffWaitUs = phxodm::vrrWriteOff(e, gVrrBoot, gVrrBootDbuf, &timedOut);   // latched at a frame start, then the boot mode
+    gVrrOffWaitUs = phxodm::vrrWriteOff(e, gVrrBoot, gDbufLinux ? phxodm::kDbufDrrFrameStart : gDbufSaved ? gDbufGop : gVrrBootDbuf, &timedOut);   // latched at a frame start, then the boot mode (b155: Linux's 2 while debug.phxp0odm_dbuf)
     if (gVrrOffWaitUs > gVrrOffWaitMaxUs) gVrrOffWaitMaxUs = gVrrOffWaitUs;
     if (timedOut) gVrrOffTimeouts++;
     gVrrOffs++; gVrrWhy = "off";
@@ -200,6 +216,7 @@ static int odmRunLocked(int sel, int *err) {
     gOdmLast = sel;
     IOLockLock(gPhx->scanLockForEngines());
     vrrOffLocked(p2Env());   // the plans run without a V_TOTAL range
+    dbufLinuxLocked(p2Env());   // b155: under Linux's DRR double buffer when debug.phxp0odm_dbuf is 1
     {   // a size change first takes the plane back from GPU present (sel: 1 survey, 2 = 240, 3 = 144, else a key)
         const uint32_t key = sel == 2 ? 240u : sel == 3 ? 144u : static_cast<uint32_t>(sel);
         const int mi = sel == 1 ? -1 : phxodm::findMode(kOdmSet, key);
@@ -272,11 +289,16 @@ SYSCTL_PROC(_debug, OID_AUTO, phxp0odm, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKE
 static int phxP0OdmStatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;
-    static constexpr int kN = 2048;
+    static constexpr int kN = 4096;
     char *b = static_cast<char *>(IOMalloc(kN));
     if (!b) return ENOMEM;
     int len = gOdm.attempts ? phxodm::stat(gOdm, kOdmSet, b, kN)
                             : snprintf(b, kN, "never run (root: sysctl -w debug.phxp0odm=1 survey, or 60 / 120 / 144 / 240)\n");
+    if (len < 0) len = 0;
+    if (len < kN - 1)   // b155: the boot's trainer DPCD accesses (phx_dplink.cpp, drm's 32-try rule)
+        len += snprintf(b + len, static_cast<size_t>(kN - len), "dpcd_aux: calls=%u ok=%u retried=%u gave_up=%u timeouts=%u nacks=%u defers=%u "
+                        "other=%u max_tries=%u last_first_err=%d\n", gDplDpcd.calls, gDplDpcd.ok, gDplDpcd.retried, gDplDpcd.gaveUp,
+                        gDplDpcd.timeouts, gDplDpcd.nacks, gDplDpcd.defers, gDplDpcd.other, gDplDpcd.maxTries, gDplDpcd.lastFirstErr);
     if (len < 0) len = 0;
     if (len > kN - 1) len = kN - 1;
     b[len] = 0;
@@ -305,6 +327,31 @@ static int phxVrrSysctl SYSCTL_HANDLER_ARGS {
     IOLog("PhxBringup: debug.phxvrr=%d: %s (V_TOTAL_MIN 0x%x MAX 0x%x CONTROL 0x%x)\n", v, gVrrWhy, gVrrSet.vmin, gVrrSet.vmax, gVrrSet.ctl);
     return r;
 }
+static int phxP0OdmDbufSysctl SYSCTL_HANDLER_ARGS {
+    int v = gDbufLinux;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v != 0 && v != 1) return EINVAL;
+    if (!p2Up() || !gPhx || !gPhx->scanLockForEngines()) return ENXIO;
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return EBUSY;
+    IOLockLock(gPhx->scanLockForEngines());
+    const phxp2::Env e = p2Env();
+    gDbufLinux = v;
+    if (v) dbufLinuxLocked(e);
+    else if (gDbufSaved && !gVrrOn) {   // back to the mode found before (the range, when on, keeps 2 until its off)
+        const uint32_t db = phxp2::rd(e, phxodm::kOtg0Dbuf);
+        if ((db & phxodm::kDbufDrrMode) != (gDbufGop & phxodm::kDbufDrrMode)) e.io.wr(e.io.c, phxodm::kOtg0Dbuf, phxodm::dbufWith(db, gDbufGop));
+    }
+    const uint32_t now = phxp2::rd(e, phxodm::kOtg0Dbuf);
+    IOLockUnlock(gPhx->scanLockForEngines());
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    IOLog("PhxBringup: debug.phxp0odm_dbuf=%d: OTG0 DOUBLE_BUFFER_CONTROL 0x%08x (before the first 1: 0x%08x, mode-2 writes %u)\n", v, now,
+          gDbufGop, gDbufSets);
+    return 0;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxp0odm_dbuf, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxP0OdmDbufSysctl, "I",
+            "b155 root: 1 = Linux's DRR double buffer (OTG0 OTG_DRR_TIMING_DBUF_UPDATE_MODE 2) for every replay run and after the range's off; 0 = b150's rule (2 only while the range is on)");
 SYSCTL_PROC(_debug, OID_AUTO, phxvrr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxVrrSysctl, "I",
             "b142 Adaptive Sync on OTG0 (root): 1 = V_TOTAL range to the floor (48 Hz; b146: PhxAccel's) on the lit 1440p mode (Linux's DCN 3.2 register path), 0 = off");
 // debug.phxvrr_ramp: the ramp (PhxVrrRamp.h), % per flip (0 = off: the mode's full range; 1-50); takes effect at the

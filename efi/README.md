@@ -50,14 +50,15 @@ change that caused it:
 | `vermilion` | GPU acceleration with AMFI relaxed ([docs/INSTALL.md](../docs/INSTALL.md)); the fallback | + AMFIPass, `VermilionBoot.kext` (from `build/`); `amfi=0x80 ipc_control_port_options=0 phxdebug=1`; SIP `0x0A03` |
 | `vermilion-trustlog` | One diagnostic boot of VermilionTrust | `vermilion` + `VermilionTrust.kext` (from `build/`) + `-phxtrustlog`: the kext only reports, `amfi=0x80` stays |
 | **`vermilion-trust`** | **The everyday stage (`default_stage`); the XTX machine boots it since 2026-11-22 (EFI change 7, VermilionTrust 1.0.3 since change 8)** | `vermilion` + `VermilionTrust.kext`, **without `amfi=0x80`**: AMFI enforces library validation, VermilionTrust lets only the cdhashes of the installed Vermilion code through ([src/vermilion-trust/](../src/vermilion-trust/)). Rebuild it and the EFI after every plugin, translator or RADV install ([runbooks](../.agents/runbooks.md#deploying-a-plugin-translator-or-radv-build-2026-11-23)) |
+| `vermilion-trust-nvram` | A test: NVRAM writes from macOS (thread 01, 2026-11-23; result inconclusive, not in use) | `vermilion-trust` with the booter quirk `DisableVariableWrite` off, nothing else |
 | `vermilion-pcilog` | One diagnostic boot | + IOPCIFamily logging (`pci_log_mode`, `pci_log`), no behaviour change |
 
 Resolved boot-args of `vermilion-trust`: `-v keepsyms=1 debug=0x100 pci=0x8000000 amtk_awdl_offchan=0
 ipc_control_port_options=0 phxdebug=1` (`efi/build.py stages` prints every stage).
 
 A stage can add kexts (`kexts_add`), add or remove boot-args (`boot_args_add`, `boot_args_remove`), add Apple-GUID
-NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot) and set `csr_active_config`. Each change is
-tested on its own boot; the dated
+NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot), set `csr_active_config` and override the
+machine's booter quirks (`booter_quirks`). Each change is tested on its own boot; the dated
 reasons sit next to each entry in the machine file (`_comment` keys) and in [`.agents/`](../.agents/).
 
 ## Install onto the EFI partition

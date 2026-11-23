@@ -65,6 +65,7 @@ extern struct sysctl_oid sysctl__debug_phxdpb_retrain, sysctl__debug_phxdpb_retr
 extern struct sysctl_oid sysctl__debug_phxp0odm, sysctl__debug_phxp0odm_stat, sysctl__debug_phxp0odm_active;   // b131 240 Hz (phx_p0odm.cpp, phx_sysctl.cpp)
 extern struct sysctl_oid sysctl__debug_phxvrr, sysctl__debug_phxvrr_stat;   // b142 Adaptive Sync (phx_p0odm.cpp)
 extern struct sysctl_oid sysctl__debug_phxvrr_ramp, sysctl__debug_phxvrr_floor;   // b147 its ramp and live floor
+extern struct sysctl_oid sysctl__debug_phxp0odm_dbuf;   // b155 Linux's DRR double buffer for the whole boot, a live switch (phx_p0odm.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpwatch, sysctl__debug_phxdpwatch_stat, sysctl__debug_phxdpwatch_snap;   // b120 / b122 multiport S3 step 0 (phx_dpwatch.cpp)
 static void phxDpWatchStop();   // b120, phx_dpwatch.cpp: called by stop()
 struct phx_pipe0_setmode;
@@ -72,7 +73,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 150u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 155u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles

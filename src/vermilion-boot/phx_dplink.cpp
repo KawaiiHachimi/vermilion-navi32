@@ -23,20 +23,20 @@ static void dplAuxIoWr(void *c, uint32_t r, uint32_t v) {
     if (!phxdpr::auxWriteAllowed(gDplAuxEng, r)) { gDplAuxStray++; return; }
     p2IoWr(c, r, v);
 }
+// b155: the trainers' DPCD accesses (link check, DP B retrain, stream, the replay engine) retry as Linux's drm does
+// (phxddc::dpcdAccess: 32 tries); before b155 PhxDdc.h's aux() (4 timeouts, no NACK retry). Counted for the stats.
+static phxddc::DpcdStat gDplDpcd;
 static int dplAuxRd(void *, unsigned eng, uint32_t a, uint8_t *b, unsigned n) {
     if (n > 16) return -1;
     gDplAuxEng = eng;
     const phxddc::Io io{gPhx, p2IoRd, dplAuxIoWr, p2IoDelay};
-    phxddc::Diag d{};
-    return phxddc::dpcdRead(io, eng, a, b, static_cast<uint8_t>(n), &d) == phxddc::kOk ? 0 : -1;
+    return phxddc::dpcdAccess(io, eng, false, a, b, static_cast<uint8_t>(n), &gDplDpcd) == phxddc::kOk ? 0 : -1;
 }
 static int dplAuxWr(void *, unsigned eng, uint32_t a, const uint8_t *b, unsigned n) {
     if (n > 16) return -1;
     gDplAuxEng = eng;
     const phxddc::Io io{gPhx, p2IoRd, dplAuxIoWr, p2IoDelay};
-    phxddc::Diag d{};
-    uint8_t got = 0;
-    return phxddc::aux(io, eng, 0x80, a, b, static_cast<uint8_t>(n), nullptr, 0, &got, &d) == phxddc::kOk ? 0 : -1;
+    return phxddc::dpcdAccess(io, eng, true, a, const_cast<uint8_t *>(b), static_cast<uint8_t>(n), &gDplDpcd) == phxddc::kOk ? 0 : -1;
 }
 
 static int phxDpLinkSysctl SYSCTL_HANDLER_ARGS {
