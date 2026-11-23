@@ -116,18 +116,23 @@ add each change here with the thread's number.
   | 9 | 2026-11-23 03:11 | 01 | VermilionBoot b151 (`a23a2766`): Linux's link-training retries, a failed from plan runs once more. Same boot, outside the EFI: the daemon's display check |
   | 10 | 2026-11-23 03:42 | 01 | VermilionBoot b152 (`9ca53007`): each link window's attempts and timing in `debug.phxp0odm_stat`. Same boot: the daemon logs each engine run |
   | 11 | 2026-11-23 03:51 | 01 | VermilionBoot b153 (`bd3f72fa`): the HDR plans wait Linux's 100-180 ms before their second link window |
+  | 12 | 2026-11-23 ~04:00 | 01 | `vermilion-trust-nvram` (`DisableVariableWrite` false), as a test; rolled back from Linux at an unknown time (kept as `EFI/OC.bad`), so whether it ever booted is unknown: NVRAM write test still open |
+  | 13 | 2026-11-23 04:36 | 01 | VermilionBoot b154 (`78f560cc`) on change 11's config: a switch whose last link window needed a retry runs once more (the LG stayed black after such a retry at 04:15) |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
 - **Outside the EFI:**
-  - VermilionAccel with mode id 18 in `/Library/Extensions` (AuxKC; sha256 `c6341e87`). Rollback:
-    `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
+  - VermilionAccel with mode id 18 and the EDID's physical size in every mode (thread 01) in `/Library/Extensions`
+    (AuxKC; sha256 `26685255`, since 2026-11-23 04:15). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`
+    (`c6341e87`), then `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
     the kext": the **Allow** click rebuilds the AuxKC, not the restart).
   - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver sha256 `6840fbe3`, cdhash `33b9a186`
     (the old thread 05's Music fix on top of b149). Rollback: `~/vermilion-rollback/plugin-20261123/` (b149), then
     `NVMTLDriver.b139`.
   - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; differs from the repo in comments only), flags
-    `sdma`, `cg`, `uclk` (456), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`. Previous daemon:
+    `sdma`, `cg`, `uclk` (456), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin` (60), `autologin`, `auto` (re-arms
+    `phxfb-squat` at SUCCESS; created 2026-11-23 for the NVRAM test). Thread 01's version (display check `DARK`, one
+    restart; an `engine run` record per run). Previous daemon: `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`,
     `~/gpu/phxboot-navi31.sh.prev`, `~/vermilion-rollback/phxboot-navi31.sh.pre-vrrmin`.
   - `/Library/GPUBundles/nvmtl/ws-gpu-present` and `ws-gpu-present-async` (GPU present on).
   - Network: `NetworkInterfaces.plist` / `preferences.plist` with Ethernet `en0`, Wi-Fi `en1` (2026-11-23; backup
@@ -138,8 +143,9 @@ add each change here with the thread's number.
   "Deploying a plugin, translator or RADV build".
 - **ESP staging area** `<ESP>/vermilion/`: only `flags/` (empty); no `run-once.sh`. The daemon's pre-hook
   (`esp_flags.sh`) reads nothing else there. Thread 00 deleted the old `handoff/`, `payload/`, `capture/`, `daemon*/`,
-  `perf/`, `wifi/` and all but the newest 5 OpenCore logs on 2026-11-23. **No OpenCore log was written since
-  2026-11-22 23:20**, although `Misc > Debug > Target` is still 67 (cause unknown).
+  `perf/`, `wifi/` and all but the newest 5 OpenCore logs on 2026-11-23. OpenCore logs are written
+  irregularly with `Misc > Debug > Target` 67: on 2026-11-23 the newest is 03:15, none for the boots after it (cause
+  unknown).
 - **Rollback copies:** `~/vermilion-rollback/` (pruned 2026-11-23 to: the 3 EFIs above, `plugin-20261123`,
   `NVMTLDriver.b139`, `VermilionBoot.kext.b149`, `VermilionAccel.kext.pre-hdrvrr`, `AuxiliaryKernelExtensions.kc.0222`,
   `phxboot-navi31.sh.pre-vrrmin`, `netcfg-20261122`), `EFI/OC.prev`, `~/gpu/*.prev`.

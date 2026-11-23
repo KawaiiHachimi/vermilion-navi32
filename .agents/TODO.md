@@ -97,15 +97,15 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       config; not watched failing here). Stage `vermilion-trust-nvram` (staged 2). If writes work and nothing hangs,
       make it the default stage. Then a deliberate test panic is the only way to prove a report is saved (owner's
       call). Needed first for the restart panic of 2026-11-19 22:44 (cause unknown)
-- [~] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm. Not the EDID's
-      path (IOKit and CoreDisplay read 590 x 330): every mode's `imageWidth / imageHeight` was 0
-      ([finding](findings/2026-11-23-gpu-stability.md) section 3). PhxAccel built with the EDID's size (staged 3). Then
-      check whether macOS offers scaled / "looks like" modes
-- [ ] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
-      floor label is patched into the EDID PhxAccel serves. **Owner's decision:** keep the patch (label 60-240, reset on a
-      floor change) or drop it (identity stable, label 48-240) ([finding](findings/2026-11-23-gpu-stability.md) section 5)
-- [ ] OpenCore logs are written again (`opencore-2026-11-23-004410.txt`); PROJECT_KNOWLEDGE says none since
-      2026-11-22 23:20: fix the line once the next boots confirm it
+- [x] **Physical size 903 x 508 mm** (= 2560 x 1440 px at 72 dpi), where the EDID says 590 x 333 mm: every mode's
+      `imageWidth / imageHeight` was 0 ([finding](findings/2026-11-23-gpu-stability.md) section 3). PhxAccel with the
+      EDID's size installed 2026-11-23 04:15: `CGDisplayScreenSize` 591.1 x 332.5 mm
+- [ ] Scaled ("looks like") modes: macOS lists only the native-pixel 2560-wide modes (no HiDPI twins); find what a
+      real Mac's driver reports for them before adding any (low priority)
+- [x] Changing the VRR floor gives macOS a new display identity (colour profile and settings reset), because the
+      floor label is patched into the EDID PhxAccel serves. **Owner's decision 2026-11-23:** keep the patch (label
+      60-240); documented in [XTX.md](../docs/XTX.md) ("A floor change resets the display's settings")
+- [x] OpenCore logs: written irregularly (newest 2026-11-23 03:15, none for the later boots); PROJECT_KNOWLEDGE fixed
 - [~] Tearing at 1440p60 with GPU present; input lag at 60 Hz. **Input lag measured 2026-11-23** (finding section 9):
       posted mouse event -> OTG0 frame start median 27-30 ms at 60 Hz, 8.3 ms at 240 Hz; WindowServer composites at
       vsync and flips ~3 ms later, the flip waits for the next vblank (14 ms at 60 Hz): the normal one-frame compositor

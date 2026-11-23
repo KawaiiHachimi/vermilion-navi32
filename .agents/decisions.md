@@ -399,3 +399,22 @@ macOS. It went in against the macOS installer's hang on Ryzen 7000 boards, which
 writes. Without `phxboot-auto` the boot after the test would be a GOP boot without acceleration
 (findings 2026-11-23-gpu-stability.md section 4).
 **Revisit:** if writes hang or the firmware misbehaves: back to `vermilion-trust` and photos of the panic screen.
+
+## 2026-11-23: the VRR floor stays in the EDID PhxAccel serves (label "Variable (60-240 Hz)")
+
+**Decision (owner, thread 01):** keep PhxAccel's floor patch, so System Settings names the range with the real floor.
+The cost: macOS identifies a display by its EDID, so a floor change makes it a new display (colour profile and
+per-display settings start over; [XTX.md](../docs/XTX.md)). The floor is fixed at 60 now, so this only happens when
+someone changes `~/gpu/phxboot-vrrmin`. Not chosen: drop the patch (identity never changes, but the menu would say
+48-240 while the floor stays 60). **Revisit:** if the floor has to change often.
+
+## 2026-11-23: a switch whose last link window needed a retry runs again; DPCD accesses retry as drm does
+
+**Decision (thread 01):** b154 runs a switch once more from the target when its last link window trained only after a
+retry (once per run, at most 4 per boot), because the LG once kept a black picture on a locked, in-sync link after such
+a retry and a new mode set brought it back (finding 2026-11-23-gpu-stability.md section 8). Nothing on the GPU side
+tells that black state apart, so the rule acts on the retry itself. b155 gives the trainers' DPCD accesses drm's
+32-try rule (Linux's DC path), which should make the retries themselves rarer (unverified until the b155 boot).
+Not chosen: detecting the black picture (no readable signal for it), or a fixed redo after every HDR switch (an extra
+~1.5 s blank each time). **Revisit:** if b155 removes the first-attempt AUX misses, b154's redo becomes a rare fallback;
+keep it.
