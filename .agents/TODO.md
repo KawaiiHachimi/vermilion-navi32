@@ -122,8 +122,41 @@ pending (2026-11-23, thread 00).
 
 ## 07 Wireless and Continuity
 
-- [ ] Router 5 GHz on channel 44 (not DFS 52) + MtkWireless 1.1.2 (claims the AirDrop `missingEndpoint` fix); then
-      AirDrop both ways with `amtk_awdl_offchan=0` ([finding](findings/2026-11-22-audio-connectivity-inventory.md))
+- [ ] **Step 1, in this order:**
+      1. router on 5 GHz channel 44 (not DFS 52);
+      2. MtkWireless 1.1.2 (one EFI change; it claims the AirDrop `missingEndpoint` fix);
+      3. `netstat -rn -f inet6 | grep awdl0` (look for a `fe80::%awdl0/64` route) and `ndp -an` (look for an entry
+         for the peer);
+      4. AirDrop both ways with `amtk_awdl_offchan=0`.
+
+      Background in [the finding](findings/2026-11-22-audio-connectivity-inventory.md).
+- [ ] [MtkWireless issue #10](https://github.com/Dino-VN/MtkWireless/issues/10) (closed, fixed in 1.1.2, commit
+      `5715618`) is nearly this machine: a Ryzen 9 7900X, ASUS ROG STRIX B650E-F, MT7922 `14c3:0616`, Bluetooth
+      `0489:e0e2` with MtkWirelessBT 1.1.1 + BlueToolFixup 2.7.2, MacPro7,1, macOS 26.7.3, and an iPhone17,1 on
+      iOS 27.0.1.
+      - AirDrop worked both ways there after a patch. The root cause was a missing `fe80::%awdl0/64` route and no NDP
+        entry for the peer.
+      - It only worked while the Mac was **associated on 5 GHz channel 44**. Unassociated, or on 2.4 GHz channel 6,
+        AWDL never synced (the same as issue #6).
+      - Check which of their extra patches are in 1.1.2 and how each interacts with our `amtk_awdl_offchan=0`: ROC
+        grant reuse (`liveGrantServesNext`), clock re-acquire (`amtk_awdl_reacquire`), and mDNS replies on the query
+        channel (`amtk_awdl_mdns_query_channel=1`).
+
+      *(unverified, web research 2026-11-23)*
+- [ ] Research option, not a plan: macOS 26 ships Apple's own MediaTek driver (`AppleSunriseWLAN.dext` +
+      `AppleSunrise.kext`; [mediatek-sunrise-hackintosh](https://github.com/GeekAudio/mediatek-sunrise-hackintosh),
+      from tonymacx86 thread 332855).
+      - On 26.7.1 the MT7922's Bluetooth firmware is built in, but its Wi-Fi firmware is missing.
+      - The route needs a device-id spoof (SSDT), the HAL kext from Apple's KDK, and the firmware written into the
+        sealed system volume with authenticated-root off.
+      - AWDL there: "seen on 26.3 beta, limited success on MT7922".
+      - It would be Apple's own stack (Mac parity), but it conflicts with 09's SIP / sealed-system goals.
+      - Apple's kext must never be redistributed: the user would extract it from their own KDK.
+
+      *(unverified, web research 2026-11-23)*
+- [ ] MtkWirelessBT's bluetoothd patches (BLE advertising for AirDrop / Handoff) exist only for 25G241 (26.7.1) and
+      25G332 (26.7.2), and Instant Hotspot needs 25G332. So any macOS update (ROADMAP rule 12) is decided together
+      with 09 *(unverified, web research 2026-11-23)*
 - [ ] Study [ForbiddenItlwm](https://github.com/retropineaple/ForbiddenItlwm) (fork of AirportItlwm, GPL-2.0; AWDL for
       Intel AX200/201/210/211) as the reference design for the MtkWireless fork: its AWDL, the separate `llw0`
       interface (Continuity Camera) and `BTLEAdvFixup.kext`; read its `docs/HOW-IT-WORKS.md` and `DEBUGGING.md`, and
