@@ -22,6 +22,10 @@ State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC
 Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
 results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
 
+Thread 02 part B (2026-11-23 08:08): **ESP** `<ESP>/vermilion/LINUX-THREAD02B.md` for the next Linux session (fan chip
+via `nct6775`, firmware versions, VRAM reservations, optional UCLK under a VRAM load); it writes `results-02b/`.
+Afterwards copy them off and delete both from the ESP.
+
 The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
 07:51 and is verified (PROJECT_KNOWLEDGE). Rollback: `rm ~/gpu/phxboot-irqwait ~/gpu/phxboot-idledpm
 ~/gpu/phxboot-idledpm-dcf`; the previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-thread02`.
