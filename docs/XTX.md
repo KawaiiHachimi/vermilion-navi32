@@ -89,7 +89,7 @@ last until the restart.
 | `sudo sysctl -w debug.phxvrr_ramp=N` | the ramp in % per flip: 1-50, default 5; `0` = no ramp (the full range at once). On the LG, 5 flickered least; 10 and 20 flickered more |
 | `sudo sysctl -w debug.phxvrr_floor=N` | the floor in Hz, live (24-255), for trying values. The next mode switch puts back the boot value, and the label in System Settings does not change |
 | `sysctl debug.phxvrr_stat` | Adaptive Sync's state: on / off and why, OTG0's range registers, the ramp's window, the floor, the measured rate |
-| `sysctl debug.phxp0odm_stat` | the replay engine's last run: result, the mode now, the last failure |
+| `sysctl debug.phxp0odm_stat` | the replay engine's last run: result, the mode now, the last failure, every link window's training (`train_wN`), the recoveries and re-switches (`recovery:`), the trainers' DPCD retries (`dpcd_aux:`) |
 | `sysctl debug.phxfb0_scan10` | 1 while the scan-out is 10-bit (HDR on) |
 
 Things to know:
