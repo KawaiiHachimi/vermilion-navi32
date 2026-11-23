@@ -138,3 +138,19 @@ is upstream's `NVMTL_WS_SCANOUT_TILED` for WindowServer's display surface (probe
 cost, plus one 14.7 MB copy (~0.6 ms at PCIe write speed). Off switch without a restart: the file
 `/Library/GPUBundles/nvmtl/drawable-tiled-off` (read for each new drawable). Next after it: WindowServer's
 composite, ~2.1 ms per frame (`NVMTL_WS_SCANOUT_TILED` is off on this machine; to test in a later boot).
+
+## The tiled drawable, measured (2026-11-23 16:43, XTX, EFI change 21: b160 + NVMTLDriver with `NVMTL_DRAWABLE_TILED`)
+
+Same setup, VRAM BOs on for `horizon-client`, `horizon-ctl bench 15`, pass timer on (`hzdiag-20261123-164308` tiled,
+`-164335` with `NVMTL_DRAWABLE_TILED=0`). The plugin logged all three drawables (surfaces 73, 64, 81) as "drawn TILED".
+
+| | avg fps | p50 | p99 | main pass | vignette pass | UI pass |
+|---|---|---|---|---|---|---|
+| tiled drawable (default) | **292.0** | 3.41 ms | 4.13 ms | **0.190 ms** | 0.024 ms | 0.010 ms |
+| drawable on its pages | 171.7 | 5.82 ms | 6.70 ms | 2.375 ms | 0.726 ms | 0.054 ms |
+
+The screenshots of both runs match (only a particle differs). The main pass is 12.5x faster and now close to what the
+Linux frame suggests. What is left of the ~3.4 ms frame: the once-per-frame copy of the 14.7 MB drawable to its
+system-memory pages (outside the passes; not timed yet, ~0.6 ms expected) and WindowServer's composite of it (~2.1 ms
+at b158), both the present path. Next: WindowServer's display surface tiled (`NVMTL_WS_SCANOUT_TILED`, a boot-daemon
+environment change), then VRAM-resident IOSurfaces so the copy and the system-memory read go away.
