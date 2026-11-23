@@ -154,3 +154,22 @@ Linux frame suggests. What is left of the ~3.4 ms frame: the once-per-frame copy
 system-memory pages (outside the passes; not timed yet, ~0.6 ms expected) and WindowServer's composite of it (~2.1 ms
 at b158), both the present path. Next: WindowServer's display surface tiled (`NVMTL_WS_SCANOUT_TILED`, a boot-daemon
 environment change), then VRAM-resident IOSurfaces so the copy and the system-memory read go away.
+
+## C3: WindowServer's display surface tiled, as upstream wrote it: worse (2026-11-23 17:11, XTX)
+
+Boot daemon flag `phxboot-wstiled` -> `NVMTL_WS_SCANOUT_TILED=1` for the restarted WindowServer. It took effect (all
+2560x1440 "CoreDisplay Scanout" surfaces drawn TILED) and the desktop looked right (owner). Horizon, per-process GPU
+time (b157, `~/src/bench/results/hztime-20261123-171048`), 15 s bench:
+
+| | fps | WindowServer GPU | Horizon GPU |
+|---|---|---|---|
+| fullscreen 1440p, wstiled | 230.1 (p50 4.33 ms) | 10.43 s = 69.4 % of wall, 10362 subs (~3.0 ms per frame, 3 subs) | 3.16 s = 21.0 % (~0.92 ms per frame) |
+| 1280x720 window, wstiled | 317.0 | 72.2 % of wall | 12.9 % |
+| fullscreen, linear WindowServer (16:43 run / 10:33 timing) | 292 | ~2.2 ms per frame (10:33, b157) | - |
+
+Upstream's mode copies the whole tiled surface to its pages at the end of every command buffer that drew it, and
+WindowServer submits ~3 per Horizon frame: three 14.7 MB writes across PCIe per frame instead of none. Switched off
+again. The redo: one copy per frame at the swap commit (as the app drawables do), or GPU present copying the tiled
+image straight into its VRAM slot (no page write at all while GPU present runs; the pages only for other readers).
+Horizon's own GPU time is now ~0.9 ms per frame (its passes ~0.22 ms plus the drawable copy): WindowServer's composite
+(~2.2 ms) is the largest part of the frame.

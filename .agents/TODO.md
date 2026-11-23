@@ -43,8 +43,12 @@ Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each change
 - [ ] `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
 
 Thread 02 part C3: **WindowServer's display surface tiled** (boot daemon `ws_tiled`, flag `~/gpu/phxboot-wstiled` ->
-`launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23, not
-booted yet. Check after the boot: `phxboot.log` has "wstiled: NVMTL_WS_SCANOUT_TILED=1"; `/tmp/nvmtl.log` has
+`launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23,
+booted 17:08 (desktop fine, all 2560x1440 display surfaces "CoreDisplay Scanout drawn TILED"), **measured worse and
+switched off** (flag removed 17:15; takes effect at the next restart): Horizon 230 fps vs 292, WindowServer ~3.0 ms of
+GPU per frame vs ~2.2 ms, because upstream's mode copies the whole 14.7 MB surface to its pages after each of
+WindowServer's ~3 command buffers per frame (finding horizon-present-cost, "C3"). Redo: copy once per frame at the swap
+commit, or let GPU present copy the tiled image straight into its VRAM slot. Check after the boot: `phxboot.log` has "wstiled: NVMTL_WS_SCANOUT_TILED=1"; `/tmp/nvmtl.log` has
 "CoreDisplay Scanout drawn TILED"; the desktop draws right (windows, menus, cursor, HDR, VRR), no stale regions; then
 Horizon with the pass timer for WindowServer's composite. Rollback: `rm ~/gpu/phxboot-wstiled` and restart; the
 previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-wstiled` (the new one only adds the flag).
