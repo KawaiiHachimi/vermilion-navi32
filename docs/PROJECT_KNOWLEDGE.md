@@ -113,6 +113,7 @@ add each change here with the thread's number.
   | 6 | 2026-11-22 23:40 | 05 | VermilionTrust 1.0.1 (log only) |
   | 7 | 2026-11-22 23:45 | 05 | `vermilion-trust`: VermilionTrust 1.0.2 enforcing, `amfi=0x80` removed |
   | 8 | 2026-11-23 00:20 | 05 | VermilionTrust 1.0.3 (trusts the Music-fix plugin and the previous one) |
+  | 9 | 2026-11-23 03:11 | 01 | VermilionBoot b151 (`a23a2766`): Linux's link-training retries, a failed from plan runs once more. Same boot, outside the EFI: the daemon's display check |
 
   Before change 1: VermilionBoot b149 -> b150 (old thread 00, 2026-11-22). History:
   [bring-up log](../.agents/findings/2026-11-19..23-bringup-log.md).
