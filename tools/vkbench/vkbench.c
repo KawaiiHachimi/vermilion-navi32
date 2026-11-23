@@ -17,7 +17,8 @@
 // The driver: on Linux the system loader (libvulkan.so.1); on macOS RADV directly
 // (/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib, its vk_icdGetInstanceProcAddr, as the Metal plugin does).
 // VKBENCH_DRIVER=<path> picks another library (a loader or an ICD; both entry points are tried).
-// Exit codes: 0 ok, 1 no Vulkan device, 3 pipeline failed, 4 GPU error, 5 a Vulkan call failed.
+// Exit codes: 0 ok, 1 no Vulkan driver or device, 3 pipeline failed, 5 a Vulkan call or entry point failed, 64 usage
+// (metalbench's numbers; its 4, a GPU error, has no counterpart here: a failed call exits 5).
 // Build: scripts/build/vkbench.sh (macOS) or, on Linux,
 //   cc -O2 -I<Vulkan-Headers>/include -o vkbench tools/vkbench/vkbench.c -ldl -lm
 #define VK_NO_PROTOTYPES 1
@@ -80,7 +81,7 @@ int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "compute";
   int isSubmit = !strcmp(mode, "submit"), isBw = !strcmp(mode, "bandwidth");
   if (!isSubmit && !isBw && strcmp(mode, "compute")) {
-    fprintf(stderr, "usage: vkbench compute [seconds] [iterations] [width] [height] | submit [seconds] | bandwidth [seconds] [MiB]\n");
+    fprintf(stderr, "usage: vkbench compute [seconds] [iterations] [width] [height] | submit [seconds] [iterations] [width] [height] | bandwidth [seconds] [MiB]\n");
     return 64;
   }
   double secs = argc > 2 ? atof(argv[2]) : (isSubmit || isBw ? 10 : 20);

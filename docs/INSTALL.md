@@ -504,7 +504,7 @@ stated.
 | `phxboot-gamma` | after `done`, two monitors bound | `debug.phxgamma=1`: gamma tables for head 1 (only reach the kext when CoreDisplay's `useIOP_gamma_onAMD` is false) |
 | `phxboot-dpwatch` (value `1` or `2`; empty = `1`) | after `done`, desktop boot | `debug.phxdpwatch`: the DP stream watcher (2 = also the stuck-stream fix); its events go to the boot log |
 | `phxboot-b15` | after `done`, desktop boot | `b15_boot.sh`: the display power recipe (watermarks, DET, DAL watermark table, HUBP rate group, then memory self-refresh) with an underflow watchdog for the whole boot |
-| `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> ~20 W at idle |
+| `phxboot-idledpm` | after `done`, one-display desktop boot | `idle_dpm.sh`: once a user is logged in and the display settled, the DAL watermark table, UCLK unpinned and the FCLK switch allowed, with an underflow watchdog for the whole boot (the first underflow re-pins UCLK 456). Not with `phxboot-b15`, not after a pipe-1 boot. On the XTX machine at 1440p240 HDR: socket 51 -> 20-24 W at idle |
 | `phxboot-wsprefs` | before the restart | no longer used; the daemon only logs that it can be removed |
 
 Flags read by the helper scripts, not by the daemon itself:
@@ -528,8 +528,8 @@ A reasonable first set on one monitor is `sdma`, `cg` and `uclk` (`456`); add `a
 (section 8).
 
 The LaunchDaemon can also pass `PHXBOOT_NO_SDMA=1`, `PHXBOOT_NO_CG=1`, `PHXBOOT_NO_UCLK=1`, `PHXBOOT_NO_AOC=1`,
-`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to skip a step regardless
-of the flags.
+`PHXBOOT_NO_VCN=1`, `PHXBOOT_NO_B15=1`, `PHXBOOT_NO_IDLEDPM=1` or `PHXBOOT_NO_WATCH=1` in its `EnvironmentVariables` to
+skip a step regardless of the flags.
 
 ### 7.4 The login-window guard
 

@@ -50,7 +50,7 @@ heap 0 = the kext's 6144 MiB "hi VRAM"):
 Both are PCIe 4.0 x16 at ~22 GB/s each way: every BO is an `IOBufferMemoryDescriptor` in system memory
 (`phx_client.cpp` `doBoCreate`), whatever domain RADV asks for. Navi 31's VRAM peaks at ~960 GB/s, so a memory-bound
 load (large textures, post-processing, compute over big buffers) runs up to ~20x slower than it could. The Linux
-number for the same command is the reference (handoff 1b). The 2026-11-22 puzzle (a 1440p target written at ~50 GB/s)
+number for the same command is the reference: 823 GB/s (section 8). The 2026-11-22 puzzle (a 1440p target written at ~50 GB/s)
 fits this: that render target compresses (DCC), so fewer bytes cross the bus *(unverified)*.
 
 ## 4. Fence waits by interrupt: a live test (sysctls, reverted)
@@ -99,9 +99,10 @@ alternated, 5 s per command), wall per frame:**
 On a quiet desktop the interrupt wait is better in median **and** p99 in every row; the earlier worse tail came with
 the second GPU client. 1.12 M MSIs in the run, no storm, no overflow. All five sysctls back to 0 at the end.
 
-Superseded by the quiet A/B: the better median against the worse tail. To do before it can be a default: an interleaved A/B on an
-idle desktop (only with the owner's OK: it loads the GPU), the tail's cause (a waiter woken by another queue's EOP
-re-sleeps for the full deadline?), and a daemon flag to set it at boot.
+The quiet A/B supersedes the first run's reading (a better median against a worse tail). Since then it is a daemon
+flag: `phxboot-irqwait` (`irqwait_boot`), on at boot since 07:51 (124 us vkbench / 207 us metalbench median for the
+512x512 job after that restart, PROJECT_KNOWLEDGE's performance record). Not looked at: why the tail grows with a
+second GPU client (a waiter woken by another queue's EOP re-sleeps for the full deadline? *(unverified)*).
 
 ## 5. The XTX's RADV profile (patch 0018), side-loaded
 
@@ -130,7 +131,7 @@ GPU client open (VacuumTube, 19 % CPU, idle-ish), GPU time per frame, median of 
 ## 6. RADV rebuilds on the Mac
 
 Mesa `f5cb8ee0` + patches 0001-0017, built on this Mac (Command Line Tools, Python 3.12 venv with meson 1.12,
-glslang 16.5) in ~3 minutes: **the same code as the installed `8054fbe4`**. Of 20,894,944 bytes, 36 differ, all in
+glslang 16.5) in ~3 minutes: **the same code as the then-installed `8054fbe4`**. Of 20,894,944 bytes, 36 differ, all in
 the Mach-O UUID and the two copies of the git id in the version string (`git am` gives other commit ids). Set-up in
 runbooks ("Building on the Mac itself"). The Mesa checkout is ~560 MB, the build ~1 GB.
 

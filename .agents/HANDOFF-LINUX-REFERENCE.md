@@ -64,7 +64,7 @@ What the macOS side needs from it:
 - The `pp_features` mask. Compare it with macOS's SMU feature masks `0x71ffffff` / `0x0003ebb8`.
 
 Also, once per mode (read-only, no root): `cat $D/pp_dpm_dcefclk $D/pp_od_clk_voltage $D/pp_power_profile_mode
-2>&1 > "$OUT/gpu-extra-<mode>.txt"`, and every second for 30 s `grep -H . $D/pp_dpm_mclk $D/pp_dpm_fclk` (does UCLK move
+> "$OUT/gpu-extra-<mode>.txt" 2>&1`, and every second for 30 s `grep -H . $D/pp_dpm_mclk $D/pp_dpm_fclk` (does UCLK move
 at idle, or sit at one level?).
 
 ### 1b. The same shader through Vulkan (added 2026-11-23, thread 02)

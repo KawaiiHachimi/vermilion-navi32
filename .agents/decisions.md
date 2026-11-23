@@ -439,6 +439,11 @@ was spoiled by a video app. They stay off at boot until an interleaved A/B on an
 chosen: a daemon flag now. **Revisit:** with the owner's OK for a quiet GPU test; the tail's likely cause is a waiter
 re-sleeping a full deadline after an EOP of another submission.
 
+**Superseded the same day:** the quiet interleaved A/B (06:25-06:30) showed the interrupt wait better in median and
+p99 in every row, the worse tail having come with the second GPU client. They are a daemon flag now
+(`phxboot-irqwait`, `irqwait_boot`), on at boot on the XTX machine since 07:51. Evidence:
+[perf finding](findings/2026-11-23-perf-power.md) section 4.
+
 ## 2026-11-23: VRAM-backed buffer objects, opt-in per process first
 
 **Decision (thread 02):** the design in findings/2026-11-23-vram-bo-design.md: a VRAM pool from 512 MiB to below

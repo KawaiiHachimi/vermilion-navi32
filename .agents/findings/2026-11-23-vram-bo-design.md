@@ -9,8 +9,9 @@ with an `IOBufferMemoryDescriptor`, whatever domain RADV asks for. The "visible 
 and GTT (2 GiB) pools are budgets over system memory (`phx_globals.cpp`). Measured on the XTX machine
 ([perf finding](2026-11-23-perf-power.md) section 3): a buffer copy runs at **44.7 GB/s**, the PCIe 4.0 x16 limit,
 in Metal and in RADV alone. Navi 31's GDDR6 peaks at ~960 GB/s, and Linux's number for the same `vkbench bandwidth`
-is the target: **823 GB/s** on Linux (2026-11-23, [linux-reference](2026-11-23-linux-reference.md)). A memory-bound load (big textures, post-processing, compute over large buffers,
-games) can lose up to ~20x. A compute-bound load loses nothing: the Mandelbrot loop is within 7 % of RADV.
+is the target: **823 GB/s** (2026-11-23, [linux-reference](2026-11-23-linux-reference.md)). A memory-bound load (big
+textures, post-processing, compute over large buffers, games) can lose up to ~20x. A compute-bound load loses
+nothing: the Mandelbrot loop is within 7 % of RADV.
 
 The fixed 6 GiB Metal working set (`recommendedMaxWorkingSetSize`) is tied to this. Raising it while BOs are system
 memory would let apps wire 24 GiB of a 48 GB machine, so it moves only together with this work.
@@ -93,5 +94,5 @@ already does.
 4. **M3:** all processes; a daemon flag; days of use; the working set from the pool. Then the default.
 5. **M4 (thread 05):** eviction to system memory at sleep, back at wake.
 
-Estimated: M1 a few days of code and host tests, M2-M3 a week of use. Not started in thread 02 beyond this note
-unless the Linux numbers come back and the owner wants the boot.
+Estimated: M1 a few days of code and host tests, M2-M3 a week of use. Not started in thread 02 beyond this note and
+M0: M1 is its own kext build and boot (TODO 02).

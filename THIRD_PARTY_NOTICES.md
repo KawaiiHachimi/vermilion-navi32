@@ -83,7 +83,7 @@ method; no RedNavi code is copied.
 
 MIT, Copyright The Mesa 3D Graphics Library contributors (https://docs.mesa3d.org/license.html). Base: Mesa
 `f5cb8ee032adabef599ae892ec4e42d796b84da9` (https://gitlab.freedesktop.org/mesa/mesa). Patches 0001-0009 Cobalt64,
-0010-0015 nullarc, 0016-0017 Vermilion.
+0010-0015 nullarc, 0016-0019 Vermilion.
 
 ## FFmpeg — `patches/ffmpeg`, the libraries `src/video-decoder` links
 

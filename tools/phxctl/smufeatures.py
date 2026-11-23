@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# smufeatures.py <low> <high> | <mask64> [<other low> <other high>]: names the SMU v13.0.0 feature bits of a running-
-# features mask (FEATURE_*_BIT of Linux's smu13_driver_if_v13_0_0.h, MIT, as of 2026-11). macOS reads the mask with
-# `phxctl smuinfo` (low / high words); Linux shows it in pp_features. With a second mask, prints the difference.
+# smufeatures.py <mask64> | <low> <high> [<other low> <other high>]: names the SMU v13.0.0 feature bits of a
+# running-features mask (FEATURE_*_BIT of Linux's smu13_driver_if_v13_0_0.h, MIT, as of 2026-11). macOS reads the mask
+# with `phxctl smuinfo` (low / high words); Linux shows it in pp_features. With a second low / high pair, prints the
+# difference.
 import sys
 
 NAMES = {
@@ -73,7 +74,7 @@ def names(m):
 if __name__ == "__main__":
     a = sys.argv[1:]
     if len(a) not in (1, 2, 4):
-        sys.exit(__doc__ or "usage: smufeatures.py <low> <high> [<other low> <other high>]")
+        sys.exit("usage: smufeatures.py <mask64> | <low> <high> [<other low> <other high>]")
     if len(a) == 4:
         m1, m2 = mask(a[:2]), mask(a[2:])
         print("only in the first: " + (", ".join(names(m1 & ~m2)) or "none"))

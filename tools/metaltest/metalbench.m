@@ -19,8 +19,8 @@
 //       written by GPU time, which says where the buffers live (VRAM ~960 GB/s on Navi 31; system memory over
 //       PCIe 4.0 x16 at most ~32 GB/s)
 //
-// render, compute and bandwidth keep at most 3 command buffers in flight. Output: frames, frames/s, the wall time per frame
-// (average, median, 99th percentile, longest) and, where the driver reports them, the GPU time per frame.
+// render, compute and bandwidth keep at most 3 command buffers in flight. Output: frames, frames/s, the wall time per
+// frame (average, median, 99th percentile, longest) and, where the driver reports them, the GPU time per frame.
 // Exit codes: 0 ok, 1 no Metal device, 2 shader compile failed, 3 pipeline failed, 4 GPU error.
 // Build: scripts/build/metalbench.sh.
 #import <Metal/Metal.h>
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "render";
     BOOL isCompute = !strcmp(mode, "compute"), isSubmit = !strcmp(mode, "submit"), isBw = !strcmp(mode, "bandwidth");
     if (!isCompute && !isSubmit && !isBw && strcmp(mode, "render")) {
-      fprintf(stderr, "usage: metalbench render|compute [seconds] [iterations] [width] [height] | submit [seconds] | bandwidth [seconds] [MiB]\n");
+      fprintf(stderr, "usage: metalbench render|compute [seconds] [iterations] [width] [height] | submit [seconds] [iterations] [width] [height] | bandwidth [seconds] [MiB]\n");
       return 64;
     }
     double secs = argc > 2 ? atof(argv[2]) : (isSubmit || isBw ? 10 : 20);

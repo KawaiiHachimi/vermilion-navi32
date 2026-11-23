@@ -128,7 +128,7 @@ git -C ~/src/vermilion/deps/mesa am <checkout>/patches/mesa/*.patch       # an a
 PATH=$HOME/src/tools/glslang/bin:$HOME/src/venv/bin:$PATH MESA_DIR=$HOME/src/vermilion/deps/mesa sh scripts/build/radv.sh
 ```
 
-With 0001-0017 this rebuilt the installed RADV (`8054fbe4`) apart from the Mach-O UUID and the git id in the version
+With 0001-0017 this rebuilt the then-installed RADV (`8054fbe4`) apart from the Mach-O UUID and the git id in the version
 string (36 bytes). Before installing a RADV build, measure it side-loaded: `VKBENCH_DRIVER=<dylib> vkbench ...`,
 `NVMTL_ICD_LIB=<dylib> metalbench ...` (the plugin's override; works in unhardened processes only).
 

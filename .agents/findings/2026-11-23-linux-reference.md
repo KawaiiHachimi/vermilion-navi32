@@ -3,8 +3,9 @@
 One Omarchy boot, following [HANDOFF-LINUX-REFERENCE.md](../HANDOFF-LINUX-REFERENCE.md) (on `ownback/perf-power`),
 sections 0-5. Everything was read-only: no register writes, no EFI or `efibootmgr` change, nothing under `/boot/EFI`,
 crypttab untouched. Root only through T3's `request_secret` (file delivery). Two packages were installed because
-the handoff needs them: `turbostat` 7.2.11 and `fio` 3.42 (Arch `extra`). Raw output: `~/vermilion-captures/linux-ref-20261123-0641/`
-on Linux, and a copy of the serial-free files on the ESP in `vermilion/results-02/`.
+the handoff needs them: `turbostat` 7.2.11 and `fio` 3.42 (Arch `extra`). Raw output:
+`~/vermilion-captures/linux-ref-20261123-0641/` on Linux, and a copy of the serial-free files on the ESP in
+`vermilion/results-02/`.
 
 ## Context
 
@@ -212,9 +213,9 @@ So nothing on the Linux side ever TRIMs. Turning it on (`discard` in crypttab / 
 
 The chip is a Nuvoton NCT67xx behind ASUS's WMI Super I/O methods: the board's place in `nct6775`'s ASUS-WMI list
 says so. The exact model stays **unverified**. `nct6775` isn't autoloaded, and loading it probes the chip (Super I/O
-config-mode writes), which this read-only session doesn't do. The likely answer is still NCT6799D-R, which SMCSuperIO in VirtualSMC
-1.3.8 supports (*unverified*). One `sudo modprobe nct6775`
-in a later Linux session, with the owner's OK, prints the chip ID in `dmesg`.
+config-mode writes), which this read-only session doesn't do. The likely answer is still NCT6799D-R, which SMCSuperIO
+in VirtualSMC 1.3.8 supports (*unverified*). One `sudo modprobe nct6775` in a later Linux session, with the owner's
+OK, prints the chip ID in `dmesg`.
 
 ## Open
 

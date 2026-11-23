@@ -88,8 +88,10 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       no `_CST` idle kext for ~2-3 W (decisions 2026-11-23; [perf finding](findings/2026-11-23-perf-power.md) 8)
 - [ ] Real-app test set: WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min, Minecraft (F3 renderer line)
 - [x] XTX RADV profile chosen by PCI revision: `patches/mesa/0018` (Mesa's `navi31` for revision 0xc8; the name
-      checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5)
-- [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`), together with the next item only
+      checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5).
+      Installed with EFI change 15 (`profile navi31`, Metal "AMD Radeon RX 7900 XTX")
+- [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`): PR B, with the VRAM buffers (design note
+      step 6); raising it while buffers are system memory would let apps wire 24 GiB of RAM
 - [ ] Where buffers live: every BO is system memory today (`phx_client.cpp`). Measured: 44.7 GB/s buffer copy in
       Metal and in RADV directly (PCIe); Linux 823 GB/s on the same `vkbench bandwidth`. Next: VRAM-backed BOs, M1 of
       the [design note](findings/2026-11-23-vram-bo-design.md) (days of code; its own kext build and boot)
@@ -103,10 +105,11 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       Left: a few days of use; other modes (60 / 120 / 144, SDR) only seen through the mock so far
 - [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip). Linux loads no Super I/O driver either; the board is in
       `nct6775`'s ASUS-WMI list (the chip sits behind ACPI WMI methods, so direct port access may race the firmware).
-      Name the chip first (`modprobe nct6775` on Linux, owner's OK); then one EFI change
+      Missing: the chip's name (`sudo modprobe nct6775; sensors` at the next Linux boot, owner's OK) and whether its
+      ports are safe to read beside the ACPI WMI methods; then one EFI change. Not in PR A
 - [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
-- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target; decode the SMU
-      feature masks (0x71ffffff / 0x0003ebb8) against Linux's header
+- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target. The SMU feature masks
+      (0x71ffffff / 0x0003ebb8) are decoded (`tools/phxctl/smufeatures.py`) and equal Linux's
 - [~] The Mesa init line and `nvmtl-mesa ... Permission denied` on stderr of command-line Metal tools. Found: loginwindow
       runs as root with the plugin, which `setenv`s `MESA_SHADER_CACHE_DIR` (root's cache) and `NVRM_FLUSH_TIMEOUT_MS`;
       the apps loginwindow reopens at login (T3 Code) inherit both, so they run without a Mesa disk cache. Fixed in the

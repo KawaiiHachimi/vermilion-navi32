@@ -82,8 +82,8 @@ The configuration the owner uses every day. Change it only through the active th
 add each change here with the thread's number.
 
 - **EFI: `efi/build.py build` (machine `b650e-i-xtx`, default stage `vermilion-trust`) = EFI change 15** (change 8
-  with VermilionBoot b155, thread 01; VermilionTrust 1.0.4, thread 02; 2026-11-23). On 2026-11-23 thread 00 rebuilt change 8's VermilionBoot and
-  VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder serials: every file
+  with VermilionBoot b155, thread 01; VermilionTrust 1.0.4, thread 02; 2026-11-23). On 2026-11-23 thread 00 rebuilt
+  change 8's VermilionBoot and VermilionTrust from source (both byte-identical to the live ones) and the EFI with placeholder serials: every file
   equalled the live `EFI/OC`, and `config.plist` was identical apart from `PlatformInfo` (the serials). Changes 9-15
   were built and installed from the repo. **The repo is the source of truth for the EFI.**
   - OpenCore 1.0.8. Kexts, in load order: Lilu 1.7.2, VirtualSMC 1.3.8, NVMeFix 1.1.3, RestrictEvents 1.1.6,
@@ -133,14 +133,19 @@ add each change here with the thread's number.
     (AuxKC; sha256 `26685255`, since 2026-11-23 04:15). Rollback: `~/vermilion-rollback/VermilionAccel.kext.pre-thread01`
     (`c6341e87`), then `~/vermilion-rollback/VermilionAccel.kext.pre-hdrvrr` (procedure: [INSTALL.md](INSTALL.md) section 4, "To update
     the kext": the **Allow** click rebuilds the AuxKC, not the restart).
-  - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: NVMTLDriver sha256 `6840fbe3`, cdhash `33b9a186`
-    (the old thread 05's Music fix on top of b149). Rollback: `~/vermilion-rollback/plugin-20261123/` (b149), then
-    `NVMTLDriver.b139`.
+  - Metal plugin in `/Library/GPUBundles/NVMTLDriver.bundle`: cdhash `3be1ec3c` since EFI change 15 (thread 02: its
+    two environment variables no longer reach child processes). Before it: NVMTLDriver sha256 `6840fbe3`, cdhash
+    `33b9a186` (the old thread 05's Music fix on top of b149), still in the trust list. Older rollbacks:
+    `~/vermilion-rollback/plugin-20261123/` (b149), then `NVMTLDriver.b139`.
+  - RADV `/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib`: cdhash `801ae178` since EFI change 15 (Mesa patches
+    0001-0019: the XTX profile by PCI revision). Before it: `8054fbe4` (0001-0017, the XT profile), still in the trust
+    list.
   - Boot daemon `~/gpu/phxboot-navi31.sh` (LaunchDaemon `local.phxboot`; equal to the repo, thread 02), flags
     `sdma`, `cg`, `uclk` (456; released at the desktop by `idledpm`), `p0modes`, `wscdcopy`, `waitstep` (200), `vrrmin`
     (60), `irqwait`, `idledpm`, `idledpm-dcf` (thread 02, since 2026-11-23 07:51), `autologin`, `auto` (re-arms
     `phxfb-squat` at SUCCESS; created 2026-11-23 for the NVRAM test). Thread 01's version (display check `DARK`, one
-    restart; an `engine run` record per run). Previous daemon: `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`,
+    restart; an `engine run` record per run) plus thread 02's `irqwait_boot` and `idledpm_boot`. Previous daemons:
+    `~/vermilion-rollback/phxboot-navi31.sh.pre-thread02`, `~/vermilion-rollback/phxboot-navi31.sh.pre-thread01`,
     `~/gpu/phxboot-navi31.sh.prev`, `~/vermilion-rollback/phxboot-navi31.sh.pre-vrrmin`.
   - `/Library/GPUBundles/nvmtl/ws-gpu-present` and `ws-gpu-present-async` (GPU present on).
   - Network: `NetworkInterfaces.plist` / `preferences.plist` with Ethernet `en0`, Wi-Fi `en1` (2026-11-23; backup
@@ -315,12 +320,13 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 - Buffer objects live in system memory, not VRAM (`phx_client.cpp` allocates every BO as an
   `IOBufferMemoryDescriptor`): a buffer copy runs at 44.7 GB/s (PCIe), against ~960 GB/s for VRAM. The 1440p target
   written at ~50 GB/s (2026-11-22) is probably DCC compression *(unverified)*.
-- Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits work on the XTX (live test 2026-11-23) but stay
-  off: better median, worse p99 so far.
+- Fence waits: by interrupt since 2026-11-23 07:51 (`phxboot-irqwait`; a short waited job 265 -> 113-115 us median, as
+  Linux). Without the flag they poll: a 20 us spin, then 200 us steps. Open: a day of use; the tail with a second GPU
+  client (perf / power section 4).
 - Idle GPU power: with the UCLK pin, 51-54 W socket at 1440p240 HDR. Linux's PMFW messages, live, gave 23.5 W with no
   underflow and no loss under load (perf / power section 9); `phxboot-idledpm` makes it a boot step (thread 02).
-- RADV runs the XT's canned profile on the XTX (84 CU, XT name): fixed in patch 0018, not installed yet (pixel
-  shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
+- RADV ran the XT's canned profile on the XTX (84 CU, XT name) until EFI change 15: patch 0018 picks Mesa's `navi31`
+  for revision 0xC8 (pixel shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
 - OpenGL apps run on the CPU (Apple Software Renderer).
 - Debug boot settings (verbose boot, OpenCore logging) cost boot time *(unmeasured)*.
 - Storage: random 4 KiB I/O is CPU-bound in Apple's NVMe stack (~9 us of kernel CPU per I/O). Every barrier / full

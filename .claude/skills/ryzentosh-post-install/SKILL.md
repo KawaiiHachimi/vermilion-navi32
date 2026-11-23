@@ -93,7 +93,8 @@ sudo python3 efi/build.py install --esp "/Volumes/<ESP>"    # guardrail 2 and 3:
   Compare with PROJECT_KNOWLEDGE's performance record (Linux and macOS columns). Expected on macOS today: shader speed
   as Linux, buffer bandwidth ~45 GB/s (every buffer is system memory; Linux 823).
 - Power: `SMU_CLOCKS=1 sudo -E python3 ~/gpu/smumetrics.py 4 1` (socket / board W, UCLK, FCLK, DCEFCLK). The reference
-  machine idles at ~51 W socket at 1440p240 HDR with UCLK pinned at 456 (the daemon's `phxboot-uclk` flag); Linux 35 W.
+  machine idles at ~51 W socket at 1440p240 HDR with UCLK pinned at 456 (the daemon's `phxboot-uclk` flag) and at
+  ~23 W with `phxboot-idledpm` and `phxboot-idledpm-dcf` (UCLK 96, FCLK 1000, DCEFCLK 200); Linux 35 W.
 - CPU: `python3 tools/sensors/cpusensors.py`; ~40 W idle package and a 5.1-5.2 GHz single-thread ceiling are what
   Linux shows too on this board with the BIOS at Auto. No CPU power-management kext.
 

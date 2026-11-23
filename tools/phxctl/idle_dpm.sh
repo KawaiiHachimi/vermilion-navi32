@@ -15,6 +15,8 @@
 # Measured live 2026-11-23 on the XTX machine at 1440p240 HDR (steps 2-3 by hand): socket 51 -> 20-24 W at idle, board
 # 64 -> 28-33 W, UCLK 456 -> 96, FCLK 2301 -> 1000, no underflow in 10 min (findings 2026-11-23-perf-power.md).
 # Rollback: rm ~/gpu/phxboot-idledpm (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin 456` + kill this.
+# Exit codes: 1 nothing freed (a helper missing, no settled desktop, dalwm.sh failed) or the unpin / FCLK switch was
+# refused and UCLK pinned again; 2 an underflow in the baseline, nothing sent; 3 the watchdog pinned UCLK again.
 G=${PHXBOOT_G:-$HOME/gpu}; P=${PHXCTL:-$G/phxctl.bin}; export PHXCTL=$P
 SETTLE=${IDPM_SETTLE:-60}; BASE=${IDPM_BASE:-30}; POLL=${IDPM_POLL:-2}; WAITMAX=${IDPM_WAITMAX:-1800}
 r() { "$P" regs "$1" | awk '{print $NF}'; }
