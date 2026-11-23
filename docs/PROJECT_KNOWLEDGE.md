@@ -301,6 +301,8 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
 | 2026-11-23 | **Linux:** vkbench | same boot, 240 SDR | compute 2000: 4.05 ms; compute 64: 0.134 ms (macOS 0.41); bandwidth 823 GB/s (macOS 44.7); submit 37 us; 512x512 job 114 us (macOS 265 poll / 114 interrupt) | same |
 | 2026-11-23 | **Linux:** CPU | same boot | 1 thread 5.16 GHz on the frequency CCD (macOS 5.02-5.12); idle package 37.8 W, CC6 98 % (macOS 39.5-41.3 W, 07:14) | same |
 | 2026-11-23 | **Linux:** NVMe raw read | same boot, `fio --readonly` | 6.8 GB/s, 4 KiB QD1 21.3 k IOPS (macOS 7.0 GB/s, ~20 k) | same |
+| 2026-11-23 | GPU idle, Linux's PMFW messages (live) | b155, 1440p240 HDR, light desktop use; `idletest.sh` | socket / board 53.5 / 67.1 W pinned -> 30.2 / 39.9 W (UCLK unpinned, FCLK switch) -> **23.5 / 31.8 W** (+ DCFCLK messages); UCLK 96, FCLK 1000, DCEFCLK 200; 0 underflows in 20 min | [perf / power](../.agents/findings/2026-11-23-perf-power.md) 9 |
+| 2026-11-23 | Same, under load | `vkbench bandwidth / compute`, `metalbench bandwidth`, 5 s each, pinned vs free | 44.1 / 43.7 GB/s, 0.407 / 0.405 ms, 44.2 / 43.8 GB/s; board at 100 % 206-304 / 172-270 W; UCLK stays 96 (buffers are system memory) | same |
 | 2026-11-23 | Restart | Apple menu > Restart, same state | ~3 s to `shutdown`, ~45 s POST + picker, ~15 s to the accelerated WindowServer: ~67 s in total | same |
 | — | LAN throughput, Ethernet, sleep | — | **no baseline yet** (needs an `iperf3` peer, a cable; sleep needs a resume path) | |
 
@@ -313,9 +315,8 @@ side-by-side reading is in [perf / power](../.agents/findings/2026-11-23-perf-po
   written at ~50 GB/s (2026-11-22) is probably DCC compression *(unverified)*.
 - Fence waits poll: a 20 us spin, then 200 us steps. Interrupt waits work on the XTX (live test 2026-11-23) but stay
   off: better median, worse p99 so far.
-- The UCLK hard minimum of 456 MHz is never released, and FCLK stays at 2301 MHz. Linux idles at UCLK 96 / FCLK 1000 and
-  ~15 W less at 240 Hz HDR: it sends the PMFW UCLK 96, DCFCLK 199, the deep-sleep DCFCLK, the display count and the DAL
-  watermark table; macOS's display registers already match Linux's (perf / power section 8).
+- Idle GPU power: with the UCLK pin, 51-54 W socket at 1440p240 HDR. Linux's PMFW messages, live, gave 23.5 W with no
+  underflow and no loss under load (perf / power section 9); `phxboot-idledpm` makes it a boot step (thread 02).
 - RADV runs the XT's canned profile on the XTX (84 CU, XT name): fixed in patch 0018, not installed yet (pixel
   shading 19 % faster side-loaded). The Metal working set is a fixed 6 GiB.
 - OpenGL apps run on the CPU (Apple Software Renderer).

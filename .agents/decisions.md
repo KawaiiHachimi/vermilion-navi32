@@ -461,3 +461,13 @@ frequency CCD and idles at 37.8 W package with CC6 98 % of the time; macOS reach
 39.5-41.3 W. A kernel extension that enters CC6 through the firmware's `_CST` would gain ~2-3 W and adds a new
 kernel component in the idle path. Not built; revisit only if a later measurement shows a bigger gap (for example at
 sleep, thread 05). Evidence: [perf finding](findings/2026-11-23-perf-power.md) section 8.
+
+## 2026-11-23: idle clocks free on one display, under a watchdog (thread 02)
+
+The daemon's UCLK pin at 456 MHz (upstream's mitigation for a UCLK switch underflowing the display without the DAL
+hand-off) costs ~30 W at idle on the XTX machine. With the hand-off Linux does (the DAL watermark table, then UCLK
+unpinned, the FCLK switch allowed, DCFCLK 199 / deep sleep / one display), 20 minutes at 1440p240 HDR showed no underflow
+and 53.5 -> 23.5 W socket; under load nothing got slower. `idle_dpm.sh` (flag `phxboot-idledpm`) applies it once the
+desktop settled and keeps upstream's watchdog for the whole boot: the first underflow re-pins 456 for the rest of the
+boot. Not combined with `b15` (the XT's own recipe) and not after a pipe-1 boot. Every message is one Linux sends on this
+card. Evidence: [perf finding](findings/2026-11-23-perf-power.md) section 9.

@@ -184,3 +184,37 @@ before the chip is named (`modprobe nct6775` on Linux, owner's OK) and that conf
 **RADV profile:** Linux's `gpuinfo` confirms the harvest fields of Mesa's `navi31` entry (96 CU, all 24 GL2 channels,
 384-bit, full CU bitmap, 6 SE, 24 RB). Its firmware versions (ME 2540, PFP 2710, MEC 2790) are newer than the canned
 entry's (1486 / 1525 / 494), which came from an older Linux; what macOS's pinned firmware reports was not compared.
+
+## 9. Idle power: Linux's messages, live (07:25-07:48, owner's OK)
+
+XTX machine, b155, 1440p240 HDR, the owner's desktop in light use (T3 Code). `idletest.sh` (scratchpad): OPTC0 / HUBP0
+underflow stickies cleared, read every second; SMU metrics every 15 s. Every message is one Linux sends on this card
+(the DAL list in section 8) or upstream's validated XT recipe (`b15_boot.sh` step 6).
+
+| Phase | Sent | Clocks UCLK / FCLK / DCEFCLK (MHz) | Socket / board W (mean) | Underflows |
+|---|---|---|---|---|
+| base, 5 min | nothing (UCLK pinned 456 by the daemon) | 456 / 2301 / 661 | 53.5 / 67.1 | 0 |
+| dpm, 10 min | `dalwm.sh`, `uclk.sh unpin`, `SetFclkSwitchAllow 1` | 96 / 1000-1200 / 661 | 30.2 / 39.9 (20-24 when idle) | 0 |
+| dcf, 5 min | + `SetHardMinByFreq` DCFCLK 199, `SetMinDeepSleepDcfclk` 72, `NumOfDisplays` 1 | 96 / 1000 / 200 | 23.5 / 31.8 | 0 |
+| re-pinned | `uclk.sh pin 456`, `SetFclkSwitchAllow 0` | 456 / 2301 / 200 | 52 / 66 at once | 0 |
+
+The re-pin brought the power straight back: the clocks are the cause. **macOS at idle is now below Linux's 35 W at the
+same mode** (Linux kept UCLK at 456 most of the time at 240 Hz HDR; why it did and macOS doesn't is not known).
+
+**Under load (07:47-07:48, owner's OK), the same commands pinned then free, 5 s each:**
+
+| | pinned | free |
+|---|---|---|
+| `vkbench bandwidth 5` | 44.1 GB/s | 43.7 GB/s |
+| `vkbench compute 5`, GPU per frame median | 0.407 ms | 0.405 ms |
+| `metalbench bandwidth 5` | 44.2 GB/s | 43.8 GB/s |
+| board power at 100 % activity | 206-304 W | 172-270 W |
+| underflows | 0 | 0 |
+
+UCLK stayed at 96 MHz at 100 % activity: these loads read and write system memory (every buffer is system memory,
+section 3), so the PMFW sees no VRAM demand. No loss today (-1 % bandwidth, within run noise). **For VRAM buffers (PR B)
+UCLK must rise under load**; Linux reached 823 GB/s with the same hard minimum of 96, so the PMFW does raise it there.
+M2 checks it on macOS *(unverified)*.
+
+Made a boot step: `idle_dpm.sh` (flag `phxboot-idledpm`, `-dcf` for the DCFCLK messages), with the underflow watchdog
+for the whole boot; mock-tested (`tests/mock/idledpm_test.sh`, the daemon's `idledpm_*` scenarios).

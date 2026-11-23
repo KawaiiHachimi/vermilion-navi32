@@ -20,7 +20,17 @@ State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC
 (`fork/main` `c9f132e`).
 
 Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
-results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22). Nothing staged.
+results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
+
+1. **Daemon with `irqwait_boot` and `idledpm_boot`, plus `idle_dpm.sh`** (no EFI change, no kext change). Mock suites:
+   run.sh 248/248, b15test 159/159, idledpm_test 7/7.
+   - Install: `idle_dpm.sh` to `~/gpu/`; the daemon with `daemon_install.sh` (keeps `~/gpu/phxboot-navi31.sh.prev`);
+     flags `phxboot-irqwait`, `phxboot-idledpm`, `phxboot-idledpm-dcf`. Then one restart.
+   - Check: `phxboot.log` has `irqwait: on (...)`, `idledpm: started`, then `idledpm: ... on:` and no `underflow`;
+     `sysctl debug.phxwait_irq` = 1; SMU metrics UCLK 96 / DCEFCLK 200 at idle; the desktop and the login switch as
+     before; `vkbench submit 5 200 512 512` median ~114 us (owner's OK, 5 s of light load).
+   - Rollback: `rm ~/gpu/phxboot-irqwait ~/gpu/phxboot-idledpm ~/gpu/phxboot-idledpm-dcf` (next boot = today's state);
+     the old daemon is `~/gpu/phxboot-navi31.sh.prev`. Live: `sudo sh ~/gpu/uclk.sh pin 456`, the five sysctls to 0.
 
 ## 01 GPU stability
 
@@ -91,15 +101,12 @@ results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean a
       the [design note](findings/2026-11-23-vram-bo-design.md) (days of code; its own kext build and boot)
 - [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
       storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
-      Quiet interleaved A/B (06:25): better in median and p99 everywhere. Left: a daemon flag (`phxboot-irqwait`, sets
-      the five sysctls after the bring-up; mock tests), then a day of use
+      Quiet interleaved A/B (06:25): better in median and p99 everywhere. Daemon flag `phxboot-irqwait` written and
+      mock-tested: staged item 1, then a day of use before it goes in INSTALL's recommended set
       ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
-- [ ] **Idle power:** macOS 50-51 W socket at 240 HDR vs Linux 35 W (9.9 W at 60 SDR). Linux sends the PMFW, after
-      every mode set, HardMin UCLK 96 / DCFCLK 199 / DISPCLK / DPPCLK, `SetMinDeepSleepDcfclk`, `NumOfDisplays` 1; macOS's
-      plans send only DISPCLK / DPPCLK and the daemon pins UCLK at 456. The display registers (watermarks, DET) already
-      match Linux. Next, with the owner's OK (a brief flicker is possible): clear the underflow stickies, send Linux's
-      messages live with `dal.sh`, unpin UCLK, watch the stickies; re-pin 456 at the first underflow
-      ([perf finding](findings/2026-11-23-perf-power.md) 8)
+- [~] **Idle power:** live 53.5 -> 23.5 W socket at 1440p240 HDR with Linux's messages, 0 underflows in 20 min, nothing
+      slower under load ([perf finding](findings/2026-11-23-perf-power.md) 9). `idle_dpm.sh` + `phxboot-idledpm`: staged
+      item 1. Then a few days of use; other modes (60 / 120 / 144, SDR) only seen through the mock so far
 - [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip). Linux loads no Super I/O driver either; the board is in
       `nct6775`'s ASUS-WMI list (the chip sits behind ACPI WMI methods, so direct port access may race the firmware).
       Name the chip first (`modprobe nct6775` on Linux, owner's OK); then one EFI change
