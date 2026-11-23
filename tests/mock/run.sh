@@ -797,17 +797,17 @@ ws_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-waitstep"; }
 sc_p0modes_off() {      world; expect_nolog 'p0modes'; expect_writes 'phxpipe0_enable' 0; expect_writes 'phxpipe0_modes' 0; expect_log 'SUCCESS'; go p0modes_off; }
 alu(){ "$MOCK_PB" -c "Print :autoLoginUser" "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
 expect_alu(){ expect_cmd "[ \"\$(alu)\" = $1 ]"; }
-al_world(){ world; echo dnanu >"$FR/gpu/phxboot-autologin"; mkdir -p "$FR/etc"; echo x >"$FR/etc/kcpassword"; }
+al_world(){ world; echo mockuser >"$FR/gpu/phxboot-autologin"; mkdir -p "$FR/etc"; echo x >"$FR/etc/kcpassword"; }
 sc_al_off() {           world; expect_nolog 'autologin:'; expect_alu absent; expect_log 'SUCCESS'; go al_off; }
-sc_al_on() {            al_world; expect_log 'autologin: .* off \(daemon start\)'; expect_log "autologin: .* on for 'dnanu' before the Metal WindowServer restart \(reads 'dnanu'\)"
+sc_al_on() {            al_world; expect_log 'autologin: .* off \(daemon start\)'; expect_log "autologin: .* on for 'mockuser' before the Metal WindowServer restart \(reads 'mockuser'\)"
                         expect_order 'autologin: .* off \(daemon start\)' 'autologin: .* on for'; expect_order 'autologin: .* on for' 'restarting WindowServer once'
-                        expect_alu dnanu; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go al_on; }
+                        expect_alu mockuser; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go al_on; }
 sc_al_user_in() {       al_world; SIM_USERS="user console 2026 Nov 20"; expect_log 'a user is logged in before arming'; expect_nolog 'autologin: .* on for'; expect_alu absent; go al_user_in; }
-sc_al_nokc() {          world; echo dnanu >"$FR/gpu/phxboot-autologin"; expect_log 'autologin: .*kcpassword missing'; expect_alu absent; expect_log 'SUCCESS'; go al_nokc; }
+sc_al_nokc() {          world; echo mockuser >"$FR/gpu/phxboot-autologin"; expect_log 'autologin: .*kcpassword missing'; expect_alu absent; expect_log 'SUCCESS'; go al_nokc; }
 sc_al_metal_fail() {    al_world; SIM_METAL=0; expect_log 'FAIL \(Metal device never came up\)'; expect_nolog 'autologin: .* on for'; expect_alu absent; expect_reboot; go al_metal_fail; }
 sc_al_shutdown() {      al_world; NOWATCH=0; WATCHMAX=4; SIM_SHUTDOWN_W15=1; expect_rc 143; expect_log 'SUCCESS'; expect_log 'autologin: .* off \(shutdown \(TERM\)\)'
                         expect_alu absent; expect_no_reboot; go al_shutdown; }
-sc_al_b21off() {        al_world; echo 0 >"$FR/gpu/phxboot-b21guard"; expect_log 'autologin: .* off \(daemon start\)'; expect_log 'autologin: .* on for'; expect_alu dnanu; go al_b21off; }
+sc_al_b21off() {        al_world; echo 0 >"$FR/gpu/phxboot-b21guard"; expect_log 'autologin: .* off \(daemon start\)'; expect_log 'autologin: .* on for'; expect_alu mockuser; go al_b21off; }
 sc_p0modes_on() {       world; touch "$FR/gpu/phxboot-p0modes"; expect_writes '^-w debug.phxpipe0_enable=1$' 1; expect_writes '^-w debug.phxpipe0_modes=1$' 1
                         expect_log 'p0modes: pipe-0 engine on, head-0 mode list armed'; expect_log 'claim: phxpipe0_modes was set before the claim'
                         expect_order 'p0modes: pipe-0 engine on' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_no_reboot; go p0modes_on; }
