@@ -290,6 +290,15 @@ int main() {
         CHECK(last.op == kW && last.reg == 0x0504A && last.val == 0);   // ends on Linux's OTG0 unlock
         if (bad || !off || up <= off || dal < 3 || waits < 13) std::printf("  plan %s: bad %u off %u up %u dal %u waits %u\n", p->name, bad, off, up, dal, waits);
     }
+    // b153: the HDR plans (two link windows) wait Linux's time right before the second link off, and only there
+    for (const Plan *p : {&kH60, &kH60f, &kH120, &kH120f, &kH144, &kH144f, &kH240, &kH240f}) {
+        unsigned offs = 0, delays = 0, before2 = 0;
+        for (unsigned i = 0; i < p->n; i++) {
+            if (p->s[i].op == kDelay) { delays++; if (i + 1 < p->n && p->s[i + 1].op == kLinkOff && offs == 1 && p->s[i].arg >= 100000 && p->s[i].arg <= 200000) before2++; }
+            if (p->s[i].op == kLinkOff) offs++;
+        }
+        CHECK(offs == 2 && delays == 1 && before2 == 1);
+    }
     CHECK(setOk(kSet));
     // ---- survey: reads only ----
     {
@@ -361,6 +370,8 @@ int main() {
         CHECK(run(e, st, r, 1440060, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x42000000u && h.phyRate == 0x0a * 2700u);
         // b152: an HDR switch from the hub: the to plan's two windows (Linux's two mode sets), the second after the first
         CHECK(r.nWins == 2 && r.wins[0].plan == kH60.name && r.wins[1].plan == kH60.name && r.wins[1].sincePrevUs > 0 && r.wins[1].tries == 1);
+        // b153: Linux's pause before the second window's link off (--pace-windows): 179.8 ms in the 60 Hz HDR plan
+        CHECK(r.wins[1].sincePrevUs >= 179777);
         CHECK(run(e, st, r, 240, 0, aux(h), kSet) == kDone && run(e, st, r, 1440060, 0, aux(h), kSet) == kDone);
         CHECK(r.nWins == 3 && r.wins[0].plan == k240From.name && r.wins[2].plan == kH60.name);   // from 240: leg 1 first
         CHECK(run(e, st, r, 60, 0, aux(h), kSet) == kDone && h.r[0x056C9] == 0x41000000u);

@@ -74,3 +74,24 @@ Probes (built in the session scratchpad, not in the repo): a Swift `CGDisplayScr
   changed (48 / 90 / 60), because PhxAccel's floor patch changes the EDID macOS reads. Options for the owner: keep the
   patch (the menu says "Variable (60-240 Hz)"; a floor change resets the display's settings, the floor is fixed at 60
   now), or drop it (the identity never changes; the menu says 48-240 although the floor stays 60). Decision open.
+
+## 6. On the box: b151 / b152 at the 1440p60 HDR login switch (03:11-03:46)
+
+The owner restarted 3 times on b151 and 2 times on b152 with 1440p60 HDR saved; every login switch landed (owner:
+"pretty stable"). The switch from macOS's state is three link windows: the entry to 240 (earlier run), then `240-from`
+(HBR2) and the HDR to plan's two (HBR each).
+
+| Boot | Build | Last window of the HDR to plan | Time since the previous window ended |
+|---|---|---|---|
+| 03:28 | b151 | **4 attempts** (only the count was kept) | not measured |
+| 03:42 | b152 | 1 attempt | 46.5 ms |
+| 03:44 | b152 | **3 attempts**: clock recovery failed on every lane (`status 00 00 ...`, adjust 3/3: the sink asks for maximum swing and pre-emphasis), then an AUX error, then trained after 100 + 150 ms | 46.6 ms |
+
+The first window of the same plan always trained at once, 8 ms after its link off. Linux's capture v4 of the same switch
+(`to-hdr-59.95`): every window trains at its first ENABLE (`DIS EN ... DIS EN ...`), and 179.8 ms pass from window 1's
+FEC-on write to window 2's DISABLE: Linux's commit sleeps there, the replay runs the writes in between in ~46 ms. Reading
+(inferred, not shown): the LG is still busy with the first HDR mode set when the second training starts. b151 at 20:19
+(2026-11-22) would have had one attempt: the black screen. b153 adds Linux's time there (CHANGELOG 153).
+
+At 03:43:19 a shutdown during the daemon's watch caught a run in flight (`target=60 phase=leg1`, the `60hdr-from`
+window trained): macOS asked for SDR 60 Hz as the session ended (seen once; whether every logout does is unknown).

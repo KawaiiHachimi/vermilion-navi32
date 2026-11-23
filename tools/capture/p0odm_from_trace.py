@@ -155,6 +155,10 @@ def main():
     ap.add_argument("--pixel-format", action="store_true", help="keep Linux's pipe-0 scan-out format writes (HUBP0 "
                     "DCSURF_SURFACE_CONFIG, CNVC_CFG0 SURFACE_PIXEL_FORMAT) as literals: the HDR plans' ARGB2101010 (0xa) and back to "
                     "ARGB8888 (0x8); b149, 10-bit HDR")
+    ap.add_argument("--pace-windows", action="store_true", help="b153: before the link off of every link window after the "
+                    "first, a DELAY of Linux's own time from the previous window's end (FEC on) to that link off. Linux's "
+                    "commit sleeps there (the replay runs the writes in between in a few ms); on the XTX machine the second "
+                    "window of an HDR switch then often failed clock recovery (LG 27GS95QE-B, 2026-11-23)")
     ap.add_argument("--modesets", type=int, default=1, help="mode-set bursts in the step (auto until): 1, or 2 for an HDR switch")
     ap.add_argument("--hdr", default=os.path.expanduser("~/vermilion-captures/linux-hdr/dcn_3_2_0_offset.h"),
                     help="Linux's dcn_3_2_0_offset.h (drivers/gpu/drm/amd/include/asic_reg/dcn), for the register names")
@@ -178,6 +182,7 @@ def main():
         stats[op] = stats.get(op, 0) + 1
     state, aux, dal_arg, div_set = "pre", None, 0, False
     win_rate, win_lanes, windows = None, None, 0   # v4: each link window's own ENABLE (rate, lanes); --rate / --lanes for the first
+    t_win_end = None   # b153: trace time of the last link window's end (LINK_UP_END), for --pace-windows
     det, det_pend, compbuf = {}, set(), None   # DETn size last written, DETs written since the last OTG0 unlock
     nextw, last = {}, {}   # trace line -> the value of the next write to the same register (FIFO wait rule)
     for ln, l in enumerate(open(a.trace), 1):
@@ -200,6 +205,9 @@ def main():
             c1, c2 = int(d.group(3), 16), int(d.group(4), 16)
             # v4: a second DISABLE after a finished window starts another one (an HDR switch: two mode sets)
             if hdr == 0x3c000180 and state in ("pre", "post") and c1 & 0xff00 == 0:
+                if a.pace_windows and state == "post" and t_win_end is not None:
+                    gap = int(round((t - t_win_end) * 1e6))
+                    emit("DELAY", ln, 0, 0, 0, gap, f"Linux's {gap / 1000:.1f} ms from link window {windows}'s end to this link off (--pace-windows)")
                 state = "linkoff"; windows += 1
                 emit("LINKOFF", ln, 0, 0, 0, 1, "D3, TRANSMITTER_CONTROL DISABLE, FEC_READY off (Linux window" + (f" {windows})" if windows > 1 else ")"))
             if hdr == 0x3c000180 and c1 & 0xff00 == 0x0100 and state in ("linkoff", "mid") and c2 in SYM_RATE:
@@ -241,7 +249,7 @@ def main():
             state = "linkup"; emit("LINKUP", ln, 0, rate_w, 1, lanes_w, f"link rate {hex(rate_w) if windows > 1 else a.rate} x{lanes_w} with FEC_READY, CR + EQ, FEC on (Linux window" + (f" {windows})" if windows > 1 else ")"))
         if state == "linkup":
             if (n, v) == LINK_UP_END:
-                state = "post"
+                state = "post"; t_win_end = t
             prev[n] = v
             continue
         if COPY.search(n) and n != "HUBPREQ0_DCSURF_SURFACE_PITCH":   # b138: pipe 0's pitch is Linux's (PhxAccel's rows follow it)
