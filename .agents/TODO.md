@@ -78,6 +78,15 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
      a picture. 2-3 restarts at 1440p60 HDR.
    - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (from macOS under `/Volumes/NO NAME/EFI`, or from Linux under
      `/boot/EFI`, then power off fully).
+5. **EFI change 14: VermilionBoot b155** (`f95b4baf`: drm's 32-try rule for the trainers' DPCD accesses, the
+   `dpcd_aux:` stat line, the live switch `debug.phxp0odm_dbuf`, 0 at boot) on stage `vermilion-trust`; only the kext
+   differs from change 13. **Installed 05:00** (`EFI/OC` = b155 `f95b4baf`, `EFI/OC.prev` = change 13 b154 `78f560cc`, config identical) so that the next restart, whenever the owner makes one, boots it.
+   - Before: `~/vermilion-rollback/VermilionBoot.kext.b154`; `efi/build.py install` makes change 13 `EFI/OC.prev`
+     (change 11 stays in `~/vermilion-rollback/EFI-OC.change11-20261123`).
+   - Check: `debug.phxp0odm_stat` has `dpcd_aux:`; the login switch's `train_w` lines; `redone=0` if the AUX misses
+     are gone. Then the live `debug.phxp0odm_dbuf=1` test (TODO 01, DRR double buffer).
+   - Rollback: `EFI/OC` and `EFI/OC.prev` swapped (macOS: `/Volumes/NO NAME/EFI`; Linux: `/boot/EFI`, then power off
+     fully).
 
 ## 01 GPU stability
 
@@ -86,13 +95,14 @@ restart. `<ESP>/vermilion/flags/` stays empty; no `run-once.sh`.
       trainer stopped after 4 timeouts or 1 NACK. **b155** (built `f95b4baf` with `debug.phxp0odm_dbuf`, host-tested, not installed): drm's rule
       for the trainers' DPCD accesses, a `dpcd_aux:` line in `debug.phxp0odm_stat`. Goes in with the next boot that is
       needed anyway; check: `train_w` attempts `tries=1` where b154 had `rc=aux,ok`, `dpcd_aux: retried=` > 0
-- [~] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
-      every later switch refused until reboot. **b151** (built, host-tested, staged 1): Linux's 4 training attempts
-      per link window, a failed from plan runs once more (2 per boot), `last_fail_train` keeps the CR / EQ report.
-      Left: the box (OWNER-TESTS 01 "Login at 60 Hz HDR"). Evidence lost for the 20:19 run
-      ([finding](findings/2026-11-23-gpu-stability.md) section 1)
-- [~] The daemon reported `SUCCESS` during that black screen: **done in the repo** (`disp_check`: `DARK`, the engines'
-      state in `/var/log/phxdark-*.txt`, one restart; mocks `disp_*`); deployed with staged 1
+- [x] **Failed DP link training at a login mode switch** (1440p60 HDR, 2026-11-22 20:19, once, b150): black screen,
+      every later switch refused until reboot. b151: Linux's 4 training attempts per link window, a failed from plan
+      runs once more (2 per boot); b152 / b153: per-window record, Linux's pause; b154: a retried last window re-runs
+      the switch. On the box 2026-11-23 03:11-04:36: 10 login switches at 1440p60 HDR landed, 5 needed a retry, one
+      (04:15, b153) stayed black on a locked link until a re-switch, which b154 now does by itself (04:36)
+- [x] The daemon reported `SUCCESS` during that black screen: `disp_check` (`DARK`, the engines' state in
+      `/var/log/phxdark-*.txt`, one restart) for a failed engine; deployed 03:08. Its limit: the 04:15 kind of black
+      (link locked, frames presented) reads as healthy; b154 covers that case at the source
 - [~] **Panic reports:** none is saved, because `DisableVariableWrite` blocks the kernel's NVRAM panic log (from the
       config; not watched failing here). Stage `vermilion-trust-nvram` (staged 2). If writes work and nothing hangs,
       make it the default stage. Then a deliberate test panic is the only way to prove a report is saved (owner's
