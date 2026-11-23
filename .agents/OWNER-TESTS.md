@@ -45,6 +45,9 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       | 1 | 2026-11-23 05:09 | b155 / change 14 | cold: first power-on after a Linux session | not seen | OpenCore log ends at ExitBootServices as a good boot's does; no unified log, no daemon log, no panic report ([finding](findings/2026-11-23-gpu-stability.md), section 11) |
       | 2 | 2026-11-23 15:45 | b159 / change 20 (BAR0 1 GiB, first boot) | warm: `shutdown -r` from macOS | not seen (owner: "one restart didn't work, the second one did") | shutdown clean (logs to 15:45:02); OpenCore log `opencore-2026-11-23-144551.txt` has 3 lines and stops: `OCC: Missing compatible GOP - Not Found`, `Missing GOP on ConOut`, `Changed resolution to 0x0@0 ... Unsupported`; no boot.efi line, so macOS's kernel and b159 never ran. The good boot after it (14:49 UTC) has no such lines. Cause unknown (unverified: the firmware's GPU GOP did not come up after a warm restart) |
 
+      Good boots the owner watched: 2026-11-23 16:40 (b160 / change 21, warm restart from macOS): first try, verbose
+      text the whole way, no Apple logo (the boots of changes 19 and 20 had shown the Apple logo and a progress bar).
+
       If it happens again, before powering off:
       1. Photograph the screen (verbose text: the last 10 lines; or the Apple logo / black, and whether the progress
          bar moved).
@@ -67,6 +70,11 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
       it). Before VRAM buffers become the default for every app (M3), they go to the apps used every day; the
       agent picks them from what runs on the machine. Report anything odd (stutter, wrong rendering, a freeze).
       Off again: `rm ~/gpu/phxboot-bovram` and restart.
+- [ ] **App windows with the tiled drawable** (thread 02 part C, since 2026-11-23 16:40): every app that draws with
+      Metal into its window now draws into a fast tiled image that is copied to the window once per frame. Over the
+      next days, watch for a window that shows old content, flickers, stays black or lags behind (games, Electron or
+      Chromium apps such as T3 Code, Blender). Off for every newly opened window, no restart:
+      `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off`, then reopen the app; on again: remove the file.
 - [ ] **A Metal game or benchmark** you own: run it for 20 minutes. Report the frame rate, stutter, wrong rendering,
       and whether the fans behave.
 

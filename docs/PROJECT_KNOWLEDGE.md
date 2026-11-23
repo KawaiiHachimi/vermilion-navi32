@@ -336,7 +336,7 @@ after the self-test), in one run at 09:45-09:47. GPU time per frame, median. Lin
 | `metalbench render 10` (64 iterations, 2560x1440) | Metal | 0.262 ms | **0.137 ms** (1.9x) | no twin |
 | `metalbench compute 10` | Metal | 0.192 ms | **0.144 ms** (1.3x) | no twin |
 | `metalbench bandwidth 10` | Metal | 44.0 GB/s | **836.9 GB/s** | no twin (Vulkan 823 / 837) |
-| **Horizon** (Minecraft Java 26.3 in Rust, nightly 2026-11-13; fullscreen 2560x1440, render distance 12, Immediate present; `horizon-ctl bench 20`) | Metal (wgpu) | 93.1 / 83.3 fps avg (off before / after); p50 10.8 / 11.5 ms; 1 % low 61 / 53 fps | **158.0 fps** (1.7-1.9x); p50 6.3 ms; 1 % low 118 fps | not measured |
+| **Horizon** (Minecraft Java 26.3 in Rust, nightly 2026-11-13; fullscreen 2560x1440, render distance 12, Immediate present; `horizon-ctl bench 20`) | Metal (wgpu) | 93.1 / 83.3 fps avg (off before / after); p50 10.8 / 11.5 ms; 1 % low 61 / 53 fps | **158.0 fps** (1.7-1.9x); p50 6.3 ms; 1 % low 118 fps. With b159-b160 and the tiled drawable (2026-11-23 16:43, `horizon-ctl bench 15`): **292 fps**, p50 3.41 ms, p99 4.13 ms (drawable on its pages: 172 fps, p50 5.82 ms) | 4370 fps, p50 0.22 ms ([finding](../.agents/findings/2026-11-23-linux-horizon.md)) |
 | clpeak (`metal:0`, `coreml:0`) | Metal, MPS | **hung the GPU** in its MPS pass (VRAM off; [finding](../.agents/findings/2026-11-23-clpeak-hang.md)): out of the set | not run | - |
 | OpenGL (any app, Minecraft Java) | OpenGL | CPU fallback: Apple Software Renderer, not measured | same (VRAM BOs don't apply) | - |
 | OpenCL, Blender Cycles | OpenCL / Metal | CPU fallback (Cycles lists only the CPU), not measured | same | - |

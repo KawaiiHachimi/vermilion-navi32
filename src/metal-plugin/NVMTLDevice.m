@@ -1083,6 +1083,32 @@ static int nvmtl_surface_image_create(NVMTLTexture *t, IOSurfaceRef surf, NSUInt
                 // NVMTL_WS_SCANOUT_TILED=1 (drag lag): the display surface is drawn into a TILED image and copied to its pages at
                 // the end of every command buffer that drew it. Blending into a linear 1080p target cost 1.77 ms per 8-layer
                 // pass in a probe, 88 us tiled, 491 us tiled plus one copy (2026-10-26).
+                // An app's CAMetalLayer drawable, the same way: drawn into a TILED image, copied to its pages once, in the
+                // command buffer that presents it (nvmtlSealPartWithSignal). Horizon (wgpu) on the XTX drew its whole 1440p
+                // frame into the linear system-memory pages: the main pass (clear, sky, terrain, blending) 2.42 ms, a
+                // 74-instruction vignette pass 0.74 ms (passtime, 2026-11-23 16:28; Linux: 0.22 ms for the whole frame).
+                // On by default outside WindowServer; NVMTL_DRAWABLE_TILED=0, or the file
+                // /Library/GPUBundles/nvmtl/drawable-tiled-off (read for every new drawable: no restart), keeps the old path.
+                static int drawTiled = -1;
+                if (drawTiled < 0) { const char *e = getenv("NVMTL_DRAWABLE_TILED"); const char *me = getprogname();
+                    drawTiled = !(e && e[0] == '0') && !(me && !strcmp(me, "WindowServer"));
+                    nvlog("drawables: %s (NVMTL_DRAWABLE_TILED=%s)", drawTiled ? "TILED, copied to their pages at present" : "on their pages", e ? e : "unset"); }
+                if (drawTiled && w >= 256 && h >= 256 && access("/Library/GPUBundles/nvmtl/drawable-tiled-off", F_OK) != 0) {
+                    CFTypeRef nm = IOSurfaceCopyValue(surf, CFSTR("IOSurfaceName"));
+                    const int drw = nm && CFGetTypeID(nm) == CFStringGetTypeID() && CFStringHasPrefix((CFStringRef)nm, CFSTR("CAMetalLayer"));
+                    if (nm) CFRelease(nm);
+                    if (drw && !nvmtl_vk_image_create_typed(w, h, vkf, bpp, a8, 1, stex, 2, 1, &t->_i)) {
+                        if (!nvmtl_vk_copy_buffer_to_image(nvmtl_device_queue(), &hb, 0, (uint32_t)row, &t->_i, 0, 0, w, h)) {
+                            t->_hostBuf = hb; t->_hostOn = YES; t->_drawTiled = YES;
+                            t->_surfSeed = IOSurfaceGetSeed(surf); t->_surfSynced = YES;
+                            static unsigned said; if (said++ < 8)
+                                nvlog("surface %u %ux%u pitch %zu -> CAMetalLayer drawable drawn TILED, copied to its pages at present", (unsigned)IOSurfaceGetID(surf), w, h, row);
+                            return 0;
+                        }
+                        nvmtl_vk_image_destroy(&t->_i); memset(&t->_i, 0, sizeof t->_i);
+                        nvlog("surface %u: tiled drawable image could not be filled - drawn on its own pages", (unsigned)IOSurfaceGetID(surf));
+                    }
+                }
                 static int scanTiled = -1;
                 if (scanTiled < 0) { const char *e = getenv("NVMTL_WS_SCANOUT_TILED"); const char *me = getprogname();
                     scanTiled = e && e[0] == '1' && me && !strcmp(me, "WindowServer"); }
