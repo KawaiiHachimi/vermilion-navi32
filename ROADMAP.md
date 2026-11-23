@@ -37,10 +37,29 @@ and the EFI build run there.
 Upstream: credit leolivm clearly, send fixes that help the XT upstream as separate PRs (VermilionTrust first), tell
 leolivm before the Reddit post. The same for Dino-VN.
 
+### T3 projects
+
+The T3 projects follow the repos:
+
+| T3 project | Folder → repo | Series threads |
+|---|---|---|
+| `vermilion-xtx` (project id `fe6768b2-5e37-4cb8-950b-0f24ceda7d19`; "Vermilion" until 2026-11-23) | `~/Projects/vermilion` → `ownback/vermilion-xtx` | 00–06, 09, and the coordination thread |
+| `MtkWireless` | `~/Projects/MtkWireless` → `ownback/MtkWireless` (fork of `Dino-VN/MtkWireless`) | 07 |
+| `Ryzentosh` | `~/Projects/ryzentosh` → `ownback/ryzentosh` | 10, 11 (12 runs across all repos from there) |
+
+- **Numbering stays global** across the projects (00–12), so the order is visible everywhere. Thread titles: "NN – Name".
+- **A T3 project is created only when its repo exists.** No empty project points at a missing folder. Thread 07 forks
+  MtkWireless on GitHub, clones it to `~/Projects/MtkWireless`, and creates the project (`t3_project_create`) before
+  it starts work. Thread 10 does the same for `ryzentosh`.
+- **Threads in different projects message each other** with `t3_thread_send`, by thread id.
+
 ## Rules for every thread
 
 1. **Workflow:** one numbered thread at a time. Pull `fork/main`, branch `ownback/<topic>`, work, PR, merge with a merge
-   commit "Merge #N: ...", then the finishing thread creates the next one (from this file plus its handoff note).
+   commit "Merge #N: ...", then the finishing thread creates the next one (from this file plus its handoff note), in the
+   right T3 project ("T3 projects" above): `t3_thread_launch` with that project's `projectId` and a worktree from that
+   repo's `fork/main` or `origin/main`. Thread 06 launches 07 in the MtkWireless project, creating it first (fork,
+   clone, project) if 07 can't do that itself. Thread 09 launches 10, which creates the Ryzentosh project.
 2. **Own worktree per thread.** Never switch the branch of a checkout another thread uses.
 3. **One EFI change per boot, always, with the rollback written in TODO.md first.** Only the active thread installs to
    the EFI partition; any other thread asks it. Every EFI change goes into the boot log in PROJECT_KNOWLEDGE with the
