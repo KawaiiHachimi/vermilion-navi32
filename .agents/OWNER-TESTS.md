@@ -63,7 +63,7 @@ command's output, paste the whole output. None of these needs an EFI change. Ask
 - [ ] **If a panic happens:** photograph the whole screen, especially "panicked task" and "Kernel Extensions in
       backtrace".
 
-## 02 GPU and CPU performance, power
+## 13 Performance parity (from 02; thread 02 is merged)
 
 - [x] Linux reference boot and BIOS photos: done 2026-11-23 06:41-07:10 (results in the perf finding, section 8).
 - [ ] **VRAM buffers in daily use** (thread 02 part B): Horizon was only a measuring stick (the owner rarely plays

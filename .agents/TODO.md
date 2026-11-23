@@ -15,121 +15,15 @@ Rules:
 
 ## Staged now
 
-State at the end of thread 01 (verified, recorded in PROJECT_KNOWLEDGE): `EFI/OC` = change 14 (VermilionBoot b155),
-`EFI/OC.prev` = change 13 (b154), `EFI/OC.bad` = change 12. Thread 01's per-change steps: git history of this file
-(`fork/main` `c9f132e`).
+State at the end of thread 02 (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 22
+(VermilionBoot b160, the tiled-drawable plugin `344c621f`), `EFI/OC.prev` = change 21, `EFI/OC.bad` = change 12.
+Nothing is staged. Thread 02's per-change steps (changes 15-22, C3): git history of this file (`fork/main` after
+the merge of `ownback/perf-ws`).
 
-Thread 02 (2026-11-23): EFI change 15 booted 07:10 and is verified (PROJECT_KNOWLEDGE, known-good); the Linux run's
-results are in `~/vermilion-captures/linux-ref-20261123/` and the ESP is clean again (07:22).
-
-Thread 02 part B: **EFI change 16** (VermilionBoot b156, VRAM-backed BOs, off at boot) booted 08:54 and is verified
-(PROJECT_KNOWLEDGE). Rollback: `EFI/OC.prev` = change 15, copy in `~/vermilion-rollback/EFI-OC.change15-20261123`.
-
-Thread 02 part C: **EFI change 17** (VermilionBoot b157: GPU time per context, off by default) **plus mesboot with
-the system aperture from FB_LOCATION** (24 GiB on the XTX, `0x00217fbf`; the XT keeps `0x00213fbf`), installed together
-2026-11-23, **booted 10:29 and verified** (desktop 1440p240 HDR + VRR, `0x28DE` = `0x00217fbf`, pool `[512, 24464)` MiB,
-self-test 1, `debug.phxgpu_time` answers). Check after the boot was: accelerated desktop at 1440p240 HDR; `phxctl regs 0x28DE` reads
-`0x00217fbf`; `debug.phxbo_vram_stat` pool `[512, 24464)` MiB and `debug.phxbo_vram_selftest` 1 (it now tests the
-pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.prev` = change 16 (copy in
-`~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
-/usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
-
-Thread 02 part C, Fable clean-up follow-ups (PR #15 left them alone: each changes machine code, so a build bump):
-- [ ] Fold the retire loop that appears three times in `phx_gputime.cpp` into one helper.
-- [ ] Check `gpuTimeReset`: it also retires the VCN queue, the other three callers skip it (oversight?).
-- [ ] `gpuSubmit`'s timestamp path uses `fbAper` without the null check `gpuTimeAccount` has: confirm a ready queue
-  implies `fbAper`, or add the check.
-- [ ] `doBoCreate`: the b156 and b159 blocks duplicate the free-handle search and the scalar outputs.
-- [ ] `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
-
-Thread 02 part C: **EFI change 22** (stage `vermilion-trust-bar1g`): VermilionTrust rebuilt for an NVMTLDriver whose
-tiled drawable also copies at the end of every command buffer that drew a drawable never presented with
-`-presentDrawable:` (MoltenVK presents with `-[CAMetalDrawable present]` itself: Minecraft's black window). Installed
-2026-11-23, **booted 17:24 and verified** (trust enforce, denied_unlisted 0; Minecraft draws TILED). After the boot: remove `/Library/GPUBundles/nvmtl/drawable-tiled-off`, then Minecraft
-(Vulkan) draws, Horizon still logs "drawn TILED" and runs ~290 fps; `phxtrust_stat` enforce, denied_unlisted 0.
-Rollbacks: the switch file back (no restart); the previous plugin `~/vermilion-rollback/NVMTLDriver.drawtiled-v1-20261123`
-(.new + mv; trusted as `-previous`); EFI `EFI/OC.prev` = change 21 (copy `~/vermilion-rollback/EFI-OC.change21-20261123`).
-
-Thread 02 part C, from Minecraft (2026-11-23 17:20, finding horizon-present-cost, "Minecraft"):
-- [x] **The tiled drawable left MoltenVK windows black** (Minecraft Vulkan): fixed in EFI change 22 (booted 17:24,
-  verified 17:41: Minecraft draws, 134 fps in its 854x480 window); the off switch is removed.
-- [ ] Minecraft is CPU-bound in the per-draw path (finding horizon-present-cost, "Minecraft after EFI change 22"):
-  the plugin's per-draw `objc_release` and sampler/pipeline re-binding, then folding consecutive indirect draws into
-  one multi-draw.
-- [x] `java` added to `debug.phxbo_vram_proc` and `~/gpu/phxboot-bovram` (Minecraft's GPU cost 5x lower).
-- [ ] Decide M3 (VRAM BOs for every app by default) now that b160 is in: opt-in by name misses every new app.
-- [ ] Look at a native Vulkan path for macOS apps (RADV as the Vulkan driver, without MoltenVK + Metal in between).
-
-Thread 02 part C3: **WindowServer's display surface tiled** (boot daemon `ws_tiled`, flag `~/gpu/phxboot-wstiled` ->
-`launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23,
-booted 17:08 (desktop fine, all 2560x1440 display surfaces "CoreDisplay Scanout drawn TILED"), **measured worse and
-switched off** (flag removed 17:15; takes effect at the next restart): Horizon 230 fps vs 292, WindowServer ~3.0 ms of
-GPU per frame vs ~2.2 ms, because upstream's mode copies the whole 14.7 MB surface to its pages after each of
-WindowServer's ~3 command buffers per frame (finding horizon-present-cost, "C3"). Redo: copy once per frame at the swap
-commit, or let GPU present copy the tiled image straight into its VRAM slot. Check after the boot: `phxboot.log` has "wstiled: NVMTL_WS_SCANOUT_TILED=1"; `/tmp/nvmtl.log` has
-"CoreDisplay Scanout drawn TILED"; the desktop draws right (windows, menus, cursor, HDR, VRR), no stale regions; then
-Horizon with the pass timer for WindowServer's composite. Rollback: `rm ~/gpu/phxboot-wstiled` and restart; the
-previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-wstiled` (the new one only adds the flag).
-
-Thread 02 part C: **EFI change 21** (stage `vermilion-trust-bar1g`): VermilionBoot **b160** (the parking of mapped
-CPU-visible BOs can't run out) and **VermilionTrust rebuilt for a new NVMTLDriver** (app CAMetalLayer drawables drawn
-TILED, copied to their pages at present: `NVMTL_DRAWABLE_TILED`, on by default outside WindowServer). Installed
-2026-11-23, **booted 16:40 on the first try** (verbose text, no Apple logo): `phxtrust_stat` enforce, denied_unlisted 0;
-self-test 1; desktop survived the daemon's watch; the plugin logs "drawables: TILED". **Verified with Horizon** (16:43):
-its three drawables drawn TILED, the screenshot matches the old path's, 292 fps vs 172 with `NVMTL_DRAWABLE_TILED=0`
-(finding horizon-present-cost). Still to see: a Chromium/Electron app's window over a few days (OWNER-TESTS). Check after the boot: accelerated desktop 1440p240 HDR + VRR; `sysctl debug.phxtrust_stat`
-`mode=enforce`, `denied_unlisted=0`; `debug.phxbo_vram_selftest` 1; `/tmp/nvmtl.log` has "CAMetalLayer drawable drawn
-TILED" for a Metal app and its window looks right (Horizon; a Chromium/Electron app). Rollbacks, smallest first:
-(1) a broken app window: `sudo touch /Library/GPUBundles/nvmtl/drawable-tiled-off` and relaunch the app (no restart);
-(2) the old plugin: `~/vermilion-rollback/NVMTLDriver.pre-drawtiled-20261123` back into
-`/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/` (.new + mv; the new trust list keeps it as `-previous`);
-(3) EFI: `EFI/OC.prev` = change 20 (copy in `~/vermilion-rollback/EFI-OC.change20-20261123`); restore the old plugin
-first (change 20's trust list doesn't know the new one). No desktop at all: boot Linux, `mv /boot/EFI/OC
-/boot/EFI/OC.b160-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`, then the old plugin from macOS.
-
-Thread 02 part C: **EFI change 20** (stage `vermilion-trust-bar1g` with VermilionBoot b159: CPU-visible VRAM BOs in
-[352 MiB, 1 GiB) of BAR0, used only by processes in `debug.phxbo_vram_proc`), installed 2026-11-23, **booted 15:49 and verified**: desktop
-1440p240 HDR, `phx-fb-aper-len` 1073741824, self-test 1 (step 3's BAR0 read-back at 352 and 1023 MiB passed), hi pool
-`[1024, 24464)` MiB, CPU-visible pool `[352, 1024)` MiB. **The first boot attempt after the restart at 15:45 failed**
-(owner: "one restart didn't work, the second one did"): the shutdown was clean (logs to 15:45:02), the failed boot left
-no log at all (the next line is the good boot at 15:49:15), so it stopped before logd; what the screen showed: asked.
-Cause unknown (unverified whether b159, the 1 GiB BAR or a warm restart; b159's `start` only maps 1 GiB instead of 512 MiB).
-Check after the boot: accelerated desktop 1440p240 HDR + VRR; `ioreg -l | grep phx-fb-aper-len` 1073741824;
-`debug.phxbo_vram_selftest` 1 (now with step 3, the BAR0 read-back); `debug.phxbo_vram_stat` shows the hi pool from
-1024 MiB and a "CPU-visible pool" `[352, 1024)` MiB. Rollback: `EFI/OC.prev` = change 19 (copy in
-`~/vermilion-rollback/EFI-OC.change19-20261123`); if macOS does not reach the desktop, boot Linux and
-`mv /boot/EFI/OC /boot/EFI/OC.b159-bad && mv /boot/EFI/OC.prev /boot/EFI/OC`.
-
-Thread 02 part C, follow-ups to b159:
-- [x] (1) The leak: a process that exits with its CPU-visible BOs still mapped parks each one (Horizon: ~80 per run),
-  and past b159's 256 slots the rest leaked until reboot. **Fixed in b160** (one slot per possible BO, reaped on every
-  allocation and stat read), built 2026-11-23, **not installed**: it goes in with the next build that needs a restart.
-  **No process other than `horizon-client` joins `debug.phxbo_vram_proc` until b160 runs.**
-- [ ] (2) Boots that stop without a macOS log: the counter is in OWNER-TESTS 01 (watch item). #2 (15:45, b159, warm)
-  stopped in OpenCore with no GOP. A third one on b159 means reverting to EFI change 19 before going on.
-- [ ] (3) Horizon is GPU-bound at 94 % (finding horizon-present-cost, "b159"): profile the main pass.
-
-Thread 02 part C: **EFI change 19** (stage `vermilion-trust-bar1g`: OpenCore `ResizeAppleGpuBars` 0 -> 10, BAR0 1 GiB
-for macOS; config.plist only, VermilionBoot b158 unchanged), installed 2026-11-23, **booted 11:09 and verified**: `phx-bar0-len`
-1073741824, `phx-fb-aper-len` 536870912, desktop 1440p240 HDR + VRR, VRAM self-test 1. New on this boot (owner): an
-Apple logo with a progress bar instead of the verbose text (`-v` is in the boot-args), and no password prompt;
-cause not looked into (unverified whether it comes from the BAR change).
-Check after the boot: the machine boots to the accelerated desktop 1440p240 HDR; `ioreg -l | grep phx-bar0-len` reads
-1073741824 (or the largest size the card supports up to 1 GiB); `phx-fb-aper-len` 536870912 (kFbAperMapMax); the
-VRAM self-test 1. Rollback: `EFI/OC.prev` = change 18 (copy in `~/vermilion-rollback/EFI-OC.change18-20261123`); if
-macOS does not reach the desktop at all, boot Linux and `mv /boot/EFI/OC /boot/EFI/OC.bar1g-bad && mv /boot/EFI/OC.prev /boot/EFI/OC` (`OC.bad` is taken by change 12) (as [runbooks](runbooks.md) line ~204).
-
-Thread 02 part C: **EFI change 18** (VermilionBoot b158: per-submission GPU trace, off by default), installed
-2026-11-23 ~10:55, **booted 10:57 and verified** (desktop, trace works, pool [512, 24464) MiB). Check after the boot was: accelerated desktop 1440p240 HDR; `sysctl
-debug.phxgpu_trace` answers; pool `[512, 24464)` MiB. Rollback: `EFI/OC.prev` = change 17 (copy in
-`~/vermilion-rollback/EFI-OC.change17-20261123`). The same install replaced a file Linux's fsck had renamed on the
-ESP (`MtkWirelessBT.kext/Contents/Resources/FSCK0000.000`, the libsbc license text).
-
-Thread 02 part B: the second Linux reading is in ([linux-02b](findings/2026-11-23-linux-02b.md)); the ESP is clean (08:24).
-
-The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqwait`, `idledpm`, `idledpm-dcf`) booted
-07:51 and is verified (PROJECT_KNOWLEDGE). Rollback: `rm ~/gpu/phxboot-irqwait ~/gpu/phxboot-idledpm
-~/gpu/phxboot-idledpm-dcf`; the previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-thread02`.
+- [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
+  cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
+  means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
+  before going on. Every thread that restarts asks the owner to glance at the screen.
 
 ## 01 GPU stability
 
@@ -187,62 +81,15 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
 - [ ] CHANGELOG 146-150 still mark as "(unverified)" what the owner has since confirmed (floor, ramp, 10-bit,
       Variable -> HDR)
 
-## 02 GPU and CPU performance, power
-
-- [-] CPU never above 5.15 GHz, idle ~40 W: Linux does the same (5.16 GHz, 37.8 W with CC6 98 %, BIOS all Auto), so
-      no `_CST` idle kext for ~2-3 W (decisions 2026-11-23; [perf finding](findings/2026-11-23-perf-power.md) 8)
-- [ ] Real-app test set: WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min, Minecraft (F3 renderer line)
-- [x] XTX RADV profile chosen by PCI revision: `patches/mesa/0018` (Mesa's `navi31` for revision 0xc8; the name
-      checks match every `navi31*`). Side-loaded: render -19 % GPU time ([perf finding](findings/2026-11-23-perf-power.md) 5).
-      Installed with EFI change 15 (`profile navi31`, Metal "AMD Radeon RX 7900 XTX")
-- [ ] Working set from VRAM instead of the fixed 6 GiB (`phx_globals.cpp`): PR B, with the VRAM buffers (design note
-      step 6); raising it while buffers are system memory would let apps wire 24 GiB of RAM
-- [~] **VRAM-backed BOs** (b156, opt-in per process, [design + M1 / M2](findings/2026-11-23-vram-bo-design.md)):
-      840.9 GB/s (Linux 837), `zerocheck` clean. Daemon flag `phxboot-bovram` (names; mock-tested, installed
-      2026-11-23 without the flag). Benchmark set 09:45 (PROJECT_KNOWLEDGE): compute 2.9x, Metal render 1.9x, both
-      bandwidths ~840 GB/s, zerocheck clean, no leak; Horizon (Metal game) 88 -> 158 fps at 1440p. Left: the real-app set before / after (OWNER-TESTS 02); days of use (OWNER-TESTS 02), then M3 (all processes, the default;
-      final call in thread 11 if open); a faster clear before M3 (~8 GB/s now); the GFXHUB aperture to 24 GiB
-      (XTX.md row 3, Linux's value) to open the pool's last 4 GiB
-- [ ] Fence waits by interrupt (`debug.phxih`, `debug.phxwait_irq`): **works on the XTX** (live test 2026-11-23, no
-      storm in 1.19 M IVs; reverted). Median of a short waited job 265 -> 115 us, throughput 2x, but p99 +1.5-4 ms.
-      Quiet interleaved A/B (06:25): better in median and p99 everywhere. On at boot since 07:51 (`phxboot-irqwait`):
-      124 us vk / 207 us Metal median after the restart. Left: a day of use, then INSTALL's recommended set
-      ([perf finding](findings/2026-11-23-perf-power.md) 4). The plugin itself adds ~55 us per waited submit (89 vs 34 us)
-- [~] **Idle power:** live 53.5 -> 23.5 W socket at 1440p240 HDR with Linux's messages, 0 underflows in 20 min, nothing
-      slower under load ([perf finding](findings/2026-11-23-perf-power.md) 9). On at boot since 07:51 (socket 23 W idle).
-      Left: a few days of use; other modes (60 / 120 / 144, SDR) only seen through the mock so far
-- [ ] Fan readings: `SMCSuperIO` (pinned VirtualSMC 1.3.8 zip; knows the NCT6799D). Chip named 2026-11-23: **NCT6799D at
-      0x2e:0x290**, fan2 1046 RPM ([linux-02b](findings/2026-11-23-linux-02b.md)). Linux reads it through ASUS's ACPI WMI
-      methods; SMCSuperIO uses the ports directly (nothing on macOS calls those methods; a clash unverified). Its own EFI
-      change (one per boot): owner's call when, not bundled with the VRAM kext boot
-- [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
-- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target. The SMU feature masks
-      (0x71ffffff / 0x0003ebb8) are decoded (`tools/phxctl/smufeatures.py`) and equal Linux's
-- [~] The Mesa init line and `nvmtl-mesa ... Permission denied` on stderr of command-line Metal tools. Found: loginwindow
-      runs as root with the plugin, which `setenv`s `MESA_SHADER_CACHE_DIR` (root's cache) and `NVRM_FLUSH_TIMEOUT_MS`;
-      the apps loginwindow reopens at login (T3 Code) inherit both, so they run without a Mesa disk cache. Fixed in the
-      plugin (unset once RADV is up) and patch 0019 (the init line to the unified log): change 15. Verified 07:22: no
-      `MESA_*` / `NVRM_*` in T3 Code's environment; the init line in the unified log only. Left: the `Permission denied`
-      line, if a tool still prints it
-- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790, all versions
-      in [linux-02b](findings/2026-11-23-linux-02b.md)): compare with what the firmware macOS loads (`tools/firmware/fw.lock`)
-      reports, and whether RADV keys anything off them
-
-- [ ] **A fixed cost per presented frame** (Horizon fullscreen 1440p ~160 fps vs >3x on Linux by the owner's report;
-      a 1280x720 window gives 328 fps): the app's drawable IOSurface in system memory plus WindowServer's composite,
-      ~4-5 ms per 1440p frame ([finding](findings/2026-11-23-horizon-present-cost.md)). **Measured with b157:**
-      Horizon 3.47 ms + WindowServer's composite 2.20 ms per frame, gfx queue 93 % full. **Linux twin (10:45):
-      4370 fps, p50 0.22 ms** for the same view ([linux-horizon](findings/2026-11-23-linux-horizon.md)): ~25x. Even
-      Horizon's own GPU time on macOS (3.47 ms) is >15x Linux's whole frame. **b158 trace:** the main pass 2.35 ms (5.39
-      off), the drawable pass 0.75 ms, WindowServer 3 x ~0.7 ms. Next, by reach: (1) CPU-visible VRAM for Shared
-      buffers (Resizable BAR in macOS: OpenCore `ResizeAppleGpuBars` plus the kext's BAR0 window); (2) GPU-used
-      IOSurfaces resident in VRAM (drawables, WindowServer's surfaces); (3) M3, VRAM BOs for every process.
-- [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault; WindowServer
-      starved, daemon reverted to GOP: [finding](findings/2026-11-23-clpeak-hang.md)). Find the MPS kernel that does
-      not finish (clpeak's `metal:0` runs MPSMatrix, `coreml:0` MPSNDArray); keep clpeak out of the benchmark set until then.
-
 ## 03 Graphics APIs and video
 
+03 keeps the API-level work (ROADMAP): Zink / OpenGL / OpenCL on the GPU, VCN decode, WebGL / WebGPU. Performance of
+what already runs is thread 13's (section "13 Performance parity" below).
+
+- [ ] Before VCN decode uses its queue: `gpuTimeReset` also retires the VCN queue and the other three callers of the
+      retire loop skip it (Fable follow-up from #15; 13 item 9). Decide whether that is right
+- [ ] OpenCL on the GPU for the apps that want it (Blender Cycles lists only the CPU; clpeak): what is possible per app
+      (Known limits: system-wide OpenCL stays on the CPU), measured
 - [ ] VCN decode (HEVC, AV1) through VideoToolbox: `vcn_up.sh` behind `phxboot-vcn`, then `src/video-decoder`.
       Check every register write against Linux first. The bundle goes to the sealed system volume
 - [ ] Vulkan loader + ICD manifest for RADV, then a real window surface (Darwin WSI is stubbed in patch 0001)
@@ -373,6 +220,75 @@ The thread 02 daemon (`irqwait_boot`, `idledpm_boot`, `idle_dpm.sh`; flags `irqw
       checklist (offsets, link gate, AuxKC), rollback. **No macOS update until then** (ROADMAP rule 12)
 - [ ] Drop `NVMTLDriver-previous` (`8f6eb933`) from the trust list once the old plugin is gone
 - [ ] Widevine in Chrome / Firefox ([OWNER-TESTS](OWNER-TESTS.md))
+
+## 13 Performance parity (after 09)
+
+Thread 02 is merged; what is left of "Linux GPU parity in every app" is here, run as thread 13 after 09 and before 10
+(ROADMAP) so ryzentosh pins the final driver. Baselines: PROJECT_KNOWLEDGE, "Parity baselines at the end of thread
+02"; evidence: [horizon-present-cost](findings/2026-11-23-horizon-present-cost.md),
+[vram-bo-design](findings/2026-11-23-vram-bo-design.md), [perf-power](findings/2026-11-23-perf-power.md).
+**Every plugin, translator or RADV install is also an EFI change** (VermilionTrust's cdhash list) and a restart (the
+plugin loads into WindowServer at boot); a kext change is an EFI change; a daemon change is a restart, no EFI change.
+Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
+
+- [ ] **1. WindowServer's composite.** About 2.2 ms of GPU per 1440p frame, the largest part of Horizon's 3.4 ms
+  (Horizon 292 fps vs 4370 on Linux, ~15x). C3, the display surface tiled as upstream wrote it, was worse (230 vs 292
+  fps: a 14.7 MB copy to the pages after each of WindowServer's ~3 command buffers per frame). Redo: one copy per frame
+  at the swap commit, or GPU present copying the tiled image straight into its VRAM slot. Effort M. Plugin: EFI
+  change + restart (the daemon flag `wstiled` is already there).
+- [ ] **2. GPU-used IOSurfaces resident in VRAM** (app drawables, WindowServer's surfaces): removes the per-frame copy
+  of each tiled drawable to its system-memory pages (~0.6 ms at 1440p, not timed alone) and WindowServer's
+  system-memory reads. Gap: the rest of Horizon's frame after item 1. Effort L. Kext + plugin: EFI change + restart.
+- [ ] **3. VRAM BOs for every app by default (M3)**, now that b160 cannot leak. Gap: an app not in
+  `debug.phxbo_vram_proc` copies at 43.7 GB/s vs Linux's 823-837 (~19x); Minecraft's GPU time per submission was 5.2x
+  higher before `java` joined the list. Before M3: **the buffer clear**, ~8 GB/s today (256 MiB in 31 ms; Linux clears
+  on SDMA, its speed not measured), or every allocation pays it. Effort M (the clear) + S (the default). Kext: EFI
+  change + restart; the default alone could be a daemon flag (restart only). Final call on M3 in 11 if still open.
+- [ ] **4. Per-draw waste in the plugin.** Minecraft (Vulkan through MoltenVK), 854x480: 134 fps, CPU-bound (GPU 37 %
+  busy); of 2011 render-thread samples, 371 in `objc_release` called by
+  `-[NVMTLRenderCommandEncoder drawIndexedPrimitives:...indirectBuffer:...]` and 305 in `nvmtlBindSamplerPipeline`
+  (re-binding per draw). Linux twin not measured yet: measure Minecraft on Linux first. Effort S-M. Plugin: EFI change
+  + restart.
+- [ ] **5. Consecutive indirect draws merged into one multi-draw.** Sodium issues one multi-draw; MoltenVK splits it
+  into one Metal indirect draw per section (Metal has none), the plugin makes each a single Vulkan draw: 555 of the
+  2011 samples in `radv_CmdDrawIndexedIndirect`. Fold draws with the same state and buffer into one
+  `vkCmdDrawIndexedIndirect` with `drawCount > 1`. Gap: as item 4. Effort M. Plugin: EFI change + restart.
+- [ ] **6. A direct Vulkan ICD for macOS apps** (RADV as the app's Vulkan driver with a `CAMetalLayer` / IOSurface
+  swapchain, skipping MoltenVK -> Metal -> Vulkan). Removes items 4 and 5 for Vulkan apps; Linux runs RADV directly.
+  03 builds the loader, the ICD manifest and the window surface (Zink needs them); 13 points MoltenVK apps at it and
+  measures. Effort L. RADV: EFI change + restart.
+- [ ] **7. CPU side.** (a) The plugin adds ~55-80 us per waited Metal submit over Vulkan (`metalbench` 207 vs
+  `vkbench` 124 us median for the 512x512 job; Vulkan alone is at parity, 32 vs 37 us): effort M, plugin (EFI change +
+  restart). (b) CPU idle package 39.5-41.3 W vs Linux 37.8 W, one thread 5.02-5.12 vs 5.16 GHz: the `_CST` idle kext
+  was declined for ~2-3 W (decisions 2026-11-23); revisit only if a workload shows the clock gap. Effort M, a kext: EFI
+  change. (c) WindowServer's ~280 wakeups/s on an idle desktop: compare with a real Mac first. Effort S.
+- [ ] **8. The 6 GiB Metal working set** (`phx_globals.cpp`) sized from VRAM, now that BOs can live there. Effort S.
+  Kext: EFI change + restart.
+- [ ] **9. Fable's five follow-ups from #15** (each changes machine code: one kext build bump, b161, one EFI change):
+  - **Check `gpuTimeReset`: it also retires the VCN queue, the other three callers skip it** (oversight?). **Also
+    for 03:** VCN decode will use that queue, so 03 answers it first if it touches `phx_gputime.cpp`.
+  - Fold the retire loop that appears three times in `phx_gputime.cpp` into one helper.
+  - `gpuSubmit`'s timestamp path uses `fbAper` without the null check `gpuTimeAccount` has: confirm a ready queue
+    implies `fbAper`, or add the check.
+  - `doBoCreate`: the b156 and b159 blocks duplicate the free-handle search and the scalar outputs.
+  - `goldenTsc()` uses literal `0x16a2d` / `0x16a2e` (`kGoldenTscUpper` is defined later, in `phx_client.cpp`).
+- [ ] **10. Linux twins for the real-app set:** WebGL / WebGPU in Safari and Chromium, a Metal game for 20 min,
+  Minecraft (F3), the same scenes on Linux; until then the gap for each is unknown. Effort M (one Linux session).
+
+Other open items from 02 (not ranked; none is a parity gap on its own):
+- [ ] Days of use for interrupt waits (`irqwait`) and idle DPM (`idledpm`, `idledpm-dcf`), then INSTALL's recommended
+      set; idle power at 60 / 120 / 144 Hz and SDR seen only through the mock ([perf finding](findings/2026-11-23-perf-power.md) 4, 9)
+- [ ] VRAM BOs: the real-app set before / after and days of use (OWNER-TESTS 02)
+- [ ] **GPU hang under clpeak's MPS / CoreML pass** (2026-11-23 09:15, VRAM BOs off, no VM fault;
+      [finding](findings/2026-11-23-clpeak-hang.md)): find the MPS kernel that does not finish; clpeak stays out of
+      the benchmark set. 03 may hit it first (MPS is API-level)
+- [ ] Fan readings: `SMCSuperIO` for the **NCT6799D at 0x2e:0x290** ([linux-02b](findings/2026-11-23-linux-02b.md)); its
+      own EFI change, the owner's call when
+- [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
+- [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target
+- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): compare with
+      what the firmware macOS loads reports, and whether RADV keys anything off them
+- [ ] The `nvmtl-mesa ... Permission denied` line on stderr of command-line Metal tools, if a tool still prints it
 
 ## 10 ryzentosh
 
