@@ -34,6 +34,13 @@ pool's new top MiB); `sysctl debug.phxgpu_time` answers. Rollback: EFI `EFI/OC.p
 `~/vermilion-rollback/EFI-OC.change16-20261123`); mesboot `sudo cp ~/vermilion-rollback/mesboot.pre-aperture
 /usr/local/sbin/mesboot`. If the desktop fails, roll back mesboot first (the aperture is the riskier half).
 
+Thread 02 part C3: **WindowServer's display surface tiled** (boot daemon `ws_tiled`, flag `~/gpu/phxboot-wstiled` ->
+`launchctl setenv NVMTL_WS_SCANOUT_TILED 1` before the WindowServer restart; no EFI change), installed 2026-11-23, not
+booted yet. Check after the boot: `phxboot.log` has "wstiled: NVMTL_WS_SCANOUT_TILED=1"; `/tmp/nvmtl.log` has
+"CoreDisplay Scanout drawn TILED"; the desktop draws right (windows, menus, cursor, HDR, VRR), no stale regions; then
+Horizon with the pass timer for WindowServer's composite. Rollback: `rm ~/gpu/phxboot-wstiled` and restart; the
+previous daemon is `~/vermilion-rollback/phxboot-navi31.sh.pre-wstiled` (the new one only adds the flag).
+
 Thread 02 part C: **EFI change 21** (stage `vermilion-trust-bar1g`): VermilionBoot **b160** (the parking of mapped
 CPU-visible BOs can't run out) and **VermilionTrust rebuilt for a new NVMTLDriver** (app CAMetalLayer drawables drawn
 TILED, copied to their pages at present: `NVMTL_DRAWABLE_TILED`, on by default outside WindowServer). Installed
