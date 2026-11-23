@@ -345,3 +345,20 @@ gets a real signing identity.
 not XNU's MAC framework functions, so other policies such as Sandbox keep their say). Booted without `amfi=0x80`:
 accelerated desktop works, AMFI enforces, third-party apps lose `CS_PLATFORM_BINARY`. Cost: the cdhash list must be
 rebuilt with every plugin / translator / RADV build.
+
+## 2026-11-23: One source of truth per kind of fact; `vermilion-trust` is the default stage
+
+**Decision (thread 00, Housekeeping):** `ROADMAP.md` holds the thread series, the rules and the known limits;
+`.agents/TODO.md` only open tasks grouped by series thread; `docs/PROJECT_KNOWLEDGE.md` only the current state, the
+known-good configuration and the performance record; `.agents/OWNER-TESTS.md` the owner's test list. The old TODO
+(daily logs, done items, the Phase plan) is frozen as a finding. The machine profile gets `default_stage:
+vermilion-trust`, and `efi/build.py` builds it when `--stage` is not given.
+
+**Why:** six threads appended to the same files in turn on 2026-11-22/23 and nobody reconciled them: the knowledge
+file said the everyday EFI was `vermilion` with `amfi=0x80` while the machine booted `vermilion-trust`. A default
+stage of `install` made an accidental `build` / `install` without `--stage` the installer EFI.
+
+**Correction to 2026-11-22 "Security posture target":** its "FairPlay refuses" under `amfi=0x80` is unproven (Music's
+failure was `en0`; TV's is the missing protected decoder), and the VermilionTrust sanity check does not make a shifted
+AMFI layout fail safe (thread 05's final report): no macOS update before thread 09's layout check.
+

@@ -1,5 +1,12 @@
 # macOS integration and peripherals: first inventory (thread 06)
 
+> **Correction (2026-11-23, thread 00, from thread 06's final report):** the reported size is no longer open: the
+> EDID says 590 x 333 mm, and macOS's 903 x 508 mm is 2560 x 1440 pixels at a 72 dpi fallback (PhxAMDFB doesn't pass
+> the size on; cause inferred; thread 01). "Quick Look is 8x slower than sips" is one run each, Quick Look first on a
+> cold cache: not established. Unverified, from memory or inference: "HiDPI only for high-density displays or with an
+> override plist", "the iOS simulators don't need the hypervisor on x86", "no kext adds SVM support", the Safari crash
+> linked to the GPU process. VirtualBox was never tested and might work.
+
 2026-11-23 00:30-00:40, live XTX machine (macOS 26.7.1 25G241), 11-15 min after boot. Installed state as in
 [PROJECT_KNOWLEDGE.md](../../docs/PROJECT_KNOWLEDGE.md) "Known-good configuration" (stage `vermilion-trust`,
 VermilionBoot b150, RADV ABI 1.12). Display 2560x1440 @ 240 Hz, 10-bit framebuffer (ARGB2101010). Safari and T3 Code

@@ -1,5 +1,12 @@
 # 2026-11-22: audio and connectivity inventory and first baselines (thread 04)
 
+> **Correction (2026-11-23, thread 00, from thread 04's final report):** the summary table's "not tested with a peer"
+> (AirDrop) and "no iCloud account signed in" rows are out of date: iCloud is signed in, Handoff and AirPlay iPhone ->
+> Mac work, BLE advertising works, and AirDrop fails (Mac not visible; with `amtk_awdl_offchan=0` and the router on
+> DFS channel 52 the Mac never transmits in AWDL). The `missingEndpoint` status quoted from MtkWireless 1.1.1's docs
+> is what 1.1.2 claims to fix. Unverified, written as plausible: the clipping cause, "Universal Clipboard needs AWDL",
+> the TCC cause of the input start failure, "the Ethernet driver works" (no link was ever tested).
+
 Machine: the XTX machine, macOS 26.7.1 25G241, booted 20:27 (EFI b150 + USB map + CPU sensors + Bluetooth, boot-args
 `-v keepsyms=1 debug=0x100 pci=0x8000000 amfi=0x80 ipc_control_port_options=0 phxdebug=1`), 1440p desktop, measured
 21:40-22:15. All read-only except the AWDL A/B test (`ifconfig awdl0 down` / `up`, restored).
