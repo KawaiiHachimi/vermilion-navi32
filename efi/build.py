@@ -132,10 +132,11 @@ def resolve_stage(machine, stage):
             die(f"stage inheritance loop at {s}")
         chain.append(s)
         s = stages[s].get("inherits")
-    kexts, boot_args, csr, nvram = [], [], None, {}
+    kexts, boot_args, csr, nvram, booter = [], [], None, {}, {}
     for s in reversed(chain):
         st = stages[s]
         nvram.update({k: v for k, v in st.get("nvram_add", {}).items() if not k.startswith("_")})
+        booter.update({k: v for k, v in st.get("booter_quirks", {}).items() if not k.startswith("_")})
         if "kexts" in st:
             kexts = list(st["kexts"])
         kexts += [k for k in st.get("kexts_add", []) if k not in kexts]
@@ -144,7 +145,8 @@ def resolve_stage(machine, stage):
         boot_args += [a for a in st.get("boot_args_add", []) if a not in boot_args]
         boot_args = [a for a in boot_args if a not in st.get("boot_args_remove", [])]
         csr = st.get("csr_active_config", csr)
-    return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram}
+    return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram,
+            "booter_quirks": booter}
 
 
 # ---------------------------------------------------------------------------------------------------------- SMBIOS
@@ -230,6 +232,7 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
 
     c["Booter"]["MmioWhitelist"], c["Booter"]["Patch"] = [], []
     c["Booter"]["Quirks"].update({k: v for k, v in machine["booter_quirks"].items() if not k.startswith("_")})
+    c["Booter"]["Quirks"].update(stage["booter_quirks"])     # a stage's own booter quirks win over the machine's
 
     c["DeviceProperties"]["Add"], c["DeviceProperties"]["Delete"] = {}, {}
 
@@ -534,6 +537,8 @@ def show_stages(args):
         mark = "  (default)" if name == machine.get("default_stage", "install") else ""
         print(f"{name}:{mark}\n  kexts: {', '.join(s['kexts'])}\n  boot-args: {' '.join(s['boot_args'])}\n"
               f"  csr-active-config: {s['csr_active_config']}")
+        if s["booter_quirks"]:
+            print(f"  booter quirks: {', '.join(f'{k}={v}' for k, v in s['booter_quirks'].items())}")
 
 
 def main():

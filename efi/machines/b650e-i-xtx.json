@@ -109,6 +109,11 @@
       "kexts_add": ["VermilionTrust"],
       "boot_args_remove": ["amfi=0x80"]
     },
+    "vermilion-trust-nvram": {
+      "_comment": "Thread 01 (2026-11-23): vermilion-trust with NVRAM writes from macOS allowed (DisableVariableWrite off), nothing else changed. DisableVariableWrite was set against the installer's hang on Ryzen 7000 boards (machine booter_quirks above); its cost: no kernel panic log in NVRAM (so no panic report, OpenCore ApplePanic has nothing to save), no startup-disk change, and phxfb-squat can't be cleared from macOS (the b138 squat loop, findings/2026-11-20-b138-freeze-and-squat-loop.md). Whether runtime writes hang this board too is what this stage tests: sudo nvram vermilion-test=1, read it back, restart. With writes working the squatter's one-boot arming is real again: the daemon re-arms phxfb-squat only while ~/gpu/phxboot-auto exists. Rollback: EFI/OC.prev (change 8).",
+      "inherits": "vermilion-trust",
+      "booter_quirks": {"DisableVariableWrite": false}
+    },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "vermilion",
