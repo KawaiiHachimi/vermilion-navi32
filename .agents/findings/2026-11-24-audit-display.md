@@ -1,11 +1,10 @@
 # Audit: boot, bring-up and display (2026-11-24)
 
-Scope: `src/vermilion-boot/` (bring-up, DCN pipes, DMUB, N48N), `tools/phxctl/` (boot daemon, bring-up scripts),
-`efi/`, the display side of `src/vermilion-accel/` (PhxAMDFB, PhxAGDC). Read-only audit: code read on
-`ownback/megamind` (= fork/main + the machine-lock fix), machine checked today with ioreg, sysctl, nvram -p,
-system_profiler, `log show`, `/var/log/phxboot.log`, `bootcheck.sh` (no sudo), and two read-only probes in the scratchpad
-(CoreGraphics mode list, CoreBrightness Night Shift query). Mock tests: `bash tests/mock/run.sh` on main's daemon, 260
-passed, 0 failed (today).
+Scope: `src/vermilion-boot/` (bring-up, DCN pipes, DMUB, N48N), `tools/phxctl/` (boot daemon, bring-up scripts), `efi/`,
+the display side of `src/vermilion-accel/` (PhxAMDFB, PhxAGDC). Read-only audit: code read on `ownback/megamind`
+(= fork/main + the machine-lock fix), machine checked today with ioreg, sysctl, nvram -p, system_profiler, `log show`,
+`/var/log/phxboot.log`, `bootcheck.sh` (no sudo), and two read-only probes in the scratchpad (CoreGraphics mode list,
+CoreBrightness Night Shift query). Mock tests: `bash tests/mock/run.sh` on main's daemon, 260 passed, 0 failed (today).
 
 Machine today (XTX machine, seen 2026-11-24 20:10): macOS 26.7.1 25G241, VermilionBoot b160 (`phx-build` 160),
 VermilionTrust 1.0.4, VermilionAudio 1.7.2 (EFI change 33, branch `ownback/dp-hdmi-audio`), PhxAccel UUID `2B25514A`.
@@ -16,8 +15,8 @@ LG 27GS95QE on DP B at 2560x1440 240 Hz, 24-bit (ARGB8888), HDR off, Variable of
 EFI change 33; main's PROJECT_KNOWLEDGE still says EFI change 23 and HDR on. `~/gpu/phxboot-nohdr` exists since
 2026-11-24 00:59. `CHANGELOG.md` says b160 is "not on the box yet"; it is.
 
-States: works / broken / missing / **not standard** = works, but not the way Apple would ship it (ROADMAP "The standard").
-"today" = seen on the XTX machine on 2026-11-24. Size: S about a day, M days, L weeks.
+States: works / broken / missing / **not standard** = works, but not the way Apple would ship it (ROADMAP "The
+standard"). "today" = seen on the XTX machine on 2026-11-24. Size: S about a day, M days, L weeks.
 
 | # | Part (as a Mac user sees it) | State | Evidence | Next step | Size |
 |---|---|---|---|---|---|
@@ -60,9 +59,9 @@ States: works / broken / missing / **not standard** = works, but not the way App
 2. **Unplugging or power-cycling the monitor, or switching its input, leaves it black until a restart.** HDMI never
    works (#18, #19).
 3. **HDR is off.** It froze the picture in every session after a replug, so it is disabled by a flag file (#16).
-4. **The boot.** You get a text picker, verbose text, a frozen screen, a WindowServer restart and a refresh switch, about a minute
-   in all. After one freeze or forced power-off, every later boot runs a degraded desktop until someone types an `rm`
-   in Terminal (#1, #2, #7).
+4. **The boot.** You get a text picker, verbose text, a frozen screen, a WindowServer restart and a refresh switch,
+   about a minute in all. After one freeze or forced power-off, every later boot runs a degraded desktop until someone
+   types an `rm` in Terminal (#1, #2, #7).
 5. **Only this one LG at 2560x1440 is fully supported.** Any other monitor or a second one gets one mode or nothing.
    There are no HiDPI modes and no DDC brightness, and Night Shift most likely does nothing (#12, #13, #20, #21, #22).
 
@@ -88,8 +87,9 @@ States: works / broken / missing / **not standard** = works, but not the way App
 5. **Detect, don't overwrite** (rule 3). The connector table is hard-coded (`PhxDdc.h:213-219`). A failed live EDID
    read serves another monitor's EDID (`phxfb.cpp:991-1023`). The replay plans are this monitor's captures, but they
    are gated and refuse anything else, so they don't overwrite.
-6. **Not a hard rule, but root access.** The root LaunchDaemon runs `~/gpu/phxboot-navi31.sh` and `~/gpu/phxboot-pre.sh`,
-   which belong to the desktop user (`<user> staff`, ls today). Any process of that user can get root and program the
-   GPU through the debug selectors (TODO 06: daemon into a system path).
-7. **Known-good drift** (rule 2). The machine runs the audio branch's daemon and EFI change 33. Reinstalling the daemon from
-   main would drop the auto-login fix (the branch's TODO says never do that). Merge `ownback/dp-hdmi-audio` first (phase 1).
+6. **Not a hard rule, but root access.** The root LaunchDaemon runs `~/gpu/phxboot-navi31.sh` and
+   `~/gpu/phxboot-pre.sh`, which belong to the desktop user (`<user> staff`, ls today). Any process of that user can get
+   root and program the GPU through the debug selectors (TODO 06: daemon into a system path).
+7. **Known-good drift** (rule 2). The machine runs the audio branch's daemon and EFI change 33. Reinstalling the daemon
+   from main would drop the auto-login fix (the branch's TODO says never do that). Merge `ownback/dp-hdmi-audio` first
+   (phase 1).

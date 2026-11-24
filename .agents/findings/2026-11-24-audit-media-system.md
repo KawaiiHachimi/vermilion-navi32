@@ -50,18 +50,38 @@ and `csrutil authenticated-root status`, so I couldn't re-check the seal state t
 
 ## The 5 things a Mac user would notice most
 
-1. **HDR is off, and a replug needs a restart.** HDR video and the HDR desktop are disabled as a workaround (`phxboot-nohdr`) for a frozen picture. After a DP unplug or replug the screen stays black until a restart.
-2. **No sleep.** Apple menu > Sleep does nothing (`SleepDisabled 1`), and display sleep blanks the picture but keeps the signal, so the OLED never goes to standby.
-3. **Video is half there.** HEVC and AV1 run in hardware, but 4K YouTube stutters. H.264 and VP9 decode on the CPU, and there's no hardware encode at all (FaceTime, screen-recording export, AirPlay / Sidecar sending, VideoToolbox exports all use the CPU).
-4. **Apps crash in the GPU plugin.** Music crashed twice today in `nvmtl_vk_image_read`, although the guard meant to stop this is installed. WebGPU render bundles take Safari's GPU process down, and every tab's video with it.
-5. **Boot and install don't look like a Mac.** Verbose text, the OpenCore picker, a WindowServer restart ~15 s in, ~67 s per restart. Installing needs the AuxKC Allow click and an unsealed system volume, and the release is far from one kext: DP audio works, but only through the daemon and the unmerged branch. (GPU temperature, fan and load are also missing from Activity Monitor and from sensor apps.)
+1. **HDR is off, and a replug needs a restart.** HDR video and the HDR desktop are disabled as a workaround
+   (`phxboot-nohdr`) for a frozen picture. After a DP unplug or replug the screen stays black until a restart.
+2. **No sleep.** Apple menu > Sleep does nothing (`SleepDisabled 1`), and display sleep blanks the picture but keeps the
+   signal, so the OLED never goes to standby.
+3. **Video is half there.** HEVC and AV1 run in hardware, but 4K YouTube stutters. H.264 and VP9 decode on the CPU, and
+   there's no hardware encode at all (FaceTime, screen-recording export, AirPlay / Sidecar sending, VideoToolbox exports
+   all use the CPU).
+4. **Apps crash in the GPU plugin.** Music crashed twice today in `nvmtl_vk_image_read`, although the guard meant to
+   stop this is installed. WebGPU render bundles take Safari's GPU process down, and every tab's video with it.
+5. **Boot and install don't look like a Mac.** Verbose text, the OpenCore picker, a WindowServer restart ~15 s in, ~67 s
+   per restart. Installing needs the AuxKC Allow click and an unsealed system volume, and the release is far from one
+   kext: DP audio works, but only through the daemon and the unmerged branch. (GPU temperature, fan and load are also
+   missing from Activity Monitor and from sensor apps.)
 
 ## Hard-rule risks spotted
 
-- **The daemon tells the user to Reset NVRAM.** `tools/phxctl/phxboot-navi31.sh:271,277,282` on main (276/282/287 on the branch) prints "Reset NVRAM in the OpenCore picker clears it / for the firmware display". CLAUDE.md hard rule 1 says never Reset NVRAM, because it removes `phxfb-squat`. This line appears in every boot log (22 times). Reword it to the approved recovery (`OC.prev`, the kill switch) or state the cost.
-- **The sleep owner test is unsafe.** Branch OWNER-TESTS 04 asks the owner to "sleep the Mac (Apple menu > Sleep), wake it" to test audio. Sleep is blocked and there's no GPU resume path. Lifting `disablesleep` for that test would most likely lose the GPU. Mark it blocked until TODO 05.
-- **The replug test could hot-reset the GPU.** VermilionAudio 1.6+ makes the ab30 attach one-way, but nobody has checked whether a DP unplug makes AppleGFXHDA's controller leave the ab30 nub. If it does, the IOPCIFamily detach rule hot-resets the whole GPU (finding `2026-11-24-gfxhda-detach-gpu-hot-reset.md`) (unverified). Read the 00:05 replug logs for `detachFromChild` / `needing hardware reset` before asking the owner to replug with audio on.
-- **Main doesn't match the machine.** The live daemon is the branch's copy (autologin fix plus `audio_boot`). Reinstalling it from fork/main would drop both (the branch TODO warns about this). Merge before any daemon deploy.
-- **The system volume is unsealed** (known; the owner agreed, TODO 09). The AppleGVA / PhxVA route is the Mac-like way to keep the seal and isn't on TODO 09's research list yet.
-- **Hardware encode would be new VCN programming.** It's an encode ring and session messages that today's `vcn_up.sh` doesn't send. It has to go through `hw-safety-reviewer` against what Linux sends on Navi 31.
-- **Tooling:** the guard blocks read-only `diskutil info` and `csrutil ... status`, so seal checks can't be done without the lock. Minor; worth an allow-list entry.
+- **The daemon tells the user to Reset NVRAM.** `tools/phxctl/phxboot-navi31.sh:271,277,282` on main (276/282/287 on the
+  branch) prints "Reset NVRAM in the OpenCore picker clears it / for the firmware display". CLAUDE.md hard rule 1 says
+  never Reset NVRAM, because it removes `phxfb-squat`. This line appears in every boot log (22 times). Reword it to the
+  approved recovery (`OC.prev`, the kill switch) or state the cost.
+- **The sleep owner test is unsafe.** Branch OWNER-TESTS 04 asks the owner to "sleep the Mac (Apple menu > Sleep), wake
+  it" to test audio. Sleep is blocked and there's no GPU resume path. Lifting `disablesleep` for that test would most
+  likely lose the GPU. Mark it blocked until TODO 05.
+- **The replug test could hot-reset the GPU.** VermilionAudio 1.6+ makes the ab30 attach one-way, but nobody has checked
+  whether a DP unplug makes AppleGFXHDA's controller leave the ab30 nub. If it does, the IOPCIFamily detach rule
+  hot-resets the whole GPU (finding `2026-11-24-gfxhda-detach-gpu-hot-reset.md`) (unverified). Read the 00:05 replug
+  logs for `detachFromChild` / `needing hardware reset` before asking the owner to replug with audio on.
+- **Main doesn't match the machine.** The live daemon is the branch's copy (autologin fix plus `audio_boot`).
+  Reinstalling it from fork/main would drop both (the branch TODO warns about this). Merge before any daemon deploy.
+- **The system volume is unsealed** (known; the owner agreed, TODO 09). The AppleGVA / PhxVA route is the Mac-like way
+  to keep the seal and isn't on TODO 09's research list yet.
+- **Hardware encode would be new VCN programming.** It's an encode ring and session messages that today's `vcn_up.sh`
+  doesn't send. It has to go through `hw-safety-reviewer` against what Linux sends on Navi 31.
+- **Tooling:** the guard blocks read-only `diskutil info` and `csrutil ... status`, so seal checks can't be done without
+  the lock. Minor; worth an allow-list entry.

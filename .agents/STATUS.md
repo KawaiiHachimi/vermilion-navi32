@@ -78,7 +78,7 @@ mode setting).
 
 | Part | State | Next step | Ref |
 |---|---|---|---|
-| HEVC and AV1 decode | works, not standard (bundle on the system volume, seal broken) | AppleGVA route (`PhxVA.bundle` from `/Library/GPUBundles`), add to TODO 09 | M |
+| HEVC and AV1 decode | works, not standard (bundle on the system volume, seal broken) | AppleGVA route (`PhxVA.bundle` from `/Library/GPUBundles`; TODO 09) | M |
 | 4K YouTube | broken (stutters; ~13.3 ms per frame, synchronous) | Phase 2 item 10 | M |
 | H.264, VP9 decode | missing | Phase 2 item 10 (VP9 after checking what a real Mac does) | M |
 | Hardware encode (FaceTime, exports, AirPlay sender) | missing (not in TODO before this audit) | VCN encode via RADV Vulkan Video (hw-safety), phase 3 | M |
@@ -96,7 +96,8 @@ mode setting).
   default needed (thread 02).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).
 - `~/gpu/phxboot-navi31.sh` and `phxboot-pre.sh` belong to the desktop user but run as root (TODO 06).
-- `accel/re/IOGraphicsAccelerator2.h:18` quotes an instruction from Apple's binary (rule 6, inherited): review.
+- `src/vermilion-accel/accel/re/IOGraphicsAccelerator2.h:18` quotes an instruction from Apple's binary (rule 6,
+  inherited): review.
 - Local branches `worktree-agent-a264…`, `worktree-agent-a98b…` are old and not in main; delete with the owner's OK.
 
 ## Open decisions
