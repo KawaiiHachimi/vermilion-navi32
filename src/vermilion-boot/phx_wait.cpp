@@ -157,7 +157,7 @@ IOReturn IOAccelPhxNativeClient::doWaitSeq(IOExternalMethodArguments *a) {
             if (saidAt != retired) {
                 saidAt = retired;
                 uint32_t f[3] = {0, 0, 0}, g = 0;
-                owner->readRegs(0x2828, 3, f);   // GCVM_L2_PROTECTION_FAULT_STATUS, ADDR_LO32, ADDR_HI32
+                owner->readRegs(0x2828 + gGcL2Shift, 3, f);   // GCVM_L2_PROTECTION_FAULT_STATUS, ADDR_LO32, ADDR_HI32 (+4 on GC 11.0.3)
                 owner->readRegs(0x2004, 1, &g);  // GRBM_STATUS
                 int fpid = 0;
                 const char *fname = owner->hwVmidOwner((f[0] >> 20) & 15, &fpid);

@@ -432,8 +432,8 @@ IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
     inf.reserved[2] = PHXN_ABI_MINOR;
     inf.flags = PHXN_INFO_S1B_POSITIVE | PHXN_INFO_NATIVE_BOOT | (owner->vcnSubmitReady() ? PHXN_INFO_VCN : 0u);
     inf.vmid = PHXN_VMID;
-    inf.gb_addr_config = kGbAddrConfig;
-    inf.gc_version = kGcVersion;
+    inf.gb_addr_config = gGbAddrConfig;
+    inf.gc_version = gGcVersion;
     inf.ring_size_dw = 4096;
     inf.max_ibs = PHXN_MAX_IBS;
     // b159: an opted-in process sees the CPU-visible VRAM pool when it is bigger than the old 256 MiB budget
@@ -1000,6 +1000,35 @@ IOReturn IOAccelPhxNativeClient::doSubmit(IOExternalMethodArguments *a) {
                         break;
                     const uint32_t *d = reinterpret_cast<const uint32_t *>(bo->kva + maps[m].off + (va[i] - maps[m].va));
                     const uint32_t cnt = dw[i] < 96 ? dw[i] : 96;
+                    // follow ONE level of INDIRECT_BUFFER: RADV's ring IB only points at the real command
+                    // stream, and that range is what has to be read when a submission wedges
+                    for (uint32_t j = 0; j + 3 < cnt; j++) {
+                        if (d[j] != 0xC0023F00u) continue;
+                        // the CP addresses are canonical 64-bit but the accelerator maps VAs masked to 48 bits (kVaMask),
+                        // so the lookup has to use the same form or it never matches a live map
+                        const uint64_t nva = (((uint64_t)d[j + 2] << 32) | (d[j + 1] & 0xFFFFFFFCu)) & ((1ull << 48) - 1);
+                        const uint32_t ndw = d[j + 3] & 0xFFFFF;
+                        bool nfound = false;
+                        for (int m2 = 0; m2 < kMaxMaps; m2++) {
+                            if (!maps[m2].used || nva < maps[m2].va || nva >= maps[m2].va + maps[m2].size) continue;
+                            nfound = true;
+                            Bo *nb = findBo(maps[m2].handle);
+                            if (!nb || !nb->kva) break;
+                            const uint32_t *nd = reinterpret_cast<const uint32_t *>(nb->kva + maps[m2].off + (nva - maps[m2].va));
+                            const uint32_t nc = ndw < 96 ? ndw : 96;
+                            IOLog("PhxIBn %u.%u -> va %08x%08x dw %u\n", (unsigned)(emitted + 1), i,
+                                  (unsigned)(nva >> 32), (unsigned)(nva & 0xFFFFFFFFu), ndw);
+                            for (uint32_t q = 0; q < nc; q += 8)
+                                IOLog("PhxIBn %u.%u +%02x: %08x %08x %08x %08x %08x %08x %08x %08x\n", (unsigned)(emitted + 1), i, q,
+                                      nd[q], q + 1 < nc ? nd[q + 1] : 0, q + 2 < nc ? nd[q + 2] : 0, q + 3 < nc ? nd[q + 3] : 0,
+                                      q + 4 < nc ? nd[q + 4] : 0, q + 5 < nc ? nd[q + 5] : 0, q + 6 < nc ? nd[q + 6] : 0,
+                                      q + 7 < nc ? nd[q + 7] : 0);
+                            break;
+                        }
+                        if (!nfound)
+                            IOLog("PhxIBn %u.%u -> va %08x%08x dw %u NO MAP ENTRY\n", (unsigned)(emitted + 1), i,
+                                  (unsigned)(nva >> 32), (unsigned)(nva & 0xFFFFFFFFu), ndw);
+                    }
                     for (uint32_t j = 0; j < cnt; j += 8)
                         IOLog("PhxIB %u.%u +%02x: %08x %08x %08x %08x %08x %08x %08x %08x\n", (unsigned)(emitted + 1), i, j,
                               d[j], j + 1 < cnt ? d[j + 1] : 0, j + 2 < cnt ? d[j + 2] : 0, j + 3 < cnt ? d[j + 3] : 0,

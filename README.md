@@ -13,6 +13,12 @@ VermilionTrust), a Metal driver plugin running on Mesa RADV, and the boot-time b
 WindowServer opens the displays.
 
 > [!NOTE]
+> **The `navi32` branch of this fork adds RX 7800 XT support** (Navi 32, PCI `1002:747e`, 16 GiB): GC 11.0.3,
+> MP0/MP1 13.0.10, SDMA 6.0.3, `GB_ADDR_CONFIG` 0x444, and the board's monitor on OTG0 + DIG4 + DP4 (HPD 4).
+> `ASIC=navi32 scripts/build/kext.sh` builds it; the reference driver is unchanged under the default `ASIC=navi31`.
+> What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**. The 7900 XT/XTX
+> path below is untouched by this branch.
+>
 > **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,
 > one 2560x1440 DisplayPort monitor). **The RX 7900 XT keeps working:** XTX values are added next to the XT's and
 > chosen by what the hardware reports, never in place of them. On the XTX machine
@@ -43,6 +49,70 @@ Verified on the reference machine (November 2026) with the kexts under their Ver
 injected by OpenCore and `VermilionAccel.kext` loaded from the Auxiliary Kernel Collection give the accelerated
 desktop on two monitors at 144 Hz and 165 Hz. The kexts on that machine were built from this tree.
 
+## Navi 32 (RX 7800 XT) port
+
+Vermilion was written for Navi 31 (RX 7900 XTX). This branch ports it to **Navi 32** - PCI `1002:747e`, the
+Radeon RX 7800 XT with 16 GiB - on a reference machine with one 2560x1440 DisplayPort monitor. The port's live
+record, with every fix, every ruled-out hypothesis and the register values measured on the card, is
+[docs/NAVI32.md](docs/NAVI32.md).
+
+**Goal: the same completeness as the Navi 31 work** - gfx and compute queues, RADV and Metal, WindowServer,
+OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section current.
+
+### Where the port stands
+
+| | |
+|---|---|
+| **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI**: `submit_test` reaches `target = 0x5eed0001`, reproducibly, with the fence retiring |
+| **In progress** | RADV. The device enumerates (`AMD Radeon RX 7800 XT (RADV NAVI32)`, ABI 1.12), `vkCreateDevice` succeeds, contexts bind at VMID 8/9 with four-level tables, and submissions reach the ring with every address translating. It wedges on `SET_UCONFIG_REG` - a graphics-level packet a MEC compute queue cannot execute (measured: a five-dword IB with just that packet hangs the queue), which means RADV's gfx streams need the gfx queue. That queue is only ever made ready by the MES (`ADD_QUEUE(gfx)` + adopt, as on the XTX), and the legacy `CP_RB0_*` ring was tried in four variants where the CP clears its own ring state every time. **So the MES is the critical path**: it loads, runs and consumes its frames on this port, but never writes `api_status` or its completion fence, ergo it never creates a queue |
+| **Not started** | Metal plugin (`NVMTLDriver`), WindowServer, OpenGL / OpenCL, Vulkan window surface, VCN decode. All of these are the Navi 31 tree's existing work, waiting for the bottom of the stack |
+
+### The fixes that took the port from "no signal" to executing commands
+
+1. **TMR** - taken from the `LOAD_TOC` response (size `0xa700000`) and placed in this board's reserved window; a
+   constant made `SETUP_TMR` fail and every later step depend on it.
+2. **GCVM block shift** - GC 11.0.3 moves the context/aperture block by +0x10 dwords against GC 11.0.0. Without
+   it the context registers were written to addresses that do not exist.
+3. **Address spaces** - context page-table bases are VRAM physical, MQD and `MAP_QUEUES` addresses are MC, ring
+   bases and writebacks are GPU VAs. The port had VAs where MC was required.
+4. **The EOP buffer** - `hqd_program` programmed everything except `CP_HQD_EOP_BASE_ADDR/_HI/_CONTROL`, so the
+   `RELEASE_MEM` that ends every submission had nowhere to report and hung the CP.
+5. **Queue stop before reprogram** - reprogramming a live HQD wedges the CP; the port now dequeues, polls
+   `CP_HQD_ACTIVE` clear, re-arms and then hands the queue over.
+6. **The MMHUB instance** - the CP fetches through the MMHUB instance of the VM block (0x1A080), not the
+   GC-segment one (0x28E8) the port was programming. Four-level tables translate there; they never did at the
+   other instance, which is what made the whole depth-3 question look unsolvable.
+
+### What is left
+
+| Step | Blocks |
+|---|---|
+| GFX queue (`CP_GFX_HQD_*`, ring base in the MQD) | RADV's submissions - it emits graphics-level packets even for a compute workload |
+| Metal plugin + translator on top of RADV | WindowServer, apps' Metal device |
+| WindowServer / OpenGL / OpenCL | the accelerated desktop |
+| Vulkan window surface (`RADV_PLATFORMS=macos`) | apps that present through Vulkan |
+| VCN decode | HEVC / AV1 in VideoToolbox |
+
+### Reproducing the current state
+
+```sh
+tools/firmware/fetch_firmware.sh                         # AMD microcode (navi32 set)
+ASIC=navi32 sh scripts/build/kext.sh                     # VermilionBoot.kext
+ASIC=navi32 sh scripts/build/accel.sh                    # VermilionAccel.kext
+# deploy both to the ESP / AuxKC, reboot, then:
+sudo phxctl --help                                       # MMIO, VRAM, doorbell access
+cd ~/gpu/phxctl && sudo env ASIC=navi32 bash bringup_navi31.sh
+sudo mesboot mesfull && sudo mesboot gart                # MES running, GART up
+sudo mesboot computeq                                    # MEC queue ring test
+sudo mesboot ibtest                                      # indirect buffer
+sudo mesboot ibtest3                                     # RELEASE_MEM fence
+sudo env ADOPT=1 mesboot computeq                        # hand the queue to the kext
+sudo ~/gpu/submit_test_vram                              # target = 0x5eed0001
+```
+
+`mesboot` carries the port's whole diagnostic set (`ibtest`, `ibtest2`, `ibtest3`, `ibsys`, `ib8`, `ib8h`,
+`ib8hs`, `ctx8`, `computeq`, `me0q`, `uconfig`, `hqdscan`, `scan`, `mesfull`, `gart`); `docs/NAVI32.md`
+explains what each one proved.
 ## What is in here
 
 | Component | What it does | Source |

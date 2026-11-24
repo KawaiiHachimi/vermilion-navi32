@@ -51,7 +51,8 @@ int main(void)
    uint64_t ibp = 0, tgp = 0;
    uint32_t ib = bo_create(4096, &ibp), tg = bo_create(4096, &tgp);
    if (!ib || !tg) return 1;
-   const uint64_t IBVA = 0x100000000ull, TGVA = 0x100010000ull;
+   // navi32: client VAs must stay inside the flat depth-0 window (PHX_CLIENT_VA_SPAN = 1 GiB)
+   const uint64_t IBVA = 0x10000000ull, TGVA = 0x10010000ull;
    if (va_map(ib, IBVA, 4096) || va_map(tg, TGVA, 4096)) return 1;
 
    volatile uint32_t *t = (volatile uint32_t *)(uintptr_t)tgp;

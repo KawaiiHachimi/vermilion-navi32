@@ -164,6 +164,21 @@ constexpr unsigned kNHead1Modes = sizeof kHead1Modes / sizeof kHead1Modes[0];
 static const HeadMode kHead0Modes[] = {
     {1, 1920, 1080, 60000, 14850, 2200, 1125, 1}, // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464;
                                                   // b138: the LG's standard timing 1920x1080@60, PhxBringup b138's 1080060)
+#if PHX_PIPE_DIG == 4
+    // ---- Navi 32 (PHX_PIPE_DIG=4): the RX 7800 XT board's own monitor --------------------------------------------
+    // P27QBA-RX (EDID base DTD 2560x1440, 2720x1481, 241.7 MHz). Every mode here has a plan built from a live
+    // Linux register read of that same mode on this same monitor, so list and plans agree bit for bit:
+    //   phx_p0_plan_1080p60n32 / _1440p60n32 / _1440p100n32 / _1440p120n32 / _1440p144n32 / _1440p165n32
+    // Everything below this point in the reference table is the LG ULTRAGEAR+ (1440p 240, HDR, VRR, DisplayID)
+    // or the AOC (1080p144): this board has no plan for those, and an offered mode without a plan would scan out
+    // with the wrong timings.
+    {2, 2560, 1440, 100000, 40284, 2720, 1481, 0},   // 100 Hz (plan 1440p100n32, OTG0 0xa9f/0x5c8)
+    {3, 2560, 1440, 60000, 24170, 2720, 1481, 0},    // base DTD (plan 1440p60n32, OTG0 0xa9f/0x5c8)
+    {4, 2560, 1440, 120000, 49776, 2720, 1525, 0},   // 120 Hz (plan 1440p120n32, OTG0 0xa9f/0x5f4)
+    {5, 2560, 1440, 144000, 59729, 2720, 1525, 0},   // 144 Hz (plan 1440p144n32, OTG0 0xa9f/0x5f4)
+    {6, 2560, 1440, 165000, 65750, 2720, 1465, 0},   // 165 Hz (plan 1440p165n32, OTG0 0xa9f/0x5b8)
+};
+#else
     {2, 1920, 1080, 144000, 32567, 2056, 1100, 0},   // the AOC 24G2W1G4 CTA DTD at 0xa7 (the 144 plan, OTG0 0x807/0x44b)
     // b128 (the XTX machine's LG ULTRAGEAR+, DP B): PhxBringup b128's 1440p plan family; offered only for a 2560x1440 surface
     // and only for the DTDs the EDID has (the LG's base DTD and its two CTA DTDs; capture 2026-11-20)
@@ -194,6 +209,7 @@ static const HeadMode kHead0Modes[] = {
     // range on top (PhxBringup's vrrOnLocked: 1440p, V_TOTAL 0x652 as id 6 / 13 / 17)
     {18, 2560, 1440, 239963, 105675, 2720, 1619, kStdHdrVrrTwin},
 };
+#endif
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
 constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
 struct ModeTable { const HeadMode *m; unsigned n; };

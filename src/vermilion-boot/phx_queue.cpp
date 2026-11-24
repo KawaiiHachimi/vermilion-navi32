@@ -162,8 +162,35 @@ IOReturn PhxBringup::doorbellWrite(uint64_t byteOff, uint64_t value) {
         return kIOReturnNotReady;
     if ((byteOff & 7) || byteOff + 8 > doorbellMap->getLength())
         return kIOReturnBadArgument;
-    *reinterpret_cast<volatile uint64_t *>(doorbellMap->getVirtualAddress() + byteOff) = value;
+    // The doorbell aperture takes a 32-bit store of the write pointer (amdgpu's WDOORBELL32 is a writel at
+    // index << 2). A 64-bit store works on the XTX but is worth A/B-ing here; phxdb32=1 selects the 32-bit form.
+    volatile uint8_t *base = reinterpret_cast<volatile uint8_t *>(doorbellMap->getVirtualAddress());
+    uint32_t db32 = 0;
+    if (PE_parse_boot_argn("phxdb32", &db32, sizeof(db32)) && db32 == 1) {
+        *reinterpret_cast<volatile uint32_t *>(base + byteOff) = static_cast<uint32_t>(value);
+    } else {
+        *reinterpret_cast<volatile uint64_t *>(base + byteOff) = value;
+    }
     return kIOReturnSuccess;
+}
+
+// phx-dbprobe: write a pattern through a doorbell slot and read it back, and report the BAR2 mapping, so a
+// doorbell path that never reaches the GPU can be told apart from a queue that never runs.
+void PhxBringup::doorbellProbe() {
+    if (!doorbellMap) {
+        IOLog("PhxBringup: doorbell BAR2 not mapped\n");
+        return;
+    }
+    volatile uint32_t *base = reinterpret_cast<volatile uint32_t *>(doorbellMap->getVirtualAddress());
+    const uint64_t len = doorbellMap->getLength();
+    IOLog("PhxBringup: doorbell BAR2 mapped, length 0x%llx\n", (unsigned long long)len);
+    for (uint64_t off = 0; off + 8 <= len && off < 0x2000; off += 0x120) {
+        const uint32_t pattern = 0xA5A50000u | static_cast<uint32_t>(off & 0xFFFF);
+        base[off / 4] = pattern;
+        const uint32_t back = base[off / 4];
+        if (back)
+            IOLog("PhxBringup: doorbell +0x%llx wrote 0x%08x read back 0x%08x\n", (unsigned long long)off, pattern, back);
+    }
 }
 
 IOReturn PhxBringup::vramWrite(uint32_t byteOff, uint32_t value) {

@@ -156,6 +156,10 @@ enum {
  * message — powers GFX up during EnableAllSmuFeatures; RLC autoload only completes after it. The DRAM address
  * messages make the SMU DMA its tables, so the kext only accepts addresses inside PHX_VRAM_SMU_* below. */
 #define PHX_PPSMC_EnableAllSmuFeatures 0x06u
+// Linux sends these two before EnableAllSmuFeatures (smu_cmn_set_allowed_features_mask): PMFW enables only
+// the features the driver allows, and a 13.0.10 part answers nothing at all while the mask is empty.
+#define PHX_PPSMC_SetAllowedFeaturesMaskLow  0x04u
+#define PHX_PPSMC_SetAllowedFeaturesMaskHigh 0x05u
 #define PHX_PPSMC_SetDriverDramAddrHigh 0x0Eu
 #define PHX_PPSMC_SetDriverDramAddrLow  0x0Fu
 #define PHX_PPSMC_SetToolsDramAddrHigh  0x10u
@@ -170,6 +174,14 @@ enum {
  * stays for mesboot's GART table and rings. */
 #define PHX_VRAM_PT_OFF   0xA400000ull
 #define PHX_VRAM_PT_SIZE  0x4C00000ull
+/* navi32: flat depth-0 client page tables. The GCVM four-level walk does not translate on this die, so each
+ * client context that gets a hardware VMID owns one contiguous table indexed by va>>12, like context 0's GART.
+ * Eight tables (one per client VMID) of 2 MiB each = 16 MiB at the end of the page-table pool, covering 1 GiB
+ * of client VA per context. Client VAs must stay below PHX_CLIENT_VA_SPAN. */
+#define PHX_VRAM_FLAT_OFF   0x6000000ull    /* absolute VRAM offset, 96 MiB: free up to the clear IB at 148 MiB */
+#define PHX_FLAT_BYTES      0x800000ull     /* 8 MiB per table = 4 GiB of client VA */
+#define PHX_FLAT_TABLES     6u
+#define PHX_CLIENT_VA_SPAN  0x100000000ull  /* 4 GiB; RADV allocates from the low end of the VA space */
 /* b156 (thread 02 part B): VRAM-backed client BOs. The clear's IB (CP DMA fill packets, PhxCpDma.h) at 148 MiB and the
  * self-test's 1 MiB at 150 MiB, both in the free gap [146 MiB, 160 MiB) inside BAR0; the BO pool from 512 MiB up to
  * the top of VRAM minus 112 MiB (phx_vram.cpp), past every fixed region and the large scan slots (end 352 MiB). */

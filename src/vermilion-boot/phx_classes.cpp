@@ -21,6 +21,7 @@ public:
     IOReturn writeReg(uint32_t reg, uint32_t value, uint32_t *readback);
     IOReturn vramWrite(uint32_t byteOff, uint32_t value);
     IOReturn doorbellWrite(uint64_t byteOff, uint64_t value);
+    void doorbellProbe();   // phx-dbprobe: does a doorbell write reach the GPU
     IOReturn sysMem(uint64_t op, uint64_t a, uint64_t b, uint64_t *out0, uint64_t *out1);
     IOReturn smuMessage(uint32_t msg, uint32_t arg, uint32_t *resp, uint32_t *argAfter);
     IOReturn dalMessage(uint32_t msg, uint32_t arg, uint32_t *resp, uint32_t *argAfter);   // b75

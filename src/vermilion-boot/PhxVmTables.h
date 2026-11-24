@@ -48,6 +48,14 @@ struct Ctx {
     // pool table numbers; a head/tail is valid only while its count is non-zero
     uint32_t parked, empties;
     uint16_t parkHead, parkTail, emptyHead, emptyTail;
+    // navi32: client contexts use ONE flat depth-0 table instead of the 4-level walk. The GCVM four-level walk
+    // does not translate on this die (measured: a client VMID with a flat table fetches and executes, the same
+    // VMID with a 4-level table consumes nothing), so a client context gets a single contiguous table indexed
+    // by va>>12, exactly like context 0's GART.
+    bool flat;
+    uint8_t *cpu;           // the flat table, mapped in BAR0
+    uint32_t flatPages;     // PTEs it covers
+    uint8_t flatSlot;       // which of the 8 flat tables this context owns
 };
 
 struct Shadow {
@@ -163,6 +171,12 @@ template <class E> uint32_t takeParked(E &e, Ctx &c) {
 // The PTE of va, building the missing levels when alloc is set; *leafG = the leaf's pool table number (kNil: none).
 // A new leaf is a retired parked one if there is one, else the context's next table.
 template <class E> uint64_t *pte(E &e, Ctx &c, uint64_t va, bool alloc, uint32_t *leafG) {
+    if (c.flat) {   // depth 0: the PTE is table[va >> 12]
+        if (leafG) *leafG = kNil;
+        const uint64_t idx = va >> 12;
+        if (!c.cpu || idx >= c.flatPages) return nullptr;
+        return reinterpret_cast<uint64_t *>(c.cpu) + idx;
+    }
     uint64_t tbl = c.phys;
     for (int shift = 39; shift >= 21; shift -= 9) {
         uint64_t *t = table(c, tbl);

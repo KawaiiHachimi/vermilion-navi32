@@ -1,0 +1,53 @@
+# Linux reference dump of the same card (RX 7800 XT, 0000:03:00.0, GC 11.0.3), taken 2026-11-23 22:4x with
+# amdgpu 3.64.0, GFXOFF disabled through /sys/kernel/debug/dri/0000:03:00.0/amdgpu_gfxoff.
+# Addresses are the absolute dword indices Vermilion uses (amdgpu_regs is byte-addressed; index*4).
+# The KIQ HQD block was read after writing GRBM_GFX_CNTL (0xa900) = 0xd (ME 3, pipe 1).
+
+REG                          VALUE        NOTE
+0x0263e GB_ADDR_CONFIG       0x00000444   matches the value derived from macOS
+0x01295 SDMA0_VERSION        0x00000600   GC powered (0 while GFXOFF is on)
+0x021a0 CP_STAT              0x00000000   idle
+0x02004 GRBM_STATUS          0x0000302c
+0x0ee00 RLC_CNTL             0x01020214
+0x0ee82 RLC_RLCS_BOOTLOAD    0xc000001f   BOOTLOAD_COMPLETE (what EnableAllSmuFeatures brings up)
+0x0e068 IMU_SCRATCH0         0x0b204700   IMU firmware version (same value on macOS)
+
+# GCVM contexts live at the +0x10-shifted addresses on this die (the port's gGcVmShift is right):
+0x028e8 (unshifted twin)     0x00008000   NOT the context CNTL
+0x028f8 CTX0_CNTL            0x01fffe01   vmid 0: ENABLE + the window below
+0x02963 CTX0_PT_LO           0x00300001   page table physical 0x300000 (system memory), bit0 = local FB
+0x02964 CTX0_PT_HI           0x00000000
+0x02983 CTX0_START_LO        0xfff00000
+0x02984 CTX0_START_HI        0x00000000
+0x029a3 CTX0_END_LO          0xfff1ffff
+0x029a4 CTX0_END_HI          0x00000000
+# vmids 1..15 all read CNTL 0x01fffe07 at 0x28f8+vmid (the value the kext writes), window 0..0xffffffff;
+# vmid 7 has a page table at 0x83febf9001 (VRAM).
+
+0x015c4 L2_FAULT_CNTL        0x00000000
+0x02828 L2_FAULT_STATUS      0x3ffffffc   the same value macOS reads: a normal state, not a fault count
+0x0282c (shifted twin)       0x00000000
+
+# MES KIQ (ME 3, pipe 1) as the working driver programs it:
+0x03209 MQD_BASE_LO          0xfeb2c000   MQD at 0x83feb2c000 (VRAM, top area)
+0x0320a MQD_BASE_HI          0x00000083
+0x0320b HQD_ACTIVE           0x00000001
+0x0320c HQD_VMID             0x00000000   the KIQ runs on vmid 0
+0x03211 PQ_BASE              0xff008000   ring VA 0x7fff00800000 (field is addr>>8, hi at 0x3212)
+0x03212 PQ_BASE_HI           0x0000007f
+0x03213 PQ_RPTR              0x00000440   a live, advancing ring
+0x03214 RPTR_REPORT          0x004019c0   system memory, low
+0x03218 DOORBELL_CONTROL     0x00000060   offset 0x60 = byte 0x180
+0x03219 PQ_WPTR              0x00000000
+0x0321a PQ_CONTROL           0xd8308011   identical to what mesboot writes
+0x0321e IB_CNTL              0x00300000
+
+# KIQ MQD, dumped from Linux VRAM (amdgpu_vram, GPU address 0x83feb2c000). Words 0..23 and 128..175:
+0..23:    c0310800 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+         00000000 00000000 00000000 00000001 00000000 00000000 00000000 00000000
+         00000000 00000000 00000000 00000000 00000000 00000000 00000000 ffffffff
+128..135: feb2c200 00000083 00000000 00000000 0bec5500 00000000 00000000 00000000
+136..143: ff008000 0000007f 00000440 004019c0 00007fff 004019e0 00007fff 00000060
+144..151: 00000000 d8308011 00000000 00000000 00000000 00300000 00000000 00000000
+# mesboot builds words 128..143 the same way except: 130 = 1 (Linux 0), 132 = 0x0be05501 (Linux
+# 0x0bec5500), 138 = 0 (Linux 0x440, the initial read pointer), 137/140/142 = the VA high words.

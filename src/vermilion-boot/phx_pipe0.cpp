@@ -40,7 +40,21 @@
 // Part of the PhxBringup.cpp translation unit (included there after phx_gamma.cpp); not compiled on its own.
 
 #include "PhxPipe0.h"
+/* Navi 32 (PHX_PIPE_DIG=4): the board's monitor hangs off DIG4/DP4 and the plan is built from a Linux capture of
+ * that card (tools/capture/navi32_dump_to_regs.py + p0plan_from_regs.py --dig-shift 0x300); its HUBP0 watermarks are
+ * still the reference machine's, flagged TODO-CAPTURE in the plan and counted in its info.todo. */
+#if PHX_PIPE_DIG == 4
+// Every plan of this board comes from a live Linux register read of the same mode on the same monitor
+// (tools/capture/captures/navi32-*.txt): 2560x1440 at 60/100/120/144/165 and 1920x1080 at 60, all 10 bpc.
+#include "phx_p0_plan_1080p60n32.inc"
+#include "phx_p0_plan_1440p60n32.inc"
+#include "phx_p0_plan_1440p100n32.inc"
+#include "phx_p0_plan_1440p120n32.inc"
+#include "phx_p0_plan_1440p144n32.inc"
+#include "phx_p0_plan_1440p165n32.inc"
+#else
 #include "phx_p0_plan_1080p60.inc"
+#endif
 #include "phx_p0_plan_1080p144.inc"
 #include "phx_p0_plan_1080p144a60.inc"
 #include "phx_p0_plan_1080p144a165.inc"   // SCDC2: the AOC at 144 next to the Acer at 1080p165 (from Linux)
@@ -55,7 +69,11 @@ static int gP0Modes;           // b101 debug.phxpipe0_modes (property phx-pipe0-
 static int gP0UclkMhz = 456;   // b101 debug.phxpipe0_uclk: the UCLK hard minimum macSet sends before a set above 60 (0 = none)
 static int gP0Solo;            // p0solo debug.phxpipe0_solo: 1 = the AOC alone (OTG1 dark) may take the 1080p144 plan (PhxPipe0.h pairFits)
 static int gP0Live = 1;        // b123 debug.phxpipe0_live (b124: default 1, passed on the box): 1 = a pair re-plan of double-buffered frame / HUBP registers runs live (PhxPipe0.h liveShell)
+#if PHX_PIPE_DIG == 4
+static const phxp0::Plan kP0Plan60 = {kPhxP0_1080p60n32, sizeof kPhxP0_1080p60n32 / sizeof kPhxP0_1080p60n32[0], kPhxP0_1080p60n32Info};
+#else
 static const phxp0::Plan kP0Plan60 = {kPhxP0_1080p60, sizeof kPhxP0_1080p60 / sizeof kPhxP0_1080p60[0], kPhxP0_1080p60Info};
+#endif
 static const phxp0::Plan kP0Plan144 = {kPhxP0_1080p144, sizeof kPhxP0_1080p144 / sizeof kPhxP0_1080p144[0], kPhxP0_1080p144Info};
 static const phxp0::Plan kP0Plan144a60 = {kPhxP0_1080p144a60, sizeof kPhxP0_1080p144a60 / sizeof kPhxP0_1080p144a60[0], kPhxP0_1080p144a60Info};
 static const phxp0::Plan kP0Plan144a165 = {kPhxP0_1080p144a165, sizeof kPhxP0_1080p144a165 / sizeof kPhxP0_1080p144a165[0], kPhxP0_1080p144a165Info};
@@ -64,13 +82,41 @@ static constexpr unsigned kP0NPlans = sizeof kP0Plans / sizeof kP0Plans[0];
 // b128: DALSMC SetHardMinByFreq arguments (PPCLK_DISPCLK 8 / PPCLK_DPPCLK 9 << 16 | MHz), as Linux sent them (capture 2026-11-20)
 static const uint32_t kP0Dal1440p120[2] = {0x000801f9, 0x000901f9};   // 505 MHz
 static const uint32_t kP0Dal1440p144[2] = {0x00080266, 0x00090266};   // 614 MHz
+#if PHX_PIPE_DIG == 4
+// ---- Navi 32: this monitor's own plans ----------------------------------------------------------------------------
+// identify() matches OTG0's live totals against these, so the family has to carry this board's numbers. The display
+// clock floors (DAL SetHardMinByFreq, PPCLK_DISPCLK 8 / PPCLK_DPPCLK 9, MHz) are the one part not read from the
+// card: Linux's SMU messages are not in a register dump, so they are the pixel clock rounded up to the next
+// 10 MHz, which can only be an over-request (the SMU sets a floor; too high costs power, too low would fail).
+static const uint32_t kP0Dal1440p100n32[2] = {0x0008019a, 0x0009019a};   // 410 MHz (pclk 402.84)
+static const uint32_t kP0Dal1440p120n32[2] = {0x000801f4, 0x000901f4};   // 500 MHz (pclk 497.76)
+static const uint32_t kP0Dal1440p144n32[2] = {0x00080258, 0x00090258};   // 600 MHz (pclk 597.29)
+static const uint32_t kP0Dal1440p165n32[2] = {0x00080294, 0x00090294};   // 660 MHz (pclk 657.50)
+static const phxp0::Plan kP0Plan1440p60 = {kPhxP0_1440p60n32, sizeof kPhxP0_1440p60n32 / sizeof kPhxP0_1440p60n32[0],
+                                           kPhxP0_1440p60n32Info, 0, nullptr, phxp0::kOptStickyClear};
+static const phxp0::Plan kP0Plan1440p100 = {kPhxP0_1440p100n32, sizeof kPhxP0_1440p100n32 / sizeof kPhxP0_1440p100n32[0],
+                                            kPhxP0_1440p100n32Info, 4, kP0Dal1440p100n32, phxp0::kOptStickyClear};
+static const phxp0::Plan kP0Plan1440p120 = {kPhxP0_1440p120n32, sizeof kPhxP0_1440p120n32 / sizeof kPhxP0_1440p120n32[0],
+                                            kPhxP0_1440p120n32Info, 4, kP0Dal1440p120n32, phxp0::kOptStickyClear};
+static const phxp0::Plan kP0Plan1440p144 = {kPhxP0_1440p144n32, sizeof kPhxP0_1440p144n32 / sizeof kPhxP0_1440p144n32[0],
+                                            kPhxP0_1440p144n32Info, 4, kP0Dal1440p144n32, phxp0::kOptStickyClear};
+static const phxp0::Plan kP0Plan1440p165 = {kPhxP0_1440p165n32, sizeof kPhxP0_1440p165n32 / sizeof kPhxP0_1440p165n32[0],
+                                            kPhxP0_1440p165n32Info, 4, kP0Dal1440p165n32, phxp0::kOptStickyClear};
+#else
 static const phxp0::Plan kP0Plan1440p60 = {kPhxP0_1440p60, sizeof kPhxP0_1440p60 / sizeof kPhxP0_1440p60[0], kPhxP0_1440p60Info,
                                            0, nullptr, phxp0::kOptStickyClear};
 static const phxp0::Plan kP0Plan1440p120 = {kPhxP0_1440p120, sizeof kPhxP0_1440p120 / sizeof kPhxP0_1440p120[0], kPhxP0_1440p120Info,
                                             4, kP0Dal1440p120, phxp0::kOptStickyClear};
 static const phxp0::Plan kP0Plan1440p144 = {kPhxP0_1440p144, sizeof kPhxP0_1440p144 / sizeof kPhxP0_1440p144[0], kPhxP0_1440p144Info,
                                             4, kP0Dal1440p144, phxp0::kOptStickyClear};
+#endif
+#if PHX_PIPE_DIG == 4
+// All five rates of this monitor: identify() can then recognise OTG0 whatever rate it was left at.
+static const phxp0::Plan *const kP0Plans1440[] = {&kP0Plan1440p60, &kP0Plan1440p100, &kP0Plan1440p120,
+                                                    &kP0Plan1440p144, &kP0Plan1440p165};
+#else
 static const phxp0::Plan *const kP0Plans1440[] = {&kP0Plan1440p60, &kP0Plan1440p120, &kP0Plan1440p144};
+#endif
 static constexpr unsigned kP0NPlans1440 = sizeof kP0Plans1440 / sizeof kP0Plans1440[0];
 
 static uint64_t p0NowUs(void *) {
@@ -118,8 +164,9 @@ static void p0Rebase() {
 static const char *p0ResName(int r) { return phxp0::kResName[r >= 0 && r <= phxp0::kDark ? r : phxp0::kRefused]; }
 // b103: the plan for targetHz next to OTG1 (as it runs, or as e.otg1Next* says it will), under gP2Busy.
 static const phxp0::Plan &p0Pick(const phxp0::Env &e, const P0Fam &f, uint32_t targetHz) {
-    const uint32_t hz = f.q1440 ? (targetHz == 120 || targetHz == 144 ? targetHz : 60u) : (targetHz == 144 ? 144u : 60u);
-    const phxp0::Plan *p = phxp0::pick(e, gP0, f.pl, f.n, hz);
+    // The plan family decides which rates exist: the Navi 32 1440p family carries 60/100/120/144/165, the 1080p one
+    // 60/144. A rate with no plan falls back to the family's 60 Hz plan (as 120 used to on the 1080p family).
+    const phxp0::Plan *p = phxp0::pick(e, gP0, f.pl, f.n, targetHz);
     return p ? *p : f.q1440 ? kP0Plan1440p60 : kP0Plan60;
 }
 // macSet for target_hz with the plan for OTG1's mode, the caller holds gP2Busy.
@@ -177,8 +224,10 @@ static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m) {
     if (!m || m->version != PHX_PIPE0_SETMODE_VERSION) return kIOReturnBadArgument;
     m->result = -1; m->stage = 0; m->cur_hz = 0; m->flags = 0; m->why[0] = 0;
     // b138: or a key of the replay set (height * 1000 + Hz, PhxAccel b138 with phx-p0-keys: another resolution)
-    if (m->target_hz != 60 && m->target_hz != 120 && m->target_hz != 144 && m->target_hz != 240 && !p0OdmKnows(m->target_hz)) {
-        strlcpy(m->why, "bad target (60, 120, 144, 240 or a replay-set key)", sizeof m->why);
+    // b128: 120; navi32: 100 and 165 as well (the 1440p family has a plan for each of this monitor's rates)
+    if (m->target_hz != 60 && m->target_hz != 100 && m->target_hz != 120 && m->target_hz != 144 && m->target_hz != 165 &&
+        m->target_hz != 240 && !p0OdmKnows(m->target_hz)) {
+        strlcpy(m->why, "bad target (60, 100, 120, 144, 165, 240 or a replay-set key)", sizeof m->why);
         return kIOReturnBadArgument;
     }
     IOReturn odmRet;
@@ -242,12 +291,14 @@ static int phxPipe0ModeSysctl SYSCTL_HANDLER_ARGS {
     if (err || !req->newptr)
         return err;
     if (proc_suser(req->p)) return EPERM;
-    if (v != 60 && v != 120 && v != 144) return EINVAL;   // b128: 120 (the 1440p family only; 1080p maps it to 60)
+    // b128: 120; navi32: 100 and 165 too. A rate the running family has no plan for falls back to its 60 Hz plan.
+    if (v != 60 && v != 100 && v != 120 && v != 144 && v != 165) return EINVAL;
     gP0Mode = v;
     return 0;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_mode, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0ModeSysctl, "I",
-            "b99 pipe-0 target mode (root): 60 (default), 144, or (b128, 1440p) 120; applied by debug.phxpipe0=2 / 4");
+            "b99 pipe-0 target mode (root): 60 (default), 144, (b128, 1440p) 120, or (navi32, 1440p) 100 / 165; "
+            "applied by debug.phxpipe0=2 / 4");
 
 // b101: PhxAMDFB head 0 reads the property phx-pipe0-modes once, when it starts (macOS caches a framebuffer's mode list).
 static int phxPipe0ModesSysctl SYSCTL_HANDLER_ARGS {

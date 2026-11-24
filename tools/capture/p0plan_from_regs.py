@@ -41,7 +41,7 @@ def load_template(path):
     ent = []
     for m in re.finditer(r'\{PHX_S2_W, (\d+), (\d+), (0x[0-9A-Fa-f]+), (0x[0-9A-Fa-f]+), (0x[0-9A-Fa-f]+), \{0\}, "(\w+)"\},\s*/\* ([^*]*)\*/', txt):
         ent.append(dict(stage=int(m.group(1)), pad=int(m.group(2)), reg=int(m.group(3), 16), mask=int(m.group(5), 16),
-                        name=m.group(6), note=m.group(7).strip()))
+                        val_template=int(m.group(4), 16), name=m.group(6), note=m.group(7).strip()))
     head = txt[:txt.index("static const struct phx_s2_step")]
     types = head[head.index("#ifndef PHX_S2_TYPES"):]
     return ent, types
@@ -58,30 +58,55 @@ def main():
     ap.add_argument("--depth", type=int, choices=sorted(DEPTH), help="add the colour-depth entries (b128)")
     ap.add_argument("--source", required=True, help="one line: where the values come from")
     ap.add_argument("--from-live", action="store_true", help="--regs is the firmware's live state: the DTO phase is copied, not computed")
+    ap.add_argument("--dig-shift", type=lambda s: int(s, 0), default=0,
+                    help="the DIG/DP block moves by 0x100 per DIG index: 0x300 for the Navi 32 board (DP1 -> DP4)")
+    ap.add_argument("--fill-from-template", action="store_true",
+                    help="a register the read does not cover keeps the template's value, flagged TODO-CAPTURE (1)")
+    ap.add_argument("--derive-scaler-blank", action="store_true",
+                    help="DSCL0_OTG_H/V_BLANK: use OTG0's blank even when the read has them (Linux leaves them 0 with no scaling)")
     a = ap.parse_args()
     regs = load_regs(a.regs)
     ent, types = load_template(a.template)
     sym = "kPhxP0_" + a.name
     out, missing = [], []
+    todo = 0
+    # The DP stream / MSA block is per DIG index (DP1 = 0x056C0..., DP4 = +0x300). The OTG, VTG, DSCL and
+    # HUBPREQ blocks are not: the plan drives OTG0 on both boards.
+    dpname = "DP%d" % (1 + a.dig_shift // 0x100) if a.dig_shift else "DP1"
+
+    def shifted(r):
+        return r + a.dig_shift if a.dig_shift and 0x056C0 <= r < 0x05800 else r
+
+    def dpnamed(n):
+        return n.replace("DP1_", dpname + "_") if dpname != "DP1" else n
     for e in ent:
-        r, flags, note = e["reg"], e["pad"], "[T] " + ("firmware read" if a.from_live else "Linux steady read")
+        r, flags, note = shifted(e["reg"]), e["pad"], "[T] " + ("firmware read" if a.from_live else "Linux steady read")
         if r == DTO and not a.from_live:
             v, note = a.pclk * 1000, "[F] pclk in Hz (firmware DTO convention, modulo 716666667)"
+        elif r in (DSCL_HB, DSCL_VB) and (a.derive_scaler_blank or r not in regs) and (OTG_HB if r == DSCL_HB else OTG_VB) in regs:
+            # DSCL0's blanking follows the OTG's when the scaler is bypassed (Linux leaves them 0 in that case,
+            # which reads as "not programmed" to the shell); the reference plans use this rule too.
+            v, flags, note = regs[OTG_HB if r == DSCL_HB else OTG_VB], flags | F_DERIVED, "[D] = OTG0 blank"
         elif r in regs:
             v = regs[r]
-        elif r in (DSCL_HB, DSCL_VB) and (OTG_HB if r == DSCL_HB else OTG_VB) in regs:
+        elif False:
             v, flags, note = regs[OTG_HB if r == DSCL_HB else OTG_VB], flags | F_DERIVED, "[D] = OTG0 blank (not in the read)"
+        elif a.fill_from_template:
+            # A register this read does not cover: keep the template's value and flag it, so a plan can be
+            # tried on hardware before every group has been captured (the flag counts in phx_p0_info.todo).
+            v, flags, note = e["val_template"], flags | 1, "[T] template value (not in this read)"
+            todo += 1
         else:
             missing.append(e["name"]); continue
-        out.append((e["stage"], flags, r, v & e["mask"], e["mask"], e["name"], note))
+        out.append((e["stage"], flags, r, v & e["mask"], e["mask"], dpnamed(e["name"]), note))
     if missing:
         sys.exit("not in the register read: " + ", ".join(missing))
     if a.depth:
         fmt, pix, msa = DEPTH[a.depth]
         g3 = max(i for i, x in enumerate(out) if x[0] <= 3)
         out.insert(g3 + 1, (3, F_DB, FMT, fmt, 0xFFFFFFFF, "FMT0_FMT_BIT_DEPTH_CONTROL", f"[F] {a.depth} bpc"))
-        out.append((5, 0, PIXFMT, pix, 0x07000000, "DP1_DP_PIXEL_FORMAT", f"[F] DP_COMPONENT_DEPTH {a.depth} bpc"))
-        out.append((5, 0, MSACOL, msa, 0xFF000000, "DP1_DP_MSA_COLORIMETRY", f"[F] MSA MISC0 {a.depth} bpc RGB"))
+        out.append((5, 0, shifted(PIXFMT), pix, 0x07000000, dpname + "_DP_PIXEL_FORMAT", f"[F] DP_COMPONENT_DEPTH {a.depth} bpc"))
+        out.append((5, 0, shifted(MSACOL), msa, 0xFF000000, dpname + "_DP_MSA_COLORIMETRY", f"[F] MSA MISC0 {a.depth} bpc RGB"))
     ht = next(x[3] for x in out if x[2] == HT)
     vt = next(x[3] for x in out if x[2] == VT)
     p = sys.stdout
@@ -94,7 +119,7 @@ def main():
     for st, fl, r, v, m, n, note in out:
         p.write(f'  {{PHX_S2_W, {st}, {fl}, 0x{r:05X}, 0x{v:08x}, 0x{m:08x}, {{0}}, "{n}"}},  /* {note} */\n')
     p.write("};\n")
-    p.write(f'static const struct phx_p0_info {sym}Info = {{{a.hz}, 0x{ht:x}, 0x{vt:x}, {a.pclk}, 0x{a.dentist:x}, 0, 1, 0, 0x0, 0x0, "{a.name}"}};\n')
+    p.write(f'static const struct phx_p0_info {sym}Info = {{{a.hz}, 0x{ht:x}, 0x{vt:x}, {a.pclk}, 0x{a.dentist:x}, 0, 1, {todo}, 0x0, 0x0, "{a.name}"}};\n')
 
 
 if __name__ == "__main__":

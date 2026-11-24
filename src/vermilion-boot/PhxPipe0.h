@@ -76,6 +76,21 @@ struct phx_p0_info { uint32_t hz, hTotal, vTotal, pclkKhz, dentistMax, conv, rea
 
 namespace phxp0 {
 
+// ---- pipe path (build time) ------------------------------------------------------------------------------
+// The plan and the shell drive one pipe path. On the reference machine the monitor sits on OTG1 + DIG1 + DP1;
+// on the Navi 32 development board (RX 7800 XT) the VBIOS puts it on OTG0 + DIG4 + DP4 (DisplayPort on UNIPHY2,
+// transmitter E, phy id 4, HPD 4). The OTG register block is 0x80 apart and the DIG/DP block 0x100 per index, so
+// the path is one build-time choice: -DPHX_PIPE_OTG=0 -DPHX_PIPE_DIG=4 for Navi 32. The defaults keep the
+// reference machine's path byte for byte.
+#ifndef PHX_PIPE_OTG
+#define PHX_PIPE_OTG 1
+#endif
+#ifndef PHX_PIPE_DIG
+#define PHX_PIPE_DIG 1
+#endif
+static constexpr int kPipeOtgShift = (PHX_PIPE_OTG - 1) * 0x80;    // OTG registers
+static constexpr int kPipeDigShift = (PHX_PIPE_DIG - 1) * 0x100;   // DIG front/back end and the DP stream
+
 enum { kGDto = 1, kGOtg = 2, kGFrame = 3, kGHubp = 4, kGMsa = 5 };
 static constexpr uint16_t kFTodo = 1, kFDerived = 2, kFDb = 4;   // phx_s2_step.pad of a plan entry (the generator's F_* flags)
 
@@ -121,16 +136,16 @@ static const Allow kAllowP0[] = {
     {0x05047, 0xffffffffu, "OTG0_OTG_VUPDATE_PARAM"},
     {0x05048, 0xffffffffu, "OTG0_OTG_VREADY_PARAM"},
     {0x0504A, 0x00000001u, "OTG0_OTG_MASTER_UPDATE_LOCK"},
-    {0x05651, 0x00000002u, "DIG1_DIG_FIFO_CTRL0 (DIG_FIFO_RESET; b106)"},
-    {0x056CC, 0x00000001u, "DP1_DP_VID_STREAM_CNTL (DP_VID_STREAM_ENABLE)"},
-    {0x056CD, 0x00000001u, "DP1_DP_STEER_FIFO (DP_STEER_FIFO_RESET)"},
-    {0x056C9, 0x07000000u, "DP1_DP_PIXEL_FORMAT (b128: DP_COMPONENT_DEPTH only)"},
-    {0x056CA, 0xff000000u, "DP1_DP_MSA_COLORIMETRY (b128: DP_MSA_MISC0 = depth / format)"},
-    {0x056D0, 0x00000c00u, "DP1_DP_VID_TIMING (DP_VID_N_MUL; Linux-convention plans only)"},
-    {0x0570C, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM1"},
-    {0x0570D, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM2"},
-    {0x0570E, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM3"},
-    {0x0570F, 0xffffffffu, "DP1_DP_MSA_TIMING_PARAM4"},
+    {0x05651 + kPipeDigShift, 0x00000002u, "DIG<n>_DIG_FIFO_CTRL0 (DIG_FIFO_RESET; b106)"},
+    {0x056CC + kPipeDigShift, 0x00000001u, "DP<n>_DP_VID_STREAM_CNTL (DP_VID_STREAM_ENABLE)"},
+    {0x056CD + kPipeDigShift, 0x00000001u, "DP<n>_DP_STEER_FIFO (DP_STEER_FIFO_RESET)"},
+    {0x056C9 + kPipeDigShift, 0x07000000u, "DP<n>_DP_PIXEL_FORMAT (b128: DP_COMPONENT_DEPTH only)"},
+    {0x056CA + kPipeDigShift, 0xff000000u, "DP<n>_DP_MSA_COLORIMETRY (b128: DP_MSA_MISC0 = depth / format)"},
+    {0x056D0 + kPipeDigShift, 0x00000c00u, "DP<n>_DP_VID_TIMING (DP_VID_N_MUL; Linux-convention plans only)"},
+    {0x0570C + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM1"},
+    {0x0570D + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM2"},
+    {0x0570E + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM3"},
+    {0x0570F + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM4"},
 };
 static constexpr unsigned kNAllow = sizeof kAllowP0 / sizeof kAllowP0[0];
 inline bool linuxConvOnly(uint32_t r) { return r == 0x0012F || r == 0x056D0; }
@@ -163,12 +178,16 @@ inline uint32_t allowMask(uint32_t r) {
     return 0;
 }
 
+
 static constexpr uint32_t kOtg0Control = 0x05001, kOtg0HTotal = 0x04FEA, kOtg0VTotal = 0x04FEF, kOtg0Frame = 0x0500C,
                           kOtg0Clock = 0x05045, kOtg0Lock = 0x0504A, kOtg0GlobalCtl0 = 0x0504F, kOtg0GlobalCtl2 = 0x05051,
-                          kVtg0 = 0x039EE, kHubp0Cntl = 0x03AB3, kOdm0 = 0x04F8A, kStream = 0x056CC, kSteer = 0x056CD,
-                          kLinkCntl = 0x056C8, kDpConfig = 0x056CB, kVidM = 0x056D2, kDpgCtl = 0x04D14, kDpgR = 0x04D17,
+                          kVtg0 = 0x039EE, kHubp0Cntl = 0x03AB3, kOdm0 = 0x04F8A,
+                          kStream = 0x056CC + kPipeDigShift, kSteer = 0x056CD + kPipeDigShift,
+                          kLinkCntl = 0x056C8 + kPipeDigShift, kDpConfig = 0x056CB + kPipeDigShift,
+                          kVidM = 0x056D2 + kPipeDigShift, kDpgCtl = 0x04D14, kDpgR = 0x04D17,
                           kDpgG = 0x04D18, kDpgB = 0x04D19, kDentist = 0x00124, kDet0 = 0x0397B, kArb = 0x039BC,
-                          kOtg1Control = 0x05081, kOtg1Frame = 0x0508C, kDigFe = 0x0564B, kDigFifo = 0x05651;
+                          kOtg1Control = 0x05081 + kPipeOtgShift, kOtg1Frame = 0x0508C + kPipeOtgShift,
+                          kDigFe = 0x0564B + kPipeDigShift, kDigFifo = 0x05651 + kPipeDigShift;
 static constexpr uint32_t kMasterEn = 1, kMasterEnState = 0x10000, kOtgBusy = 0x10000, kVtgEnable = 0x80000000u,
                           kLockStatus = 0x100, kStreamEn = 1, kStreamStatus = 0x10000, kSteerReset = 1, kHubpBlank = 1,
                           kHubpNoReq = 2, kHubpUnderflow = 0x70000000u, kHubpUnderflowClear = 0x80000000u,
@@ -203,14 +222,14 @@ static const Fp kInv[] = {
     {0x039C4, 0xffffffffu, "DCHUBBUB_ARB_FCLK_PSTATE_CHANGE_WATERMARK_A"},
     {0x09002, 0x0000000fu, "MPCC0_MPCC_OPP_ID"},
     {0x09017, 0x0000000fu, "MPCC1_MPCC_OPP_ID"},
-    {0x0564B, 0xfef7ffffu, "DIG1_DIG_FE_CNTL"},
-    {0x05671, 0xffffffffu, "DIG1_DIG_BE_CNTL"},
-    {0x05672, 0x00000001u, "DIG1_DIG_BE_EN_CNTL"},
+    {0x0564B + kPipeDigShift, 0xfef7ffffu, "DIG<n>_DIG_FE_CNTL"},
+    {0x05671 + kPipeDigShift, 0xffffffffu, "DIG<n>_DIG_BE_CNTL"},
+    {0x05672 + kPipeDigShift, 0x00000001u, "DIG<n>_DIG_BE_EN_CNTL"},
     {0x0584B, 0xfef7ffffu, "DIG3_DIG_FE_CNTL"},
     {0x05871, 0xffffffffu, "DIG3_DIG_BE_CNTL"},
     {0x05872, 0x00000001u, "DIG3_DIG_BE_EN_CNTL"},
-    {0x056C8, 0xffffffffu, "DP1_DP_LINK_CNTL"},
-    {0x056CB, 0xffffffffu, "DP1_DP_CONFIG"},
+    {0x056C8 + kPipeDigShift, 0xffffffffu, "DP<n>_DP_LINK_CNTL"},
+    {0x056CB + kPipeDigShift, 0xffffffffu, "DP<n>_DP_CONFIG"},
 };
 static constexpr unsigned kNInv = sizeof kInv / sizeof kInv[0];
 
@@ -944,6 +963,7 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
 // = pipe 0 keeps the heavier pair's values. Pipe 0 at 60 (the 60 plan fits any OTG1), the gate off or a latch: kPairNothing
 // with zero register access (the caller refuses a switch with pipe 0 at 144 and the gate off). Callers: phx_pipe0.cpp
 // pairSwitch (b105; phx_pipe0.cpp p0PairSwitch from p2SwitchTo), under the display lock. *tg = the plan macSet ran for (null = none).
+static constexpr uint32_t kOtg1HTotal = 0x0506A + kPipeOtgShift, kOtg1VTotal = 0x0506F + kPipeOtgShift;
 static constexpr uint32_t kOtg1H144 = 0x807, kOtg1V144 = 0x449;   // the Acer's 1080p144 (phx_s2_plan_1080p144.inc)
 // SCDC2: the Acer's 1080p165 (2080 x 1110). The heaviest Acer mode: nothing is re-planned before a switch away from it
 // (the switch first, pipe 0 keeps 1080p144a165, then pairPost) nor before a switch to it (Linux's order: clocks, Acer, pipe 0).
@@ -954,8 +974,8 @@ inline int pairPre(const Env &e, State &st, const Plan *const *pl, unsigned np, 
     if (!e.enable || st.dark || st.halted) return kPairNothing;
     const Plan *cur = identify(e, pl, np);
     if (!cur || cur->info.hz <= 60) return kPairNothing;
-    if (target1Hz != 144 || (rd(e, 0x0506A) == kOtg1H144 && rd(e, 0x0506F) == kOtg1V144)) return kPairNothing;   // lighter: the switch first
-    if (rd(e, 0x0506A) == kOtg1H165 && rd(e, 0x0506F) == kOtg1V165) return kPairNothing;                          // SCDC2: 165 -> 144 is lighter too
+    if (target1Hz != 144 || (rd(e, kOtg1HTotal) == kOtg1H144 && rd(e, kOtg1VTotal) == kOtg1V144)) return kPairNothing;   // lighter: the switch first
+    if (rd(e, kOtg1HTotal) == kOtg1H165 && rd(e, kOtg1VTotal) == kOtg1V165) return kPairNothing;                          // SCDC2: 165 -> 144 is lighter too
     Env en = e; en.otg1NextH = kOtg1H144; en.otg1NextV = kOtg1V144;
     *tg = pick(en, st, pl, np, cur->info.hz);
     return *tg ? macSet(en, st, pl, np, **tg, uclkMhz, o) : kPairNothing;

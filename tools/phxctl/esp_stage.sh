@@ -2,33 +2,41 @@
 # SPDX-License-Identifier: MIT
 # esp_stage.sh <dest> [fw dir]: lay out the Recovery install payload (tools/phxctl/recovery_install.sh) in <dest>,
 # usually <EFI partition>/vermilion. Runs on Linux or macOS. Inputs: the build outputs in $VERMILION_OUT (default
-# <repo>/build; docs/BUILD.md, plus build/spirv-val from SPIRV-Tools) and the firmware of tools/firmware/fw.lock
-# (default ~/gpu/fw/navi31), whose md5s are checked here. The firmware is AMD's and is never committed (CLAUDE.md).
+# <repo>/build; docs/BUILD.md, plus build/spirv-val from SPIRV-Tools) and the firmware of the ASIC's lock file
+# (tools/firmware/fw.lock for Navi 31, fw-navi32.lock for Navi 32; default ~/gpu/fw/<asic>), whose md5s are checked
+# here. The firmware is AMD's and is never committed (CLAUDE.md).
 #
 #   <dest>/install.sh          recovery_install.sh
 #   <dest>/payload/build/      the binaries and VermilionAccel.kext
 #   <dest>/payload/tools/phxctl/
-#   <dest>/payload/fw/navi31/
+#   <dest>/payload/fw/<asic>/
 #   <dest>/flags/              left empty: esp_flags.sh (the boot daemon's pre-hook) takes flag files from here
 #
 # FAT has no owners or modes; recovery_install.sh sets them on the target.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-DEST=${1:?usage: esp_stage.sh <dest> [fw dir]}; FW=${2:-$HOME/gpu/fw/navi31}; OUT=${VERMILION_OUT:-$ROOT/build}
+DEST=${1:?usage: esp_stage.sh <dest> [fw dir]}; OUT=${VERMILION_OUT:-$ROOT/build}
+# ASIC selects the firmware lock and directory: navi31 (RX 7900 XT/XTX) or navi32 (RX 7800 XT / RX 7700 XT)
+ASIC=${ASIC:-navi31}
+case "$ASIC" in
+  navi32) LOCK=$ROOT/tools/firmware/fw-navi32.lock ;;
+  *)      ASIC=navi31; LOCK=$ROOT/tools/firmware/fw.lock ;;
+esac
+FW=${2:-$HOME/gpu/fw/$ASIC}
 md5of() { if command -v md5sum >/dev/null 2>&1; then md5sum "$1" | cut -d' ' -f1; else md5 -q "$1"; fi; }
 for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
   [ -e "$OUT/$f" ] || { echo "esp_stage: $OUT/$f missing (docs/BUILD.md)" >&2; exit 1; }
 done
-grep -v '^#' "$ROOT/tools/firmware/fw.lock" | while read -r f sum size; do
+grep -v '^#' "$LOCK" | while read -r f sum size; do
   [ -n "$f" ] || continue
-  [ -f "$FW/$f" ] && [ "$(md5of "$FW/$f")" = "$sum" ] || { echo "esp_stage: $FW/$f missing or not the fw.lock revision" >&2; exit 1; }
+  [ -f "$FW/$f" ] && [ "$(md5of "$FW/$f")" = "$sum" ] || { echo "esp_stage: $FW/$f missing or not the $LOCK revision" >&2; exit 1; }
 done
-rm -rf "$DEST/payload.new"; mkdir -p "$DEST/payload.new/build" "$DEST/payload.new/tools/phxctl" "$DEST/payload.new/fw/navi31" "$DEST/flags"
+rm -rf "$DEST/payload.new"; mkdir -p "$DEST/payload.new/build" "$DEST/payload.new/tools/phxctl" "$DEST/payload.new/fw/$ASIC" "$DEST/flags"
 for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
   cp -R "$OUT/$f" "$DEST/payload.new/build/"
 done
 cp "$ROOT"/tools/phxctl/*.sh "$ROOT"/tools/phxctl/*.py "$ROOT/tools/phxctl/local.phxboot.plist.in" "$DEST/payload.new/tools/phxctl/"
-grep -v '^#' "$ROOT/tools/firmware/fw.lock" | while read -r f sum size; do [ -n "$f" ] && cp "$FW/$f" "$DEST/payload.new/fw/navi31/"; done
+grep -v '^#' "$LOCK" | while read -r f sum size; do [ -n "$f" ] && cp "$FW/$f" "$DEST/payload.new/fw/$ASIC/"; done
 rm -rf "$DEST/payload"; mv "$DEST/payload.new" "$DEST/payload"
 cp "$ROOT/tools/phxctl/recovery_install.sh" "$DEST/install.sh"
 ( cd "$DEST" && find payload install.sh -type f | sort | while read -r f; do printf '%s  %s\n' "$(md5of "$f")" "$f"; done ) >"$DEST/MD5SUMS"

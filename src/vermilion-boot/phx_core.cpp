@@ -13,6 +13,8 @@ bool PhxBringup::start(IOService *provider) {
     if (!pci)
         return false;
     pci->retain();
+    phxSelectAsic((pci->configRead32(kIOPCIConfigVendorID) >> 16) & 0xFFFFu);
+    setProperty("phx-asic", gAsicName);
     {   // the GPU must be a bus master before it can DMA to/from system memory (page tables, user BOs)
         uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
         setProperty("phx-pci-cmd-before", cmd, 16);
@@ -38,6 +40,12 @@ bool PhxBringup::start(IOService *provider) {
         fbAperPhys = fbAper->getPhysicalAddress();
     }
     doorbellMap = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress2);
+    if (doorbellMap)
+        pci->setProperty("phx-bar2-len", static_cast<uint64_t>(doorbellMap->getLength()), 64);
+    else
+        IOLog("PhxBringup: BAR2 (doorbell) could not be mapped\n");
+    if (debug)
+        doorbellProbe();
     smuLock = IOLockAlloc();
     gpuLock = IOLockAlloc();
     vramLock = IOLockAlloc();   // b156
@@ -227,12 +235,19 @@ void PhxBringup::readFbLayout() {
     // About This Mac / System Information name the GPU from the PCI device's "model" and size its memory from
     // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). The name follows the PCI
     // revision as in libdrm's amdgpu.ids (744C: C8 XTX, CC XT, CE GRE, CF 7900M); any other revision keeps the XT name.
+    // Navi 32 (0x747e) is one device id for the RX 7800 XT (16 GiB) and the RX 7700 XT (12 GiB); the VRAM size tells
+    // them apart, the way RedNavi's board lookup does it. Every other id keeps the Navi 31 naming by revision.
+    const uint32_t dev = (pci->configRead32(kIOPCIConfigVendorID) >> 16) & 0xFFFFu;
     const char *model = "AMD Radeon RX 7900 XT";
-    switch (pci->configRead8(kIOPCIConfigRevisionID)) {
-        case 0xC8: model = "AMD Radeon RX 7900 XTX"; break;
-        case 0xCE: model = "AMD Radeon RX 7900 GRE"; break;
-        case 0xCF: model = "AMD Radeon RX 7900M"; break;
-        default: break;
+    if (dev == 0x747E) {
+        model = (fbSize >= (13ull << 30)) ? "AMD Radeon RX 7800 XT" : "AMD Radeon RX 7700 XT";
+    } else {
+        switch (pci->configRead8(kIOPCIConfigRevisionID)) {
+            case 0xC8: model = "AMD Radeon RX 7900 XTX"; break;
+            case 0xCE: model = "AMD Radeon RX 7900 GRE"; break;
+            case 0xCF: model = "AMD Radeon RX 7900M"; break;
+            default: break;
+        }
     }
     if (OSData *m = OSData::withBytes(model, static_cast<unsigned>(strlen(model) + 1))) {
         pci->setProperty("model", m);

@@ -199,7 +199,7 @@ int PhxBringup::mmvmStat(char *b, size_t n) {
                      gMmvmFlushMaxUs, (long long)gVcnSubmits);
     for (uint32_t vmid = kFirstUserVmid; vmid < kFirstUserVmid + kNumUserVmids && o > 0 && static_cast<size_t>(o) < n; vmid++)
         o += snprintf(b + o, n - static_cast<size_t>(o), " %u:%08x/%08x(gc %08x)", vmid, rreg(kMmCtx0Cntl + vmid),
-                      rreg(kMmCtx0BaseLo + 2 * vmid), rreg(kRegCtx0BaseLo + 2 * vmid));
+                      rreg(kMmCtx0BaseLo + 2 * vmid), rreg(regCtx0BaseLo() + 2 * vmid));
     return o;
 }
 

@@ -1,0 +1,26 @@
+# fw-navi32.lock: the linux-firmware amdgpu/ files the Navi 32 (RX 7800 XT / RX 7700 XT, 0x747e) bring-up
+# loads, with the md5 of the revision this port was validated with. Same pinned commit as the Navi 31 lock
+# (`linux-firmware-commit:` below); fetch with `tools/firmware/fetch_firmware.sh --lock fw-navi32.lock ~/gpu/fw/navi32`.
+#
+# The file set comes from RedNavi's verified list for this exact card (RedNavi/asic_navi32.cpp,
+# docs/ARCHITECTURE.md "Firmware for this card"), and every md5 below was taken from the pinned commit on
+# 2026-11-23. No *_kicker image: this board/rev does not need one.
+#
+# Two files are byte-identical to the Navi 31 set: dcn_3_2_0_dmcub.bin (DCN 3.2.0 is the same IP on both dies) and
+# vcn_4_0_0.bin. The C3 PHY slice that tools/firmware/c3_image.py extracts from the DCN file is therefore unchanged,
+# so phx_c3_image.inc does not have to be regenerated for Navi 32.
+# linux-firmware-commit: add225168d0d1ba4c174d5eb15272b53de01ad5a
+# <file> <md5> <bytes>
+dcn_3_2_0_dmcub.bin 6a06c16a77e84fe22e91c9d2e6220476 284432
+gc_11_0_3_imu.bin 04dd6f49346cbde97cdc2e2010fb89db 132352
+gc_11_0_3_me.bin 6abe29538004189c99569ad5e26c2bd1 314512
+gc_11_0_3_mec.bin 7761456cd6a7764571ad298b67fba99e 406528
+gc_11_0_3_mes1.bin a508b988eb99e4be64aced4a48c42078 218336
+gc_11_0_3_mes_2.bin e3901627cb1bc2a9115383a6c1271657 257408
+gc_11_0_3_pfp.bin 39b1a29bc2b7db693af4dce8bc2db812 231008
+gc_11_0_3_rlc.bin a0a2a990272699e56fbfa7c92ae6cdf1 179104
+psp_13_0_10_sos.bin 31c00c96e783d5276db78d2d0b7b702e 360352
+psp_13_0_10_ta.bin 9094d0419a7b69a3cf3db8183fe52989 259520
+sdma_6_0_3.bin ec2325372e07d6acd092497cc5304272 34560
+smu_13_0_10.bin d13b50b191881a218ad0a7e09b276b94 271520
+vcn_4_0_0.bin cfe244431aaaa120bee275c95af658f9 403856

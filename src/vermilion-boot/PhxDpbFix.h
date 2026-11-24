@@ -27,10 +27,18 @@ using phxp2::Env;
 using phxp2::State;
 using phxp2::rd;
 
-constexpr uint32_t kHpd2 = phxdpw::hpdStatus(2), kDig1Fe = phxdpw::digFe(1), kDig1Fifo = phxdpw::digFifo(1),
-                   kDig1BeEn = phxdpw::digBeEn(1), kDp1Link = phxdpw::dpLink(1), kDp1Vid = phxdpw::dpVid(1),
-                   kDp1Steer = phxdpw::dpVid(1) + 1;
-static_assert(kDp1Steer == 0x056CD && kDig1Fifo == 0x05651 && kDp1Vid == 0x056CC, "DP1_DP_STEER_FIFO / DIG1 FIFO / DP1 stream (rt-snap)");
+// The retrain path follows the build's pipe (PhxPipe0.h): DIG1/DP1 on the reference machine, DIG4/DP4 and HPD4 on
+// the Navi 32 board. PHX_PIPE_DIG is the DIG index, PHX_PIPE_HPD the HPD pin the monitor sits on.
+#ifndef PHX_PIPE_HPD
+#define PHX_PIPE_HPD 2
+#endif
+constexpr unsigned kDbpDig = PHX_PIPE_DIG, kDbpHpd = PHX_PIPE_HPD;
+constexpr uint32_t kHpd2 = phxdpw::hpdStatus(kDbpHpd), kDig1Fe = phxdpw::digFe(kDbpDig), kDig1Fifo = phxdpw::digFifo(kDbpDig),
+                   kDig1BeEn = phxdpw::digBeEn(kDbpDig), kDp1Link = phxdpw::dpLink(kDbpDig), kDp1Vid = phxdpw::dpVid(kDbpDig),
+                   kDp1Steer = phxdpw::dpVid(kDbpDig) + 1;
+// the addresses move by 0x100 per DIG index (PhxDpWatch.h pins the same values for 1 and 4)
+static_assert(kDp1Steer == 0x056CD + (kDbpDig - 1) * 0x100 && kDig1Fifo == 0x05651 + (kDbpDig - 1) * 0x100 &&
+              kDp1Vid == 0x056CC + (kDbpDig - 1) * 0x100, "DP<n>_DP_STEER_FIFO / DIG<n> FIFO / DP<n> stream (rt-snap)");
 constexpr uint32_t kVidEn = 0x1u, kVidStatus = 0x10000u, kSteerReset = 0x1u, kFifoReset = 0x2u, kFifoResetDone = 0x100000u,
                    kFifoError = 0x30000000u, kSymclkFeOn = 0x01000000u;
 // (the host test checks these against PhxPipe0.h phxp0::, the b106 shell that proved them on the box)

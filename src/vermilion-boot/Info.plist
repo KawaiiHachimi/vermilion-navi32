@@ -29,7 +29,7 @@
 			<key>IOMatchCategory</key>
 			<string>PhxBringup</string>
 			<key>IOPCIMatch</key>
-			<string>0x744c1002</string>
+			<string>0x744c1002 0x747e1002</string>
 			<key>IOProbeScore</key>
 			<integer>0</integer>
 			<key>IOProviderClass</key>
@@ -48,7 +48,7 @@
 			<key>IONameMatch</key>
 			<string>display</string>
 			<key>IOPCIPrimaryMatch</key>
-			<string>0x744c1002</string>
+			<string>0x744c1002 0x747e1002</string>
 			<key>IOProbeScore</key>
 			<integer>30000</integer>
 			<key>IOProviderClass</key>

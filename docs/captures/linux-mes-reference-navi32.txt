@@ -1,0 +1,136 @@
+# Linux reference: CP / MES / MEC / RLC, same card (RX 7800 XT, 0000:03:00.0, GC 11.0.3)
+# Taken 2026-11-23 23:1x, amdgpu 3.64.0, kernel 7.0.0-38, GFXOFF disabled via amdgpu_gfxoff.
+# Addresses are absolute dword indices into amdgpu_regs (= the indices Vermilion uses).
+
+## CP block (0x0a800..0x0a810)
+  0x0a802 = 0x40000000        everything else in the block reads 0
+  0x0a803 = 0x00000000        CP_ME_CNTL: 0 means the ME is RUNNING (0x01000000 has halt bits set)
+
+## Doorbell ranges
+  0x0305a = 0x00000458  0x0305b = 0x000007f8    CP_RB doorbell range
+  0x0305c = 0x00000000  0x0305d = 0x00000450    CP_MEC doorbell range (the KIQ's 0x18 is inside it)
+
+## MES block (0x0c7f0..0x0c8a0), pipe-independent non-zero registers
+  0x0c800 = 0xfc001400   CP_MES_PRGRM_CNTR_START  <-- mes_start() computed 0xc0001400, i.e. WRONG
+  0x0c801 = 0xfc000800   second program-counter start
+  0x0c802 = 0x3fffffff
+  0x0c807 = 0x0c000000   CP_MES_CNTL (the port already writes this)
+  0x0c808 = 0x08081020
+  0x0c809 = 0x00000002
+  0x0c80a = 0x00000002
+  0x0c80e = 0x00001ffe
+  0x0c82c = 0x00000100
+  0x0c82d = 0x80000000
+  0x0c82e = 0xcafebabe   amdgpu's MES scratch test pattern: the MES is alive and answering
+  0x0c82f = 0xdeadbeef
+  0x0c830 = 0x00000001
+  0x0c831 = 0x80000000
+  0x0c832 = 0x00000001
+  0x0c837 = 0x00000002
+  0x0c83a = 0x00000008
+  0x0c83b = 0x00000008
+  0x0c842 = 0xfc000000
+  0x0c844 = 0x7fffffff
+  0x0c848 = 0xffffffff
+  0x0c855 = 0x0c000000
+  0x0c856 = 0x40000000
+  0x0c882 = 0x00000800
+  0x0c883 = 0xf0100000
+  0x0c884 = 0x0000ffff
+  0x0c885 = 0x00070000
+  0x0c887 = 0x00000007
+  0x0c888 = 0xf0000000
+  0x0c889 = 0x0000ffff
+  0x0c88a = 0x00030000
+  0x0c88c = 0x00000007
+  0x0c88d = 0x00000003
+  0x0c89b = 0x00000003
+  0x0c89d = 0x3fffffff
+  0x0c89e = 0x3fffffff
+
+Per-pipe (they differ between MES pipe 0 and pipe 1, so the hardware keeps one copy each; the values are
+live state, not driver constants): 0x0c80d, 0x0c810, 0x0c812, 0x0c813, 0x0c826, 0x0c828, 0x0c843,
+0x0c845, 0x0c847, 0x0c849, 0x0c89f, 0x0c8a0.
+
+## MEC block (0x0c900..0x0c9a0)
+  all zero with the MES in charge: the MEC pipes are driven by the MES, so CP_MEC_RS64_CNTL reads 0
+  (the port wrote 0x3c000000, which is the four MEC pipe halts, and also clears to 0 without changing
+  anything).
+
+## RLC block (0x0ee00..0x0ee90), non-zero
+  0x0ee00 = 0x00020200   0x0ee08 = 0x39d00201   0x0ee10..0x0ee17 set   0x0ee20..0x0ee23 = 0x1/0xffffffff
+  0x0ee62..0x0ee65 = 0x0003b984   0x0ee68 = 0x00ff00c7   0x0ee69 = 0x00ff01c7
+  0x0ee6a = 0x0f   0x0ee6b = 0x008c001a   0x0ee6f = 1   0x0ee72 = 8   0x0ee73 = 1   0x0ee74 = 1
+  0x0ee78 = 1   0x0ee82 = 0xc000001f (BOOTLOAD_COMPLETE)   0x0ee83 = 4   0x0ee84 = 4
+  0x0ee85 = 0x03000003   0x0ee87 = 0x104   0x0ee88 = 0xf9   0x0ee8a = 0x21d000b5
+  0x0ee8b = 0x15400053   0x0ee8c = 0x5c   0x0ee8d = 1   0x0ee8e..0x0ee90 = 0x10451196/0x10453598/0x10451991
+
+## Status
+  CP_STAT 0x00000000 (idle), GRBM_STATUS 0x0000302c, GB_ADDR_CONFIG 0x00000444,
+  RLC_CP_SCHEDULERS (SEG1 0x98a = 0x0a98a) 0x000030e8, SDMA0_VERSION 0x00000600.
+  Note the macOS side reads GRBM_STATUS 0xa800302c (bits 31/29/27 set) where Linux reads 0x0000302c.
+
+## Queues in VRAM: MQD word 128..151, dumped from amdgpu_vram
+0x83feb2c000 (MES KIQ, ME3/pipe1, doorbell 0x60):
+  w128 feb2c200  w129 00000083  w130 00000000  w131 00000000  w132 0bec5500  w136 ff008000
+  w137 0000007f  w138 00000440  w139 004019c0  w140 00007fff  w141 004019e0  w142 00007fff
+  w143 00000060  w145 d8308011  w149 00300000
+0x83feb2d000 (gfx ring, doorbell 0x58):
+  w130 00000001  w132 0be05500  w136 ff006ac0  w138 00000980  w143 60000058  w145 d830800c
+0x83feb2e000 (doorbell 0x50) and 0x83feb2f000 (doorbell 0x48):
+  w132 0be05501  w136 ff0069d0 / ff0069b0  w138 00000200  w143 60000050 / 60000048  w145 d030890a
+  w146 00b00000  w147 00007fff  w148 00000005  w149 00300000
+
+The KIQ MQD is the one mesboot builds for kiqres; its w132 (0x0bec5500 vs the port's 0x0be05501) and w138
+(initial read pointer 0x440 vs 0) are the two words that differ. w132 is 0x0be05500/0x0be05501 on the other
+three queues, so it is not a single constant.
+
+## The vmid-0 context window is the GART window (read again, corrected)
+  0x028f8 CNTL       0x01fffe01
+  0x02963 PT_LO      0x00300001   page table at system physical 0x300000
+  0x02964 PT_HI      0x00000000
+  0x02983 START_LO   0xfff00000   } START = 0x7fff00000 pages = 0x7fff00000000
+  0x02984 START_HI   0x00000007   }
+  0x029a3 END_LO     0xfff1ffff   } END   = 0x7fff1ffff pages = 0x7fff1ffff000
+  0x029a4 END_HI     0x00000007   }  -> a 512 MiB window at GART_VA
+
+The unshifted twins (0x28e8, 0x2953, 0x2973, 0x2993) hold 0x00008000, 0xffffffff/0x1f and zeros - they are
+not the live context.
+
+This matters: the MES KIQ ring sits at VA 0x7fff00800000, which is inside [0x7fff00000000, +512 MiB). Any
+context window that does not contain that range (a 16 GiB window from 0, or byte-valued start/end) makes the
+CP refuse to translate the ring, which is exactly the state the port was in.
+
+## GFXHUB aperture and MC block on Linux
+  0x1675..0x1695 all read 0    (AGP_BASE/BOT/TOP, SYSTEM_APERTURE at the unshifted addresses)
+  0x0009d..0x000a2 all read 0  (MC_VM_FB_LOCATION, MC_VM_AGP_BASE/BOT/TOP)
+  so the AGP aperture is genuinely unused on this card; the live system aperture is the shifted
+  0x28ed/0x28ee pair (0x00200000 / 0x0020ffff) already recorded above.
+
+## GCVM_L2 and the invalidation range registers are shifted too (full-block dump)
+Linux, non-zero, and what mesboot was writing:
+  0x02820 = 0x00080e01   GCVM_L2_CNTL        mesboot wrote SEG0(0x15bc) = 0x281c  -> +0x04 short
+  0x02821 = 0x00000003   GCVM_L2_CNTL2       0x281d  -> +4
+  0x02822 = 0x80130009   GCVM_L2_CNTL3       0x281e  -> +4
+  0x02824 = 0x00000090
+  0x02827 = 0x0000010f
+  0x02828 = 0x3ffffffc   L2_PROTECTION_FAULT_CNTL   0x2824  -> +4
+  0x02829 = 0x00060000   L2_PROTECTION_FAULT_CNTL2  0x2825  -> +4
+  0x0282a = 0xffffffff   0x0282b = 0xffffffff
+  0x0282f = 0x0000b021   0x02831 = 0x60f50feb   0x02832 = 0xffffffff   0x02833 = 0x0000000f
+  0x02838 = 0x00000001   0x0283e = 0x00003fe0   GCVM_L2_CNTL5   0x283a  -> +4
+  0x02844 = 0x00000001   0x02847 = 0x60f50feb   0x02848 = 0x60f50feb
+  0x0293f..0x02960 alternating 0xffffffff / 0x0000001f   invalidation ranges, mesboot wrote from 0x292f ->
+                                                          +0x10 short
+  0x02920..0x0292c = 0x02f80000 (all of them)
+
+So the port was writing the whole GCVM_L2/TLB configuration four dwords low and the invalidation
+ranges sixteen dwords low, on unused registers. The kext has gGcL2Shift for exactly this reason;
+mesboot did not apply it.
+
+## Other blocks, for reference
+  CP control 0x0a800..0x0a900: only 0x0a802 = 0x40000000
+  0x03054 = 0x0016cf00, 0x03059 = 8, 0x03060 = 0xfedcbadf
+  SDMA0 0x12e0..0x1330: 0x12e0 0x00841817, 0x12e1 0xff0069f0, 0x12e2 0x7f, 0x12e3/0x12e5 0x0002edc0,
+    0x12e8 0x7fff, 0x12e9 0x00401620, 0x12ea 0x101, 0x12ed 0xff0091a100-ish, 0x12f1 0x804, 0x12f2 0x10000000,
+    0x130b 0x800, 0x1311 0xf, 0x1312 0x7fff, 0x1313 0x00401640, 0x1314 0x4000

@@ -13,8 +13,14 @@ rm -rf "$HERE/build"
 mkdir -p "$OUT/Contents/MacOS"
 [ -f "$HERE/phx_c3_image.inc" ] || { echo "missing phx_c3_image.inc: run tools/firmware/c3_image.py (needs linux-firmware dcn_3_2_0_dmcub.bin, tools/firmware/fetch_firmware.sh)" >&2; exit 1; }
 
+# PHX_PIPE_DIG / PHX_PIPE_OTG: the pipe path the plans drive (PhxPipe0.h). 1 = the reference machine's
+# DIG1/OTG1 pair; PHX_PIPE_DIG=4 = the Navi 32 board's DIG4. Defaults keep the reference build unchanged.
+PIPE="-DPHX_PIPE_DIG=${PHX_PIPE_DIG:-1}"
+[ -n "${PHX_PIPE_OTG:-}" ] && PIPE="$PIPE -DPHX_PIPE_OTG=$PHX_PIPE_OTG"
+[ -n "${PHX_PIPE_HPD:-}" ] && PIPE="$PIPE -DPHX_PIPE_HPD=$PHX_PIPE_HPD"
+
 CFLAGS="-arch x86_64 -mmacosx-version-min=11.0 -mkernel -fno-builtin -fno-common -nostdinc
-  -I$MKSDK/Headers -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT -Os -Wall $PFX"
+  -I$MKSDK/Headers -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT -Os -Wall $PFX $PIPE"
 
 clang -x c $CFLAGS -c "$HERE/kmod_info.c" -o "$HERE/build/kmod_info.o"
 clang++ $CFLAGS -std=c++17 -fapple-kext -fno-rtti -fno-exceptions \

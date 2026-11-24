@@ -1,0 +1,244 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vermilion contributors <vermilion@example.invalid>
+Date: Mon, 23 Nov 2026 00:00:00 +0000
+Subject: [PATCH 20/20] radv/darwin: canned navi32_xt (RX 7800 XT, measured harvest)
+
+Navi 32 is a die of its own in RDNA 3: GC 11.0.3 (not 11.0.0), 3 shader engines, 60 CUs, 12 RB
+pipes, 16 GL2 channels and PCI 0x747e. Mesa's canned table has navi31 (GC 11.0.0) and navi33
+(GC 11.0.2) but no Navi 32 entry, so the macOS backend needs one, exactly as the fork needed
+navi31_xt.
+
+Every number below comes from DRM_AMDGPU_INFO on this board (Linux 6.8 on 0000:0c:00.0,
+1002:747e rev 0xc8), decoded field by field, plus GB_ADDR_CONFIG as the Mac reports it
+(0x444 at 0x263e) and the gc_11_0_3 firmware versions read from the files' own headers.
+
+acd_canned_device() picks navi32_xt when the PCI device under the accelerator is 0x747e;
+acd_canned_gc_version() answers 11.0.3 for it, because the family enum cannot tell the two dies
+apart (Linux reports AMDGPU_FAMILY_GC_11_0_0 for both). The marketing name and the VCN 4.0 shim
+follow the same profile.
+---
+ src/amd/common/amdgpu_devices.c       | 133 ++++++++++++++++++++++++
+ src/amd/common/darwin/ac_darwin_drm.c |  26 +++++--
+ 2 files changed, 155 insertions(+), 4 deletions(-)
+diff --git a/src/amd/common/amdgpu_devices.c b/src/amd/common/amdgpu_devices.c
+index 05c137a264d..0d1a8cebbf9 100644
+--- a/src/amd/common/amdgpu_devices.c
++++ b/src/amd/common/amdgpu_devices.c
+@@ -2314,6 +2314,138 @@ const struct amdgpu_device amdgpu_devices[] = {
+          },
+       },
+    },
++   /* Navi 32: RX 7800 XT (16 GiB) and RX 7700 XT (12 GiB) share this device id */
++   {
++      .name = "navi32_xt",
++      .radeon_family = CHIP_NAVI32,
++      .hw_ip_gfx = {
++         .hw_ip_version_major = 11,
++         .hw_ip_version_minor = 3,
++         .capabilities_flags = UINT64_C(0),
++         .ib_start_alignment = 32,
++         .ib_size_alignment = 32,
++         .available_rings = 0x1,
++         .ip_discovery_version = 0xb0003,
++      },
++      .hw_ip_compute = {
++         .hw_ip_version_major = 11,
++         .hw_ip_version_minor = 3,
++         .capabilities_flags = UINT64_C(0),
++         .ib_start_alignment = 32,
++         .ib_size_alignment = 32,
++         .available_rings = 0xf,
++         .ip_discovery_version = 0xb0003,
++      },
++      /* gc_11_0_3_{pfp,me,mec}.bin, ucode_version / feature_version read from the files' headers */
++      .fw_gfx_me = {
++         .ver = 2420,
++         .feature = 29,
++      },
++      .fw_gfx_pfp = {
++         .ver = 2580,
++         .feature = 29,
++      },
++      .fw_gfx_mec = {
++         .ver = 2650,
++         .feature = 29,
++      },
++      .mmr_regs = {
++         0x263e, 0xffffffff, 0x00000444,
++      },
++      .mmr_reg_count = 1,
++      .dev = {
++         .device_id = 0x747e,
++         .chip_rev = 0x00,
++         .external_rev = 0x20,
++         .pci_rev = 0xc8,
++         .family = AMDGPU_FAMILY_GC_11_0_0,
++         .num_shader_engines = 3,
++         .num_shader_arrays_per_engine = 2,
++         .gpu_counter_freq = 100000,
++         .max_engine_clock = UINT64_C(2124000),
++         .max_memory_clock = UINT64_C(1218000),
++         .cu_active_number = 60,
++         .cu_ao_mask = 0x0,
++         .cu_bitmap = {
++            /* RX 7800 XT (measured, Linux 6.8 DRM_AMDGPU_INFO on this board): no harvest, 10 WGP per SA */
++            { 0x3ff, 0x3ff, 0x0, 0x0, },
++            { 0x3ff, 0x3ff, 0x0, 0x0, },
++            { 0x3ff, 0x3ff, 0x0, 0x0, },
++            { 0x0, 0x0, 0x0, 0x0, },
++         },
++         .enabled_rb_pipes_mask = 0xfff,
++         .num_rb_pipes = 12,
++         .num_hw_gfx_contexts = 8,
++         .pcie_gen = 3,
++         .ids_flags = UINT64_C(0x18),
++         .virtual_address_offset = UINT64_C(0x10000),
++         .virtual_address_max = UINT64_C(0x800000000000),
++         .virtual_address_alignment = 4096,
++         .pte_fragment_size = 2097152,
++         .gart_page_size = 4096,
++         .ce_ram_size = 0,
++         .vram_type = 9,
++         .vram_bit_width = 256,
++         .vce_harvest_config = 0,
++         .gc_double_offchip_lds_buf = 0,
++         .prim_buf_gpu_addr = UINT64_C(0),
++         .pos_buf_gpu_addr = UINT64_C(0),
++         .cntl_sb_buf_gpu_addr = UINT64_C(0),
++         .param_buf_gpu_addr = UINT64_C(0),
++         .prim_buf_size = 0,
++         .pos_buf_size = 0,
++         .cntl_sb_buf_size = 0,
++         .param_buf_size = 0,
++         .wave_front_size = 32,
++         .num_shader_visible_vgprs = 1536,
++         .num_cu_per_sh = 10,
++         .num_tcc_blocks = 16,
++         .gs_vgt_table_depth = 32,
++         .gs_prim_buffer_depth = 1792,
++         .max_gs_waves_per_vgt = 32,
++         .pcie_num_lanes = 16,
++         .cu_ao_bitmap = {
++            { 0x0, 0x0, 0x0, 0x0, },
++            { 0x0, 0x0, 0x0, 0x0, },
++            { 0x0, 0x0, 0x0, 0x0, },
++            { 0x0, 0x0, 0x0, 0x0, },
++         },
++         .high_va_offset = UINT64_C(0xffff800000000000),
++         .high_va_max = UINT64_C(0xffffffffffbf0000),
++         .pa_sc_tile_steering_override = 0,
++         .tcc_disabled_mask = UINT64_C(0) /* all 16 GL2 channels enabled on this board */,
++         .min_engine_clock = UINT64_C(500000),
++         .min_memory_clock = UINT64_C(96000),
++         .tcp_cache_size = 32,
++         .num_sqc_per_wgp = 1,
++         .sqc_data_cache_size = 16,
++         .sqc_inst_cache_size = 32,
++         .gl1c_cache_size = 256,
++         .gl2c_cache_size = 4096,
++         .mall_size = UINT64_C(100663296),
++         .enabled_rb_pipes_mask_hi = 0,
++      },
++      .mem = {
++         .vram = {
++            .total_heap_size = UINT64_C(17179869184),
++            .usable_heap_size = UINT64_C(17107939328),
++            .heap_usage = UINT64_C(0),
++            .max_allocation = UINT64_C(12884901888),
++         },
++         .cpu_accessible_vram = {
++            .total_heap_size = UINT64_C(17179869184),
++            .usable_heap_size = UINT64_C(17107939328),
++            .heap_usage = UINT64_C(0),
++            .max_allocation = UINT64_C(12884901888),
++         },
++         .gtt = {
++            .total_heap_size = UINT64_C(33254252544),
++            .usable_heap_size = UINT64_C(33240895488),
++            .heap_usage = UINT64_C(0),
++            .max_allocation = UINT64_C(24930671616),
++         },
++      },
++   },
+    {
+       .name = "navi33",
+       .radeon_family = CHIP_NAVI33,
+diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
+index 2f97e18d73c..3e8f3e123b4 100644
+--- a/src/amd/common/darwin/ac_darwin_drm.c
++++ b/src/amd/common/darwin/ac_darwin_drm.c
+@@ -108,6 +108,10 @@ find_canned(const char *name);
+  * 24 GL2 channels, Mesa's own "navi31" entry; 0xcc = RX 7900 XT, 84 CUs and 20 channels, "navi31_xt" (0016). The
+  * revision is the "revision-id" of the PCI device under the accelerator (NMXAccel, which the sandboxed path opens
+  * too) or under the bring-up service; -1 when neither is a 1002:744c device. Read once per process. */
++/* The PCI device id of the card under the accelerator (0x744c = Navi 31, 0x747e = Navi 32); 0xffffffff until the
++ * registry has been read once. */
++static uint32_t acd_accel_device_id = 0xffffffff;
++
+ static int
+ acd_navi31_pci_revision(void)
+ {
+@@ -136,7 +140,9 @@ acd_navi31_pci_revision(void)
+             if (key)
+                CFRelease(key);
+          }
+-         if ((v[0] & 0xffff) == 0x1002 && (v[1] & 0xffff) == 0x744c)
++         if ((v[0] & 0xffff) == 0x1002 && (v[1] & 0xffff) == 0x747e)
++            acd_accel_device_id = 0x747e;
++         if ((v[0] & 0xffff) == 0x1002 && ((v[1] & 0xffff) == 0x744c || (v[1] & 0xffff) == 0x747e))
+             r = v[2] & 0xff;
+          IOObjectRelease(pci);
+       }
+@@ -152,6 +158,10 @@ acd_canned_device(void)
+    const char *name = getenv("RADV_DARWIN_CANNED");
+    if (name && *name)
+       return find_canned(name);
++   /* Navi 32 (RX 7800 XT / RX 7700 XT): GC 11.0.3, 3 SE, 60 CU, 12 RB pipes - a profile of its own */
++   (void)acd_navi31_pci_revision();
++   if (acd_accel_device_id == 0x747e)
++      return find_canned("navi32_xt");
+    /* navi31 fork: the card's own profile; an unknown revision keeps the RX 7900 XT's, as before */
+    return find_canned(acd_navi31_pci_revision() == 0xc8 ? "navi31" : "navi31_xt");
+ }
+@@ -163,6 +173,14 @@ acd_canned_is_navi31(const struct amdgpu_device *d)
+    return d && !strncmp(d->name, "navi31", 6);
+ }
+ 
++/* Navi 32: the parts it shares with Navi 31 (VCN 4.0, the shim) and the GC version, which the family enum cannot
++ * tell apart (Linux reports AMDGPU_FAMILY_GC_11_0_0 for both dies). */
++static bool
++acd_canned_is_navi32(const struct amdgpu_device *d)
++{
++   return d && !strncmp(d->name, "navi32", 6);
++}
++
+ uint32_t
+ acd_canned_gb_addr_config(const struct amdgpu_device *d)
+ {
+@@ -176,6 +194,8 @@ acd_canned_gb_addr_config(const struct amdgpu_device *d)
+ uint32_t
+ acd_canned_gc_version(const struct amdgpu_device *d)
+ {
++   if (acd_canned_is_navi32(d))
++      return (11u << 16) | (3u << 8) | 0u;   /* Navi 32 is GC 11.0.3 */
+    switch (d->dev.family) {
+    case AMDGPU_FAMILY_GC_11_0_0: return (11u << 16) | (0u << 8) | 0u;   /* Navi 31 */
+    case AMDGPU_FAMILY_GC_11_0_1: return (11u << 16) | (0u << 8) | 1u;
+@@ -440,6 +460,8 @@ acd_get_marketing_name(acd_device_handle dev)
+       return "AMD Radeon 780M Graphics";
+    if (!strcmp(dev->canned->name, "navi31_xt"))
+       return "AMD Radeon RX 7900 XT";
++   if (!strcmp(dev->canned->name, "navi32_xt"))
++      return "AMD Radeon RX 7800 XT";
+    if (!strcmp(dev->canned->name, "navi31"))
+       return "AMD Radeon RX 7900 XTX";
+    return ACD_MARKETING_NAME;
+@@ -553,7 +575,7 @@ acd_info_memory(struct acd_device *dev, const struct drm_amdgpu_info *info, void
+ static bool
+ acd_vcn(const struct acd_device *dev)
+ {
+-   if (!dev->core->kext || !acd_canned_is_navi31(dev->canned))
++   if (!dev->core->kext || !(acd_canned_is_navi31(dev->canned) || acd_canned_is_navi32(dev->canned)))
+       return false;
+    if (env_is_1("RADV_DARWIN_VCN"))
+       return true;

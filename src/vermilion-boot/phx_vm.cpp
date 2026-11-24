@@ -7,13 +7,22 @@
 // Everything here reproduces what tools/phxctl/mesboot.c proved on the 780M: VMID 8 with a 4-level table in
 // system memory (PDE = next|VALID|SYSTEM|SNOOPED, no BFS/TF since gmc_v11 has translate_further off), system-page
 // PTEs with MTYPE 4, invalidation on engine 17, and an ACQUIRE/RELEASE_MEM GL2 writeback after each IB.
-static constexpr uint32_t kFirstUserVmid = 8, kNumUserVmids = 8;   // VMIDs 8..15, lent to client contexts (vmBind)
+static constexpr uint32_t kFirstUserVmid = 8, kNumUserVmids = 8;
+// navi32: one flat depth-0 table per client VMID (see PhxNativeABI.h PHX_VRAM_FLAT_OFF). A context takes one
+// when it is acquired and gives it back when its work has retired; eight is all the hardware can run.
+static constexpr uint32_t kFlatTables = PHX_FLAT_TABLES;
+static uint32_t gFlatUsed = 0;
 static constexpr uint64_t kPteSysFlags = 0x77ull;   // VALID SYSTEM SNOOPED EXEC READ WRITE; MTYPE from debug.phxmtype
 static constexpr uint64_t kPtAddrMask = 0x0000FFFFFFFFF000ull;
 // GC registers (absolute dword index, GC base 0x1260): context n = context 0 + n (CNTL) / + 2n (address pairs),
-// invalidation engine 17
-static constexpr uint32_t kRegCtx0Cntl = 0x28E8, kRegCtx0BaseLo = 0x2953, kRegCtx0StartLo = 0x2973, kRegCtx0EndLo = 0x2993;
-static constexpr uint32_t kRegInvEng17Req = 0x291C, kRegInvEng17Ack = 0x292E;
+// invalidation engine 17. GC 11.0.3 (Navi 32) moves this whole VM context/aperture block by +0x10 dwords against
+// GC 11.0.0 (Navi 31); the reference values are the Navi 31 ones and gGcVmShift carries the difference.
+static inline uint32_t regCtx0Cntl()    { return 0x28E8u + gGcVmShift; }
+static inline uint32_t regCtx0BaseLo()  { return 0x2953u + gGcVmShift; }
+static inline uint32_t regCtx0StartLo() { return 0x2973u + gGcVmShift; }
+static inline uint32_t regCtx0EndLo()   { return 0x2993u + gGcVmShift; }
+static inline uint32_t regInvEng17Req() { return 0x291Cu + gGcVmShift; }
+static inline uint32_t regInvEng17Ack() { return 0x292Eu + gGcVmShift; }
 
 static inline void flushLine(const volatile void *p) {
     __asm__ __volatile__("clflush (%0)" ::"r"(p) : "memory");
@@ -70,12 +79,12 @@ bool PhxBringup::vmFlushTlb(uint32_t vmid) const {
     bool acked = true;
     __asm__ __volatile__("mfence" ::: "memory");
     hdpFlush();   // navi31: page-table writes went through BAR0 and sit in the HDP until flushed
-    wreg(kRegInvEng17Req, 0x00F80000u | (1u << vmid) | 1u);
+    wreg(regInvEng17Req(), 0x00F80000u | (1u << vmid) | 1u);
     // b48: up to 100 ms (was 1 ms, and a missing ack went unnoticed): a submission must not run on stale translations
     // after 16 timeouts the ack is taken as unreliable and the old 1 ms bound applies again (still counted)
     const uint32_t cap = gVmInvTimeouts > 16 ? 1000u : 100000u;
     uint32_t us = 0;
-    while (!(rreg(kRegInvEng17Ack) & (1u << vmid))) {
+    while (!(rreg(regInvEng17Ack()) & (1u << vmid))) {
         if (us >= cap) { OSIncrementAtomic(&gVmInvTimeouts); acked = false; break; }
         IODelay(us < 1000 ? 1 : 10);
         us += us < 1000 ? 1 : 10;
@@ -128,6 +137,9 @@ uint32_t PhxBringup::vmidAlloc() {
         if (c.busy)
             continue;
         if (!c.chunk[0]) {
+            // navi32: a normal 4-level table. The CP's IB fetch translates four-level tables through the MMHUB
+            // instance of the VM block (base 0x1A080), while the GC-segment instance at 0x28E8 only ever worked
+            // with a flat depth-0 table - measured both ways on the card.
             c.phys = ptTablePhys(c, 0);
             if (!c.phys)
                 break;
@@ -182,13 +194,13 @@ uint32_t PhxBringup::vmBind(uint32_t handle) {
     h.lastUse = now;
     const uint32_t vmid = kFirstUserVmid + static_cast<uint32_t>(pick);
     c.hw = vmid;
-    wreg(kRegCtx0BaseLo + 2 * vmid, static_cast<uint32_t>(c.phys | 1));   // navi31: root in VRAM (local)
-    wreg(kRegCtx0BaseLo + 2 * vmid + 1, static_cast<uint32_t>(c.phys >> 32));
-    wreg(kRegCtx0Cntl + vmid, 0x01fffe07);
-    wreg(kRegCtx0StartLo + 2 * vmid, 0);
-    wreg(kRegCtx0StartLo + 2 * vmid + 1, 0);
-    wreg(kRegCtx0EndLo + 2 * vmid, 0xffffffff);
-    wreg(kRegCtx0EndLo + 2 * vmid + 1, 0xf);
+    wreg(regCtx0BaseLo() + 2 * vmid, static_cast<uint32_t>(c.phys | 1));   // the root sits in VRAM (local)
+    wreg(regCtx0BaseLo() + 2 * vmid + 1, static_cast<uint32_t>(c.phys >> 32));
+    wreg(regCtx0Cntl() + vmid, 0x01fffe07);   // depth 3
+    wreg(regCtx0StartLo() + 2 * vmid, 0);
+    wreg(regCtx0StartLo() + 2 * vmid + 1, 0);
+    wreg(regCtx0EndLo() + 2 * vmid, 0xffffffff);
+    wreg(regCtx0EndLo() + 2 * vmid + 1, 0xf);
     if (gMmvmOn) {   // b67: the same tables for VCN on MMHUB
         wreg(kMmCtx0BaseLo + 2 * vmid, static_cast<uint32_t>(c.phys | 1));
         wreg(kMmCtx0BaseLo + 2 * vmid + 1, static_cast<uint32_t>(c.phys >> 32));
@@ -198,6 +210,16 @@ uint32_t PhxBringup::vmBind(uint32_t handle) {
         wreg(kMmCtx0EndLo + 2 * vmid + 1, 0xf);
         wreg(kMmCtx0Cntl + vmid, 0x01fffe07);
     }
+    // The CP's IB fetch goes through the MMHUB instance of the VM block, not the GC-segment one: a depth-3
+    // table there translates, the same table at 0x28E8 does not (measured with the GC instance disabled).
+    // Linux only ever programs this instance - its GC-segment context registers read 0.
+    wreg(kMmCtx0BaseLo + 2 * vmid, static_cast<uint32_t>(c.phys | 1));
+    wreg(kMmCtx0BaseLo + 2 * vmid + 1, static_cast<uint32_t>(c.phys >> 32));
+    wreg(kMmCtx0StartLo + 2 * vmid, 0);
+    wreg(kMmCtx0StartLo + 2 * vmid + 1, 0);
+    wreg(kMmCtx0EndLo + 2 * vmid, 0xffffffff);
+    wreg(kMmCtx0EndLo + 2 * vmid + 1, 0xf);
+    wreg(kMmCtx0Cntl + vmid, 0x01fffe07);
     vmFlushTlb(vmid);
     return vmid;
 }
@@ -227,6 +249,16 @@ void PhxBringup::vmidFree(uint32_t handle, uint64_t lastSeq) {
     }
     IOLockLock(gpuLock);
     VmCtx &c = vm[handle - 1];
+    if (c.flat) {   // navi32: hand the flat table back; nothing the client mapped stays reachable
+        for (uint32_t o = 0; o < PHX_FLAT_BYTES; o += 8)
+            *reinterpret_cast<volatile uint64_t *>(c.cpu + o) = 0;
+        hdpFlush();
+        gFlatUsed &= ~(1u << c.flatSlot);
+        c.flat = false;
+        c.cpu = nullptr;
+        c.flatPages = 0;
+        c.phys = 0;
+    }
     for (uint32_t k = 0; k < kPtChunks && c.chunk[k] && k * kPtChunkPages < c.used; k++) {
         const uint32_t n = c.used - k * kPtChunkPages < kPtChunkPages ? c.used - k * kPtChunkPages : kPtChunkPages;
         uint8_t *p = c.chunk[k];
@@ -306,8 +338,17 @@ IOReturn PhxBringup::adoptQueue(const uint64_t in[6]) {
 // PhxAccel (the NullMoth accelerator in its AMD configuration) starts only on a GPU marked as driven; matching is
 // re-run so the accelerator personality, refused at boot, is offered the device again.
 IOReturn PhxBringup::claimAccel() {
-    if (!pci || !gpuReady())
+    if (!pci)
         return kIOReturnNotReady;
+    // phxclaimforce=1 (boot-arg) claims the GPU without an adopted queue, so the accelerator kext can start and
+    // use its own submission path while the hand-programmed queue tests are still being sorted out.
+    uint32_t force = 0;
+    const bool forced = PE_parse_boot_argn("phxclaimforce", &force, sizeof(force)) && force == 1;
+    if (!gpuReady() && !forced) {
+        if (debug)
+            IOLog("PhxBringup: claim refused: no adopted queue (phxclaimforce=1 overrides)\n");
+        return kIOReturnNotReady;
+    }
     pci->setProperty("nmxgpu-claimed", kOSBooleanTrue);
     pci->registerService();
     IOLog("PhxBringup: GPU claimed for PhxAccel, matching re-run\n");

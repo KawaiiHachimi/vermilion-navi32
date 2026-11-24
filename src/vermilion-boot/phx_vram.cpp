@@ -33,15 +33,19 @@ static constexpr uint64_t kVramTopReserve = 112ull << 20;
 static constexpr uint64_t kVisPoolBase = phxscanlay::kLargeEnd;   // 352 MiB
 static constexpr uint64_t kVisPoolMin = 64ull << 20;               // a smaller window is not worth a pool
 static constexpr uint64_t kVramMinFb = 1ull << 30;
-static constexpr uint32_t kGcSysApertureLow = 0x28DD, kGcSysApertureHigh = 0x28DE;
+// The GFXHUB system aperture lives in the same block the GC 11.0.3 die moves by +0x10 dwords: measured on this card
+// the registers at 0x28DD/0x28DE read 0, while 0x28ED/0x28EE hold low 0x00200000 and high 0x0020ffff (16 GiB).
+// Reading the unshifted pair made the pool end 0, which is why the pool was "[0, 0) MiB" and every VRAM BO failed.
+static inline uint32_t gcSysApertureLow()  { return 0x28DDu + gGcVmShift; }
+static inline uint32_t gcSysApertureHigh() { return 0x28DEu + gGcVmShift; }
 
 bool PhxBringup::vramPoolUpLocked() {
     if (vpool && vpool->end)
         return true;
     if (!mmio || !fbSize || fbSize < kVramMinFb || !fbAper || fbAperLen < PHX_VRAM_SELFTEST_OFF + PHX_VRAM_SELFTEST_SIZE)
         return false;
-    const uint64_t apLo = static_cast<uint64_t>(rreg(kGcSysApertureLow) & 0x3FFFFFFF) << 18;
-    const uint64_t apEnd = (static_cast<uint64_t>(rreg(kGcSysApertureHigh) & 0x3FFFFFFF) + 1) << 18;
+    const uint64_t apLo = static_cast<uint64_t>(rreg(gcSysApertureLow()) & 0x3FFFFFFF) << 18;
+    const uint64_t apEnd = (static_cast<uint64_t>(rreg(gcSysApertureHigh()) & 0x3FFFFFFF) + 1) << 18;
     if (apLo > fbMcBase || apEnd <= fbMcBase + PHX_VRAM_POOL_BASE)
         return false;
     uint64_t end = fbSize - kVramTopReserve;

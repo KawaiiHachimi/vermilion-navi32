@@ -73,9 +73,34 @@ struct PhxGfxRbFrame {
 } __attribute__((packed));
 static_assert(sizeof(PhxGfxRbFrame) == 64, "PhxGfxRbFrame must be 64 B");
 
-// navi31: GB_ADDR_CONFIG as the Linux driver reads it on the RX 7900 XT (0x545), GC 11.0.0 (IP discovery).
-static constexpr uint32_t kGbAddrConfig = 0x00000545;
-static constexpr uint32_t kGcVersion = (11u << 16) | (0u << 8) | 0u;
+// ---- ASIC identity: Navi 31 (GC 11.0.0) and Navi 32 (GC 11.0.3) ----
+// Both dies report the same IP base indices (GC 0x1260 0xa000 0x1c000, MP0/MP1 0x16000, MMHUB 3.0.0, NBIF 4.3.0,
+// DCN 3.2.0), so every absolute register offset here stays valid except inside the GC memory hub, where 11.0.3 moved
+// two groups: the VM context/aperture block by +0x10 dwords and the L2/protection-fault block by +0x04 (RedNavi's
+// gc_11_0_3 headers against gc_11_0_0's, checked register by register). GB_ADDR_CONFIG and the GC version are per ASIC:
+// the RX 7900 XT reads 0x545 at 11.0.0, the RX 7800 XT 0x444 at 11.0.3 (both read from the card).
+static uint32_t gGcVmShift = 0x0u;    // +0x10 on GC 11.0.3
+static uint32_t gGcL2Shift = 0x0u;    // +0x04 on GC 11.0.3
+static uint32_t gGcVersion = (11u << 16) | (0u << 8) | 0u;
+static uint32_t gGbAddrConfig = 0x00000545u;
+static bool gNavi32 = false;
+static const char *gAsicName = "navi31";
+
+// Called once in start(), before any register is touched. deviceId is PCI vendor|device >> 16 (0x744c, 0x747e, ...).
+static void phxSelectAsic(uint32_t deviceId) {
+    switch (deviceId) {
+        case 0x747e:   // Navi 32: RX 7800 XT and RX 7700 XT (same die, told apart by VRAM)
+            gNavi32 = true;
+            gAsicName = "navi32";
+            gGcVersion = (11u << 16) | (3u << 8) | 0u;
+            gGbAddrConfig = 0x00000444u;
+            gGcVmShift = 0x10u;
+            gGcL2Shift = 0x04u;
+            break;
+        default:       // Navi 31 (0x744c) and anything else keeps the reference values
+            break;
+    }
+}
 
 // Pools reported to RADV. E1 backs every BO with system memory, so these are budgets, not hardware:
 // BAR0 is 256 MiB on this machine, the UMA carve-out 6 GiB.

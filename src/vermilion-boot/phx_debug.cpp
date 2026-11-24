@@ -59,6 +59,8 @@ IOReturn IOAccelPhxNativeClient::doDbgSmu(IOExternalMethodArguments *a) {
     case PHX_PPSMC_GetRunningSmuFeaturesHigh:
     case PHX_PPSMC_AllowGfxOff:
     case PHX_PPSMC_DisallowGfxOff:
+    case PHX_PPSMC_SetAllowedFeaturesMaskLow:   // Linux sends both before EnableAllSmuFeatures
+    case PHX_PPSMC_SetAllowedFeaturesMaskHigh:
     case PHX_PPSMC_EnableAllSmuFeatures:
     case PHX_PPSMC_TransferTableSmu2Dram:
     case PHX_PPSMC_RunDcBtc:

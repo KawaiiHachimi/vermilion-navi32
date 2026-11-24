@@ -34,7 +34,18 @@ say() { echo "vermilion-install: $*"; }
 die() { echo "vermilion-install: ERROR: $*" >&2; exit 1; }
 for f in build/NVMTLDriver build/libnvmtl_translate.dylib build/libvulkan_radeon.dylib build/VermilionAccel.kext \
          build/phxctl build/mesboot build/metaltest build/spirv-val tools/phxctl/phxboot-navi31.sh \
-         tools/phxctl/local.phxboot.plist.in tools/phxctl/esp_flags.sh fw/navi31/smu_13_0_0.bin; do
+         tools/phxctl/local.phxboot.plist.in tools/phxctl/esp_flags.sh; do
+  [ -f "$P/$f" ] || die "payload incomplete: $f"
+done
+# The firmware directory is the one esp_stage.sh laid out: fw/navi31 (RX 7900 XT/XTX) or fw/navi32 (RX 7800 XT).
+ASIC=""
+for a in navi31 navi32; do [ -d "$P/fw/$a" ] && ASIC=$a && break; done
+[ -n "$ASIC" ] || die "payload incomplete: no fw/navi31 or fw/navi32"
+case "$ASIC" in
+  navi32) FWCHECK=fw/navi32/smu_13_0_10.bin ;;
+  *)      FWCHECK=fw/navi31/smu_13_0_0.bin ;;
+esac
+for f in $FWCHECK; do
   [ -e "$P/$f" ] || die "payload incomplete: $P/$f missing"
 done
 [ "$(id -u)" = 0 ] || [ "${VERMILION_NOCHOWN:-0}" = 1 ] || die "run as root (Recovery's Terminal is root; on the live system use sudo)"
@@ -136,7 +147,7 @@ for f in navi31_up.sh bringup_navi31.sh; do put "$T/$f" "$G/phxctl/$f" "$UO" 755
 put "$T/esp_flags.sh" "$G/phxboot-pre.sh" "$UO" 755
 put "$P/build/phxctl" "$G/phxctl.bin" "$UO" 755
 put "$P/build/metaltest" "$G/metaltest" "$UO" 755
-put "$P/fw/navi31" "$G/fw/navi31" "$UO" u+rwX,go+rX
+put "$P/fw/$ASIC" "$G/fw/$ASIC" "$UO" u+rwX,go+rX
 for fl in ${VERMILION_FLAGS-phxboot-sdma phxboot-cg phxboot-uclk=456}; do
   case "$fl" in *=*) printf '%s\n' "${fl#*=}" >"$G/${fl%%=*}"; fl=${fl%%=*};; *) : >"$G/$fl";; esac
   own "$UO" 644 "$G/$fl"
