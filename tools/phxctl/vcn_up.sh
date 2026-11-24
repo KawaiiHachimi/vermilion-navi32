@@ -37,7 +37,9 @@ SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo -n"
 
 FW_MD5=cfe244431aaaa120bee275c95af658f9     # linux-firmware amdgpu/vcn_4_0_0.bin (403,856 B; ucode 403,600 B at +256)
 AREA_MD5=3bb711a8f3820176495d91b6a40751a2   # vcn0_area.bin from vcn_m1_gen.py
-RAM_MD5=030438198bb43e60d047f84c43bca304    # vcn0_ram.bin (27 DPG SRAM pairs)
+# navi32: vcn0_ram.bin is regenerated with this card's GB_ADDR_CONFIG (0x444) instead of the Navi 31
+# value 0x545, so its digest differs from the Navi 31 tree.
+RAM_MD5=${RAM_MD5:-1860b2ddb6831450c0d79fb92f0ab1f1}    # vcn0_ram.bin (27 DPG SRAM pairs, 0x444)
 
 [ -f "$DATA/vcn0_layout.sh" ] || { echo "missing $DATA/vcn0_layout.sh (run vcn_m1_gen.py)"; exit 1; }
 . "$DATA/vcn0_layout.sh"
@@ -155,8 +157,11 @@ preflight(){
   else
     say "FROM=$FROM: VCN0 UVD_POWER_STATUS = $x"
   fi
-  say "GB_ADDR_CONFIG $(rd 0x263e) (vcn0_ram.bin has 0x545)"
-  [ "$(rd 0x263e)" = 0x00000545 ] || die "GB_ADDR_CONFIG differs from the SRAM list"
+  # The SRAM list carries this card's GB_ADDR_CONFIG (UVD_GFX10_ADDR_CONFIG). 0x545 is the Navi 31 value,
+  # 0x444 the Navi 32 one; EXPECT_GB_ADDR_CONFIG selects which the vcn0_ram.bin in use was generated for.
+  EXPECT_GB_ADDR_CONFIG=${EXPECT_GB_ADDR_CONFIG:-0x00000545}
+  say "GB_ADDR_CONFIG $(rd 0x263e) (vcn0_ram.bin built for $EXPECT_GB_ADDR_CONFIG)"
+  [ "$(rd 0x263e)" = "$EXPECT_GB_ADDR_CONFIG" ] || die "GB_ADDR_CONFIG differs from the SRAM list"
 }
 
 echo "vcn_up.sh mode=$MODE wptr=$WPTR_MODE from=$FROM phxctl=$PHXCTL"

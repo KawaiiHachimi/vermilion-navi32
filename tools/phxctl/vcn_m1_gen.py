@@ -40,7 +40,10 @@ BO_SIZE = STACK_SIZE + CONTEXT_SIZE + FW_SHARED_SIZE
 FW_SHARED = VCPU_BO + BO_SIZE - FW_SHARED_SIZE
 AREA_SIZE = VCPU_BO + BO_SIZE
 
-GB_ADDR_CONFIG = 0x545          # GC GB_ADDR_CONFIG read on the box (0x263e) = Linux value (JPEG ADDR_CONFIG write)
+# The card own GB_ADDR_CONFIG goes into the DPG SRAM pairs as UVD_GFX10_ADDR_CONFIG.
+# 0x545 is the value read on the Navi 31 box; Navi 32 (GC 11.0.3) reports 0x444, so the generator
+# takes it from the environment: GB_ADDR_CONFIG=0x444 for this port.
+GB_ADDR_CONFIG = int(os.environ.get("GB_ADDR_CONFIG", "0x545"), 0)
 
 # VCN 4.0 registers, all BASE_IDX 1 (vcn_4_0_0_offset.h v6.8, line in brackets)
 REG = {

@@ -1512,3 +1512,112 @@ Everything before this round was correct except that one address: the firmware l
 32 KiB scheduler ring, the MQD words, the queue masks, the 64-dword frame with its MC `*_gpu_mc_ptr` fields.
 The lesson worth keeping: when a firmware completes work but writes its completion where the driver never
 sees it, check the *address form* of the fence before suspecting the firmware.
+
+### What stands between RADV and the rest of the XTX stack (2026-11-24)
+
+RADV works (above). The next pieces and their exact state on this machine:
+
+| Piece | Builds? | Blocker |
+|---|---|---|
+| `VermilionAccel.kext` | yes (`scripts/build/accel.sh`, 438032 bytes) | has to go into the AuxKC, which needs a click in System Settings > Privacy & Security before the restart |
+| `NVMTLDriver` (Metal plugin) | yes (`VULKAN_HEADERS=... scripts/build/plugin.sh`, 1719808 bytes) | needs an existing `NVMTLDriver.bundle` skeleton (Info.plist + resources) and the AIR bitcode reader, both from NullMoth's driver package, which Vermilion does not ship and this machine does not have |
+| `libnvmtl_translate.dylib` | not built | the translator is opened from inside that bundle |
+| VCN bring-up | `vcn_m1_gen.py` + `vcn_up.sh` exist | the script refuses to touch the GPU until `phxboot-navi31.sh` has logged `done` in this boot, i.e. the boot daemon has to be installed and run |
+| VideoToolbox decoder | needs ffmpeg with Vulkan video | after VCN is up |
+
+So two of the remaining pieces are gated on things outside this repo: **NullMoth's `NVMTLDriver.bundle`** for
+Metal (and therefore for WindowServer, OpenGL and OpenCL, which all go through Metal), and the **AuxKC approval**
+that only a human can give. VCN needs the boot daemon, which is in the tree.
+
+Never the less the port is now at the point where the foundation is proven end to end: firmware, MES, gfx and
+compute queues, page tables, fences, a working Vulkan driver and a measured workload. What follows is
+integration work on top of a tested base, not another unknown.
+
+## VCN is alive on Navi 32 (2026-11-24)
+
+The video decode engine comes up, runs its ring and executes decode command buffers:
+
+```
+step 1  PSP LOAD_IP_FW VCN (fwtype 13)      vcn_4_0_0.bin ucode -> fw_buf+0x400000   ok
+step 2  SMU PowerUpVcn (0x2A)               resp 0x01 (OK), UVD_POWER_STATUS = 1
+step 3  stage vcn0_area.bin                 724992 B at VRAM 0x08800000
+step 4  PG_MODE | PG_EN                     UVD_POWER_STATUS = 0x105
+step 5  PSP LOAD_IP_FW VCN0_RAM (type 49)   27 DPG SRAM writes, the VCPU boots
+step 6  unified ring                        RB_BASE MC 0x8008800000, RB_SIZE 0x400 dw, RB1 on
+step 7  ring test                           RPTR reached 0x40
+step 8  decode create/destroy IB            RPTR 0x80 then 0xC0, fence 1 then 2 in VRAM
+M1 PASS
+```
+
+### What Navi 32 needed that Navi 31 did not
+
+Three things, all about this card's `GB_ADDR_CONFIG` (**0x444**, where Navi 31 is **0x545**):
+
+1. `vcn_m1_gen.py` hard-coded `GB_ADDR_CONFIG = 0x545`, and that value goes into the DPG SRAM pairs as
+   `UVD_GFX10_ADDR_CONFIG`. It now comes from the environment (`GB_ADDR_CONFIG=0x444`), so `vcn0_ram.bin` is
+   regenerated for this card;
+2. `vcn_up.sh` compared that register against a hard-coded `0x00000545`; it now compares against
+   `EXPECT_GB_ADDR_CONFIG` (default 0x545 for the Navi 31 tree, `0x444` here);
+3. the regenerated `vcn0_ram.bin` has a different digest, so `RAM_MD5` follows the file.
+
+The VCN register offsets themselves are the same as Navi 31's - the whole `vcn_v4_0_start_dpg_mode` sequence
+worked unchanged once the address config matched, which is a good sign that VCN 4.0.5 and 4.0.0 share the
+programming model.
+
+One practical note: `vcn_up.sh` refuses to touch the GPU until `/var/log/phxboot.log` has a `done` line for the
+current boot, because on a normal boot `phxboot-navi31.sh` is what brings the card up. With `navi32_up.sh`
+doing that job by hand, the log line has to be written first - the pre-flight checks that follow (PSP ring
+idle, SMU OK, VCN powered off, address config) are the ones that actually matter and they all pass.
+
+## Metal runs on the RX 7800 XT (2026-11-24)
+
+The whole Metal stack comes up on this port, with none of the pieces `docs/INSTALL.md` lists as missing from
+the tree:
+
+```
+metaltest: Metal devices: 1
+  - AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over AMD Radeon RX 7800 XT (RADV NAVI32))
+COMPUTE RESULT: 4096/4096 correct  (c[100]=300.0 expect 300)
+
+metalbench compute:   68502 frames in 3 s = 22833 frames/s, GPU errors 0, 10 us GPU per frame
+metalbench bandwidth: 47.8 GB/s (read + write)
+```
+
+### How it was assembled, piece by piece
+
+| Piece | Where it came from | What INSTALL.md assumed |
+|---|---|---|
+| `NVMTLDriver` plugin | `scripts/build/plugin.sh` with `VULKAN_HEADERS` pointing at a Vulkan-Headers tree (the repo has no `deps/`) | built as documented |
+| `libnvmtl_translate.dylib` | `scripts/build/translator.sh` after `rustup target add x86_64-apple-darwin` (the build host is arm64 and had only the aarch64 target) | built as documented |
+| RADV | the prebuilt `build/libvulkan_radeon.dylib` | installed as documented |
+| `NVMTLDriver.bundle` skeleton | **hand-written minimal `Info.plist`** (`CFBundlePackageType BNDL`, executable, identifier, `NSPrincipalClass NVMTLDevice`) | "unverified: a minimal hand-written Info.plist has not been tested" - it works |
+| AIR reader `air-runtime/libLLVM.dylib` | the target's MacPorts **LLVM 19** (`/opt/local/libexec/llvm-19/lib`), with `/opt/local/lib/libzstd.1.dylib` | the reference used NullMoth's LLVM 21.1.8 |
+| `spirv-val` | the target's MacPorts copy at `/opt/local/bin/spirv-val`, symlinked into `/usr/local/bin` so the translator's search list finds it | owned by MacPorts here |
+| `VermilionAccel.kext` | already in `/Library/Extensions`; `kmutil load -p` loads it with no approval dialog because the boot-args carry `amfi=0x80` and `amfi_get_out_of_my_way=1` | "click Allow in System Settings" - not needed in this configuration |
+| `nvmtl-allow.txt` | `*`, mode 644, root:wheel | as documented |
+
+Two traps worth recording:
+
+* the accelerator publishes nothing until the GPU is **claimed** - `mesboot claim` sets `nmxgpu-claimed` and
+  re-runs matching, after which `ioreg` shows `PhxAMDFB`/`NMXAccel`. Without that, the plugin loads and reports
+  "GPU vendor 1002 (AMD, RADV)" but no device is published;
+* the allow list is checked per process, and the plugin says so in the log (`not allow-listed: no device for
+  <process>`). A one-line file of `*` is enough.
+
+### What still does not translate
+
+WindowServer does load the plugin once it is restarted (`killall -9 WindowServer`) and does try to build its
+compositor libraries, but the **in-memory AIR reader fails on Apple's system metallibs**:
+
+```
+NVMTL: library: metallib 24128 bytes, 4 bitcode blobs, 0 entries indexed, 0 visible | aircache 0 hit, 4 miss
+NVMTL: library: air-opt spawn failed: No such file or directory
+NVMTL: newLibraryWithFile: translation produced nothing for .../CoreDisplay.framework/.../default.metallib
+```
+
+So the desktop still composites on the firmware framebuffer while shaders compiled at runtime (metaltest,
+metalbench) work. The fix is an AIR reader built from the same LLVM generation as the reference machine:
+MacPorts on the target has **`llvm-21 @21.1.8_3`**, exactly the version NullMoth's bundle carries, and
+installing it plus re-running `tools/phxctl/air_runtime_install.sh` from `/opt/local/libexec/llvm-21/lib` is the
+next step. `air-opt` (the fallback the plugin also tries) lives in Apple's Metal toolchain and is not on this
+machine; the LLVM reader is the path that does not need it.

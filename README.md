@@ -63,8 +63,8 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 
 | | |
 |---|---|
-| **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI**: `submit_test` reaches `target = 0x5eed0001`, reproducibly, with the fence retiring |
-| **In progress** | RADV. The device enumerates (`AMD Radeon RX 7800 XT (RADV NAVI32)`, ABI 1.12), `vkCreateDevice` succeeds, contexts bind at VMID 8/9 with four-level tables, and submissions reach the ring with every address translating. It wedges on `SET_UCONFIG_REG` - a graphics-level packet a MEC compute queue cannot execute (measured: a five-dword IB with just that packet hangs the queue), which means RADV's gfx streams need the gfx queue. That queue is only ever made ready by the MES (`ADD_QUEUE(gfx)` + adopt, as on the XTX), and the legacy `CP_RB0_*` ring was tried in four variants where the CP clears its own ring state every time. **So the MES is the critical path**: it loads, runs and consumes its frames on this port, but never writes `api_status` or its completion fence, ergo it never creates a queue |
+| **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI** (`submit_test` reaches `target = 0x5eed0001`) · **the MES** (all API frames complete) · **a gfx queue created by the MES** that executes and is adopted by the accelerator · **RADV**: 270k compute dispatches in 4 s with 0 GPU errors, 47.8 GB/s buffer bandwidth, 162 us per waited submit |
+| **In progress** | **Metal.** RADV runs (above), so the next step is the Metal stack on top of it: the `NVMTLDriver` plugin, the `libnvmtl_translate` shader translator, the `VermilionAccel` accelerator kext and the boot daemon that moves WindowServer onto the GPU. The port has not yet loaded any of them |
 | **Not started** | Metal plugin (`NVMTLDriver`), WindowServer, OpenGL / OpenCL, Vulkan window surface, VCN decode. All of these are the Navi 31 tree's existing work, waiting for the bottom of the stack |
 
 ### The fixes that took the port from "no signal" to executing commands
@@ -101,7 +101,8 @@ ASIC=navi32 sh scripts/build/kext.sh                     # VermilionBoot.kext
 ASIC=navi32 sh scripts/build/accel.sh                    # VermilionAccel.kext
 # deploy both to the ESP / AuxKC, reboot, then:
 sudo phxctl --help                                       # MMIO, VRAM, doorbell access
-cd ~/gpu/phxctl && sudo env ASIC=navi32 bash bringup_navi31.sh
+cd ~/gpu/phxctl && sudo env ASIC=navi32 bash navi32_up.sh   # the whole chain, then vkbench
+# or step by step:
 sudo mesboot mesfull && sudo mesboot gart                # MES running, GART up
 sudo mesboot computeq                                    # MEC queue ring test
 sudo mesboot ibtest                                      # indirect buffer
