@@ -26,6 +26,10 @@ expect_write() { # expect_write <code> <session> <path>
   if [ "$got" = "$1" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL ($got, wanted $1): Write $3"; fi
 }
 
+# the lock script itself: it must parse and report (the guard only tests the hook)
+if sh "$HERE/../../.claude/hooks/machine-lock" status >/dev/null 2>&1; then pass=$((pass + 1))
+else fail=$((fail + 1)); echo "FAIL: .claude/hooks/machine-lock status does not run"; fi
+
 git init -q "$T/repo" && git -C "$T/repo" config user.email t@example.invalid && git -C "$T/repo" config user.name t
 
 # never allowed
