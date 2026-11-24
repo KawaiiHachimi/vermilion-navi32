@@ -224,6 +224,8 @@ enum {
 #define PHX_AMDGPU_VM_PAGE_PRT        (1u << 4)
 #define PHX_AMDGPU_CTX_OP_ALLOC_CTX    1u
 #define PHX_AMDGPU_CTX_OP_FREE_CTX     2u
+#define PHX_AMDGPU_CTX_QUERY2_FLAGS_RESET  (1u << 0)   // b127: the context was lost (RADV reads device lost)
+#define PHX_AMDGPU_CTX_QUERY2_FLAGS_GUILTY (1u << 2)   // b127: and the recovery names it guilty
 #define PHX_AMDGPU_CTX_OP_QUERY_STATE2 4u
 #define PHX_AMDGPU_HW_IP_GFX 0u
 #define PHX_AMDGPU_HW_IP_COMPUTE 1u

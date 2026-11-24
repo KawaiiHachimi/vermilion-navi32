@@ -26,7 +26,7 @@ fi
 RC=$SRC/phx_recover.cpp; SY=$SRC/phx_sysctl.cpp; CO=$SRC/phx_core.cpp; CL=$SRC/phx_client.cpp; VM=$SRC/phx_vm.cpp
 WT=$SRC/phx_wait.cpp; QU=$SRC/phx_queue.cpp; CS=$SRC/phx_classes.cpp; BR=$SRC/PhxBringup.cpp
 body() { awk "/^$1/,/^}/" "$2"; }   # body <regex of the definition line> <file>
-ok build_127 'grep -q "^#define PHX_KEXT_BUILD 127u" "$BR" && grep -q "^- 127: " "$SRC/CHANGELOG.md"'
+ok build_161 'grep -q "^#define PHX_KEXT_BUILD 161u" "$BR" && grep -q "^- 161: " "$SRC/CHANGELOG.md"'   # this tree: the fork is at 160, the port lands as 161
 ok included_once '[ "$(grep -c "^#include \"phx_recover.cpp\"" "$BR")" = 1 ] && [ "$(grep -c "^#include \"PhxRecover.h\"" "$BR")" = 1 ]'
 ok boot_defaults_off 'grep -q "^static int gRecOn = 0, gRecMs = 2000, gRecBoot = 0;" "$SY" && grep -q "^static int gFdBoot = 0;" "$SY"'
 ok bootargs_exact_1 'grep -q "gFdBoot = PE_parse_boot_argn(\"phxfaultdef\", &ba, sizeof(ba)) && ba == 1;" "$CO" && grep -q "gRecBoot = PE_parse_boot_argn(\"phxrecover\", &ba, sizeof(ba)) && ba == 1;" "$CO" && grep -q "if (gRecBoot) gRecOn = 1;" "$CO"'

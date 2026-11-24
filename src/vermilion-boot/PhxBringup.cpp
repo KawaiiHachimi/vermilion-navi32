@@ -32,6 +32,8 @@
 #include <kern/sched_prim.h>
 
 #include "PhxNativeABI.h"
+#include "PhxFaultDef.h"   // b126 GFX hub fault default page (phx_vm.cpp)
+#include "PhxRecover.h"    // b127 automatic recovery of a fault-stalled queue (phx_recover.cpp)
 #include "PhxAsic.h"    // per-ASIC identity: GC version, GB_ADDR_CONFIG, GC memory-hub shifts
 #include "PhxVmTables.h"
 #include "phx_regs_dcn32.h"
@@ -77,7 +79,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 160u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 161u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles
@@ -89,6 +91,7 @@ static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called 
 #include "phx_vram.cpp"   // b156: before phx_core.cpp, which unregisters its sysctls
 #include "phx_core.cpp"
 #include "phx_vm.cpp"
+#include "phx_recover.cpp"   // b127: after phx_vm.cpp (gpuLock, gpuRetired, gpuRetiredMask)
 #include "phx_ih_irq.cpp"
 #include "phx_vcn_mmhub.cpp"
 #include "phx_scan.cpp"

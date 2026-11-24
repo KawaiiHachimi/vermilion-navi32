@@ -139,6 +139,7 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
         q.fsub[q.tail & 63] = goldenTsc();
     }
     __asm__ __volatile__("" ::: "memory");
+    q.fvmid[q.tail & 63] = static_cast<uint8_t>(vmid);   // b127: the VMID this entry ran in
     q.tail = q.tail + 1;
     // BAR0 is write-combined: drain the WC buffers so the packets are in VRAM before the CP is told about them
     __asm__ __volatile__("sfence" ::: "memory");
