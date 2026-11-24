@@ -115,9 +115,15 @@ and reopen Safari once before these tests (a Safari that was open before 18:07 k
 - [x] **Music from the LG:** 2026-11-24 evening, EFI change 33, audio turned on by the boot daemon: music on "LG
       ULTRAGEAR+", volume changes, a switch to the Realtek and back, 240 -> 144 -> 240 Hz while playing. Owner: "Works
       fine! no problems so far!"
-- [ ] **Audio after a replug and after sleep** (thread 04 checks the logs first): unplug the LG's DP cable while music
-      plays on the LG, plug it back; later, sleep the Mac (Apple menu > Sleep), wake it. Does the sound come back on
-      the LG by itself?
+- [ ] **Audio after a replug** (not yet: wait for phase 2 item 5): unplug the LG's DP cable while music plays on
+      the LG, plug it back. Does the sound come back on the LG by itself? The logs are read
+      ([finding](findings/2026-11-24-replug-ab30-detach.md)). The audio function is a low risk, but after a replug the
+      LG stays black until a restart, so the test can't be read before item 5. Claude watches the kernel log during
+      the test.
+- **Blocked: audio after sleep** (2026-11-24). Don't sleep the Mac for this test. System sleep is disabled on this
+      machine (`pmset -g`: `SleepDisabled 1`): there is no GPU suspend / resume yet (phase 3), and lifting the block
+      would most likely lose the GPU. Display sleep is phase 2 item 6 (the LG shows black instead of going to
+      standby). The audio-after-display-sleep test comes with item 6; system sleep comes with phase 3.
 
 ## 07 Wireless and Continuity
 
