@@ -113,8 +113,22 @@ Background: what macOS needs for Adaptive Sync
 
 **NVRAM:** `DisableVariableWrite` stays on (the installer hangs on this board without it), so macOS can't clear
 `phxfb-squat`. A failed accelerated boot used to reboot in a loop; since 2026-11-20 the boot daemon notices that the
-squat survived its reboot and brings up a safe desktop instead (`~/gpu/phxboot-nvstuck`). Reset NVRAM in the OpenCore
-picker clears the squat ([findings/2026-11-20-b138-freeze-and-squat-loop.md](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md)).
+squat survived its reboot and brings up a safe desktop instead (`~/gpu/phxboot-nvstuck`)
+([findings/2026-11-20-b138-freeze-and-squat-loop.md](../.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md)).
+The squat is the intended state: `phxfb-squat` is set from Linux, and every OpenCore boot is a squat boot.
+
+**Never Reset NVRAM** (hard rule 1). It deletes `phxfb-squat`, macOS can't set it again, and every later boot runs on
+the firmware display with a phantom display. The EFI builder hides the picker's Reset NVRAM entry for that reason.
+Recovery after a failed boot instead:
+- **Safe desktop after a failure:** `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back at the next
+  boot.
+- **Dark screen** (the safe desktop didn't finish the boot before): ssh still reaches the machine. Restart once and the
+  next boot tries the safe desktop again.
+- **A bad change:** boot-arg `-phxbringupoff` for one boot, the kill switch (`touch ~/gpu/phxboot-off`, or from Linux
+  `touch /boot/vermilion/flags/phxboot-off`), or the previous EFI (`EFI/OC.prev`,
+  [runbooks](../.agents/runbooks.md)).
+- **Linux to macOS:** always a full power-off. If the boot log says `warm GPU: bring-up refused`, shut down, power on and
+  boot macOS again.
 
 ## First boot on the XTX
 

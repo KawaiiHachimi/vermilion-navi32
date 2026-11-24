@@ -473,8 +473,9 @@ firmware, and loading it again into a running SMU is something the Linux driver 
 daemon notices (`~/gpu/phxboot-nvstuck`: it rebooted to clear the squat and is squatting again) and does not reboot a
 second time. It brings up a **safe desktop** on the squat instead: the CPU copy at the boot mode, with no mode list,
 GPU present, flip, second monitor, display power recipe or VCN, and with Variable and HDR off. If that attempt does
-not finish either, the next boot stays dark but reachable over the network; it never loops. Reset NVRAM in the
-OpenCore picker clears the squat; `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back.
+not finish either, the next boot stays dark but reachable over the network, and the boot after it tries the safe
+desktop again; it never loops. `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back. Never Reset
+NVRAM: it deletes the squat, which macOS can't set again (recovery in [XTX.md](XTX.md), "NVRAM").
 
 **Nobody may be logged in at the console or over an interactive SSH session before the WindowServer restart**: the
 daemon checks `who` before arming and again right before the restart, and a logged-in user fails the attempt. Turn
