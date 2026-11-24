@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard.py", "timeout": 60 }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "if command -v rtk >/dev/null 2>&1; then rtk hook claude; else cat >/dev/null; fi", "timeout": 30 }
+        ]
+      }
+    ]
+  },
+  "enabledMcpjsonServers": ["serena"]
+}
