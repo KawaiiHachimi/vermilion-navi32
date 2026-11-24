@@ -63,4 +63,6 @@ hardware claims are on the XTX machine (macOS 26.7.1, EFI change 33).
 - Removed the clean, merged worktrees of 02, 03 and 07 and their local branches.
 - Kept: `~/Projects/vermilion` (the main checkout that holds `.git` for all worktrees; stale main at 7b30f2b, never
   install from it) and the local branches `worktree-agent-a264…`, `worktree-agent-a98b…` (not in main; old).
+- Deleted `fork/ownback/linux-horizon`: its one commit's finding (`2026-11-23-linux-horizon.md`) is already on main,
+  identical.
 - Fixed `.claude/hooks/machine-lock`: the `esac` was missing since 3ca13c0, so the script didn't parse.
