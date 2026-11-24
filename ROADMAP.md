@@ -31,7 +31,7 @@ A part that works today but doesn't meet the standard is open work, not a finish
 |---|---|---|
 | [`ownback/vermilion-xtx`](https://github.com/ownback/vermilion-xtx) (this one) | The RX 7900 XTX driver: display, Metal, Vulkan, video, DP audio. The goal is the driver Apple would have shipped for this card | One kext (drop into `EFI/OC/Kexts`, one config snippet), plus a post-installer later if user-space parts can't live in the kext |
 | `ownback/ryzentosh-airdrop` | Fork of MtkWireless (GPL): Wi-Fi and Bluetooth with AirDrop and every Continuity feature | Kexts |
-| `ownback/ryzentosh` | The owner's public EFI for his exact parts (ASUS ROG STRIX B650E-I, Ryzen 9 7900X3D, RX 7900 XTX, Corsair MP700 Pro, Corsair Vengeance DDR5-6000 CL30). It works like dotfiles: OpenCanopy theme, release OpenCore without debug output, SMBIOS git-ignored | The EFI folder |
+| `ownback/ryzentosh` | The owner's public EFI for the exact parts of the reference machine (ASUS ROG STRIX B650E-I, Ryzen 9 7900X3D, RX 7900 XTX, Corsair MP700 Pro, Corsair Vengeance DDR5-6000 CL30). It works like dotfiles: OpenCanopy theme, release OpenCore without debug output, SMBIOS git-ignored | The EFI folder |
 
 The RX 7900 XT (upstream's card) isn't worked on. Whether its detection code stays, or the project drops it, is
 open (owner, 2026-11-24).
