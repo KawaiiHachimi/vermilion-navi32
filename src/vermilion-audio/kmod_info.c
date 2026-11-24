@@ -12,7 +12,7 @@ extern kern_return_t VermilionAudio_kern_start(kmod_info_t *, void *);
 extern kern_return_t VermilionAudio_kern_stop(kmod_info_t *, void *);
 
 __attribute__((visibility("default")))
-KMOD_EXPLICIT_DECL(org.vermilion.audio, "1.7.0", _start, _stop)
+KMOD_EXPLICIT_DECL(org.vermilion.audio, "1.7.1", _start, _stop)
 
 __private_extern__ kmod_start_func_t *_realmain = VermilionAudio_kern_start;
 __private_extern__ kmod_stop_func_t  *_antimain = VermilionAudio_kern_stop;

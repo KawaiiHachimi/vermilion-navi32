@@ -54,7 +54,7 @@
 // machine none came within 10 s of the attach at boot (2026-11-24 18:08), while a display sleep / wake brought it
 // (IOFramebuffer delivers kIOFBNotifyWillPowerOff 7 and kIOFBNotifyDidPowerOn 8, info false; a mode switch's 1 / 2 did
 // not). A write of 8 (or 7) to debug.phxaudio_event (root, after the attach) delivers that one event on head 0's PhxAMDFB
-// through IOFramebuffer::deliverFramebufferNotification, inside the framebuffer controller's work-loop gate as
+// through IOFramebuffer::deliverFramebufferNotification (resolved when IOGraphicsFamily loads), inside the framebuffer controller's work-loop gate as
 // IOFramebuffer::handleEvent does. Nothing is powered: only the power on / off subscribers hear it (IODisplay isn't one,
 // IOGraphics source).
 //
@@ -72,15 +72,26 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOWorkLoop.h>
-#include <IOKit/graphics/IOFramebuffer.h>
 #include <libkern/libkern.h>
 #include <sys/sysctl.h>
 
 namespace {
 
 const char *kGfxHdaPaths[] {"/System/Library/Extensions/AppleGFXHDA.kext/Contents/MacOS/AppleGFXHDA"};
-KernelPatcher::KextInfo kGfxHda {"com.apple.driver.AppleGFXHDA", kGfxHdaPaths, arrsize(kGfxHdaPaths), {true}, {},
-                                 KernelPatcher::KextInfo::Unloaded};
+const char *kIOGraphicsPaths[] {"/System/Library/Extensions/IOGraphicsFamily.kext/IOGraphicsFamily"};
+// IOGraphicsFamily only for one symbol (deliverFramebufferNotification, see "Sixth" in the header): it is in the System
+// KC, and a kext OpenCore injects into the boot KC can't link against it (1.7.0 with it in OSBundleLibraries did not
+// load, XTX machine 2026-11-24 18:16).
+KernelPatcher::KextInfo kKexts[] {
+	{"com.apple.driver.AppleGFXHDA", kGfxHdaPaths, arrsize(kGfxHdaPaths), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+	{"com.apple.iokit.IOGraphicsFamily", kIOGraphicsPaths, arrsize(kIOGraphicsPaths), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+};
+KernelPatcher::KextInfo &kGfxHda = kKexts[0];
+KernelPatcher::KextInfo &kIOGraphics = kKexts[1];
+// IOFramebuffer::deliverFramebufferNotification(IOIndex, void *), non-virtual: called as a function with this first
+using DeliverFn = IOReturn (*)(void *fb, int event, void *info);
+DeliverFn gDeliver;
+constexpr int kEvWillPowerOff = 7, kEvDidPowerOn = 8;   // kIOFBNotifyWillPowerOff, kIOFBNotifyDidPowerOn (IOFramebuffer.h)
 
 // The 1002:ab20 entry of the controller table, whole (unique in AppleGFXHDA 550.1), and the same with ab30.
 constexpr uint8_t kFind[] {
@@ -176,6 +187,11 @@ void findRedelivery(KernelPatcher &kp, size_t index) {
 }
 
 void onGfxHdaLoad(void *, KernelPatcher &kp, size_t index, mach_vm_address_t, size_t) {
+	if (index == kIOGraphics.loadIndex) {
+		gDeliver = reinterpret_cast<DeliverFn>(kp.solveSymbol(index, "__ZN13IOFramebuffer30deliverFramebufferNotificationEiPv"));
+		kp.clearError();
+		return;
+	}
 	if (index != kGfxHda.loadIndex) return;
 	if (!havePci(0x1002, 0xab30)) { setStat("skipped: no 1002:ab30 audio function\n"); return; }
 	if (havePci(0x1002, 0xab20)) { setStat("skipped: a 1002:ab20 audio function needs its own table entry\n"); return; }
@@ -266,17 +282,8 @@ int applyCodecInfo() {
 	return n;
 }
 
-// deliverFramebufferNotification is protected; a pointer to it taken in a derived class (never instantiated) calls it on
-// any IOFramebuffer, the same function IOFramebuffer::handleEvent calls.
-struct FbNotify : IOFramebuffer {
-	static IOReturn deliver(IOFramebuffer *fb, IOIndex ev) {
-		IOReturn (IOFramebuffer::*f)(IOIndex, void *) = &FbNotify::deliverFramebufferNotification;
-		return (fb->*f)(ev, nullptr);
-	}
-};
-
 IOReturn deliverAction(OSObject *owner, void *ev, void *, void *, void *) {
-	return FbNotify::deliver(static_cast<IOFramebuffer *>(owner), static_cast<IOIndex>(reinterpret_cast<uintptr_t>(ev)));
+	return gDeliver(owner, static_cast<int>(reinterpret_cast<uintptr_t>(ev)), nullptr);
 }
 
 // Delivers framebuffer event ev on head 0's PhxAMDFB (see "Sixth" in the header). Returns an errno.
@@ -286,7 +293,7 @@ int deliverHead0(int ev) {
 	if (!m) return ENOMEM;
 	if (OSIterator *it = IOService::getMatchingServices(m)) {
 		while (OSObject *o = it->getNextObject()) {
-			auto *fb = OSDynamicCast(IOFramebuffer, o);
+			auto *fb = OSDynamicCast(IOService, o);   // a PhxAMDFB is an IOFramebuffer; getWorkLoop is its override
 			if (!fb || !fb->metaCast("PhxAMDFB") || fb->getProperty("phx-head")) continue;   // head 1 carries phx-head
 			IOWorkLoop *wl = fb->getWorkLoop();
 			if (!wl) break;
@@ -307,7 +314,8 @@ int eventSysctl SYSCTL_HANDLER_ARGS {
 	int err = SYSCTL_OUT(req, &v, sizeof(v));
 	if (err || !req->newptr) return err;
 	if ((err = SYSCTL_IN(req, &v, sizeof(v)))) return err;
-	if (v != kIOFBNotifyWillPowerOff && v != kIOFBNotifyDidPowerOn) return EINVAL;
+	if (v != kEvWillPowerOff && v != kEvDidPowerOn) return EINVAL;
+	if (!gDeliver) return ENOSYS;               // IOFramebuffer's symbol not found
 	IOLockLock(gMatchLock);
 	err = gMatch ? deliverHead0(v) : ENOENT;    // only after the attach
 	IOLockUnlock(gMatchLock);
@@ -443,7 +451,7 @@ void pluginStart() {
 		sysctl_register_oid(&sysctl__debug_phxaudio_codecinfo);
 		sysctl_register_oid(&sysctl__debug_phxaudio_event);
 	}
-	lilu.onKextLoadForce(&kGfxHda, 1, onGfxHdaLoad);
+	lilu.onKextLoadForce(kKexts, arrsize(kKexts), onGfxHdaLoad);
 }
 
 const char *bootargOff[] {"-phxaudiooff"};
