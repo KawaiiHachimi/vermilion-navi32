@@ -112,10 +112,12 @@ and reopen Safari once before these tests (a Safari that was open before 18:07 k
       tone at -30 dBFS, 5 s, on "LG ULTRAGEAR+" (DisplayPort): owner "we got sound!". Still set up by hand after each
       boot (`audio_match.sh on`, the DC replay, a display sleep / wake); no glitches in the probe (0 late cycles,
       0 discontinuities, device clock -24 ppm vs the host).
-- [ ] **Music from the LG** (ready since 2026-11-24 18:32: the boot daemon turns DP audio on by itself): with speakers
-      or headphones on the LG's jack, pick "LG ULTRAGEAR+" in Control Centre > Sound (it may already be selected), play
-      music for a few minutes, change the volume, switch to the Realtek and back. Then System Settings > Displays: switch
-      the LG to 144 Hz and back to 240 Hz while the music plays. Any clicks, drop-outs or silence?
+- [x] **Music from the LG:** 2026-11-24 evening, EFI change 33, audio turned on by the boot daemon: music on "LG
+      ULTRAGEAR+", volume changes, a switch to the Realtek and back, 240 -> 144 -> 240 Hz while playing. Owner: "Works
+      fine! no problems so far!"
+- [ ] **Audio after a replug and after sleep** (thread 04 checks the logs first): unplug the LG's DP cable while music
+      plays on the LG, plug it back; later, sleep the Mac (Apple menu > Sleep), wake it. Does the sound come back on
+      the LG by itself?
 
 ## 07 Wireless and Continuity
 
