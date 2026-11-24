@@ -92,6 +92,8 @@ mode setting).
 
 - `machine-lock` didn't parse since #18 (missing `esac`): fixed on `ownback/megamind`, `guard_test` runs it.
 - The guard blocked read-only SIP status reads: fixed on `ownback/megamind`.
+- The guard blocks a Bash command as "changes the machine" when its text only mentions the rollback folder or the
+  ESP mount path (seen 2026-11-24 in two docs edits): a false positive to fix in `guard.py`.
 - `efi/build.py build` without `--stage` builds the 256 MiB BAR stage, not the live `vermilion-trust-bar1g`: one clear
   default needed (thread 02).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).
