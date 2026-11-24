@@ -18,8 +18,11 @@ set -u
 KEXT=${1:?usage: preflight.sh <kext bundle> [--opencore|--auxkc]}
 KEXT=${KEXT%/}
 MODE=${2:---opencore}
+case $MODE in --opencore|--auxkc) ;; *) echo "preflight.sh: unknown mode '$MODE' (want --opencore or --auxkc)" >&2; exit 2 ;; esac
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 rc=0
+TMP=$(mktemp -t preflight) || exit 2
+trap 'rm -f "$TMP"' EXIT
 ok() { echo "  ok    $*"; }
 bad() { echo "  FAIL  $*"; rc=1; }
 skip() { echo "  skip  $*"; [ "$rc" = 1 ] || rc=2; }
@@ -37,14 +40,13 @@ else
 fi
 
 if [ -n "$EXE" ] && [ -f "$BIN" ]; then
-  python3 -I "$ROOT/scripts/build/linkgate.py" "$KEXT" ${LINKGATE_EXPORTS:+"$LINKGATE_EXPORTS"} > /tmp/preflight.$$ 2>&1
+  python3 -I "$ROOT/scripts/build/linkgate.py" "$KEXT" ${LINKGATE_EXPORTS:+"$LINKGATE_EXPORTS"} > "$TMP" 2>&1
   case $? in
     0) ok "link gate: every import is exported by a listed library" ;;
-    2) skip "link gate could not run: $(tail -1 /tmp/preflight.$$)" ;;
+    2) skip "link gate could not run: $(tail -1 "$TMP")" ;;
     *) if [ "$MODE" = --auxkc ]; then bad "link gate:"; else echo "  note  link gate (informational for OpenCore-injected kexts):"; fi
-       sed 's/^/        /' /tmp/preflight.$$ ;;
+       sed 's/^/        /' "$TMP" ;;
   esac
-  rm -f /tmp/preflight.$$
 fi
 
 if [ "$MODE" = --opencore ]; then
@@ -60,23 +62,23 @@ if [ "$MODE" = --opencore ]; then
   if [ -z "$bootkc" ]; then
     skip "boot-KC rule: could not read BootKernelExtensions.kc"
   else
+    kcbad=0
     for l in $libs; do
       case $l in com.apple.kpi.*) continue ;; esac
       if echo "$bootkc" | grep -qx "$l"; then :
       elif echo " $ockexts " | grep -q " $l "; then :
-      else bad "boot-KC rule: $l is neither in the boot KC nor an OpenCore-injected kext"; fi
+      else bad "boot-KC rule: $l is neither in the boot KC nor an OpenCore-injected kext"; kcbad=1; fi
     done
-    [ "$rc" = 1 ] || ok "boot-KC rule: every library is in the boot KC or injected by OpenCore"
+    [ "$kcbad" = 1 ] || ok "boot-KC rule: every library is in the boot KC or injected by OpenCore"
   fi
 fi
 
-if kmutil print-diagnostics -p "$KEXT" > /tmp/preflight.$$ 2>&1; then
+if kmutil print-diagnostics -p "$KEXT" > "$TMP" 2>&1; then
   ok "kmutil print-diagnostics: no problems"
 else
   # kmutil reports unapproved third-party kexts and missing OpenCore-only dependencies as errors too: show, don't judge
-  echo "  note  kmutil print-diagnostics:"; sed -n '1,15p' /tmp/preflight.$$ | sed 's/^/        /'
+  echo "  note  kmutil print-diagnostics:"; sed -n '1,15p' "$TMP" | sed 's/^/        /'
 fi
-rm -f /tmp/preflight.$$
 
 if [ "$EXE" = VermilionBoot ]; then
   cur=$(grep -o -E 'PHX_KEXT_BUILD[[:space:]]+[0-9]+' "$ROOT/src/vermilion-boot/PhxBringup.cpp" | grep -o -E '[0-9]+$' | head -1)

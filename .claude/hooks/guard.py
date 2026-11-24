@@ -29,16 +29,19 @@ LOCK = os.path.expanduser(os.environ.get('VERMILION_MACHINE_LOCK', '~/.vermilion
 PATTERNS = os.path.expanduser(os.environ.get('VERMILION_PRIVATE_PATTERNS', '~/.config/vermilion/private-patterns.txt'))
 STALE_S = 12 * 3600
 
+# `git`, its global options (-C <dir>, -c <k=v>, --no-pager, ...), then the subcommand. Anchoring on the subcommand
+# keeps a commit message such as "push to main" from matching the push rules.
+GIT = r'\bgit(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+'
 FORBIDDEN = [
     (r'\bnvram\s+-\w*c\b', 'Reset NVRAM is never done: it removes phxfb-squat (CLAUDE.md, hard rules).'),
     (r'\b(amdvbflash|atiflash|atiwinflash|flashrom)\b', 'Never flash or write the VBIOS (CLAUDE.md rule 1).'),
-    (r'\bgit\b[^;&|]*\bpush\b[^;&|]*(\s--force(-with-lease)?\b|\s-f\b|\s\+\S)', 'No force-push.'),
-    (r'\bgit\b[^;&|]*\bpush\b[^;&|]*\s(\S+:)?(main|master)(\s|$)', 'No direct push to main: open a PR and merge it.'),
-    (r'\bgit\b[^;&|]*\breset\b[^;&|]*--hard\b', 'No `git reset --hard`: make a WIP commit or ask the owner.'),
-    (r'\bgit\b[^;&|]*\bclean\b[^;&|]*\s-\w*f', 'No `git clean -f`.'),
-    (r'\bgit\b[^;&|]*\b(checkout|restore)\s+(--\s+)?\.(\s|$)', 'No `git checkout .` / `git restore .`.'),
-    (r'\bgit\b[^;&|]*\bbranch\b[^;&|]*\s-D\b', 'No `git branch -D`: use -d (merged branches only) or ask the owner.'),
-    (r'\bgit\b[^;&|]*\bstash(\s+pop\b|\s*($|[;&|]))', 'The stash is shared by every worktree: use `git stash push -u -m <tag>` and `git stash apply <sha>`, or a WIP commit.'),
+    (GIT + r'push\b[^;&|]*(\s--force(-with-lease)?\b|\s-f\b|\s\+\S)', 'No force-push.'),
+    (GIT + r'push\b[^;&|]*\s(\S+:)?(refs/heads/)?(main|master)(\s|$)', 'No direct push to main: open a PR and merge it.'),
+    (GIT + r'reset\b[^;&|]*--hard\b', 'No `git reset --hard`: make a WIP commit or ask the owner.'),
+    (GIT + r'clean\b[^;&|]*\s-\w*f', 'No `git clean -f`.'),
+    (GIT + r'(checkout|restore)\b[^;&|]*\s(--\s+)?\.(\s|$)', 'No `git checkout .` / `git restore .`.'),
+    (GIT + r'branch\b[^;&|]*\s-D\b', 'No `git branch -D`: use -d (merged branches only) or ask the owner.'),
+    (GIT + r'stash(\s+pop\b|\s*($|[;&|]))', 'The stash is shared by every worktree: use `git stash push -u -m <tag>` and `git stash apply <sha>`, or a WIP commit.'),
 ]
 
 PROTECTED_PATH = re.compile(
@@ -47,6 +50,8 @@ PROTECTED_PATH = re.compile(
 WRITE_VERB = re.compile(
     r'(^|[\s;&|(])(cp|mv|rm|rsync|ditto|install|tee|dd|ln|chmod|chown|chflags|touch|mkdir|rmdir|unzip|tar|xattr|'
     r'sed\s+-i|perl\s+-p?i|plutil\s+-(replace|insert|remove|convert)|defaults\s+write|PlistBuddy)\b|>')
+# Redirections that write nothing: they don't make a read of a protected path a write.
+HARMLESS_REDIRECT = re.compile(r'\d*>>?\s*/dev/null\b|\d*>&\d|&>\s*/dev/null\b')
 MACHINE_TOOL = re.compile(
     r'(^|[\s;&|(])(bless|kextload|kextunload|kextcache|csrutil|shutdown|reboot|halt)\b'
     r'|\bkmutil\s+(install|create|load|unload|clear-staging|rebuild)\b'
@@ -56,7 +61,10 @@ MACHINE_TOOL = re.compile(
     r'|\bpmset\s+(restoredefaults|disablesleep|schedule)\b'
     r'|\bnvram\s+(-d\b|[^\s-][^\s]*=)'
     r'|\bsystemsetup\s+-set\w+')
-LOCK_CMD = re.compile(r'(^|[;&|]\s*)(\S*/)?machine-lock(\.sh)?\s+(acquire|steal|release)\b(.*)$', re.M)
+# A lock command must be the whole Bash call, so nothing can run after a release or before an acquire unchecked.
+LOCK_CMD = re.compile(r'^\s*(?:(?:sh|bash)\s+)?(?:\S*/)?machine-lock(?:\.sh)?\s+(acquire|steal|release)'
+                      r'(?:\s+("[^"]*"|\'[^\']*\'|[^;&|<>`$()\n]*))?\s*$')
+LOCK_MENTION = re.compile(r'(^|[;&|(]\s*)((sh|bash)\s+)?(\S*/)?machine-lock(\.sh)?\s+(acquire|steal|release)\b', re.M)
 
 
 def block(msg):
@@ -81,10 +89,10 @@ def write_lock(data):
 
 
 def handle_lock_cmd(cmd, session):
-    m = LOCK_CMD.search(cmd)
+    m = LOCK_CMD.match(cmd)
     if not m:
-        return
-    op, rest = m.group(4), m.group(5).strip().strip('"\'')
+        block('run `machine-lock acquire|steal|release` as a Bash call of its own, with nothing before or after it.')
+    op, rest = m.group(1), (m.group(2) or '').strip().strip('"\'')
     cur = read_lock()
     now = int(time.time())
     held_by_other = cur and cur.get('session') != session
@@ -106,7 +114,7 @@ def handle_lock_cmd(cmd, session):
 def needs_lock(cmd):
     if MACHINE_TOOL.search(cmd):
         return True
-    return bool(PROTECTED_PATH.search(cmd) and WRITE_VERB.search(cmd))
+    return bool(PROTECTED_PATH.search(cmd) and WRITE_VERB.search(HARMLESS_REDIRECT.sub(' ', cmd)))
 
 
 def require_lock(session, what):
@@ -123,8 +131,12 @@ def mask(s):
 
 
 def check_private(cmd, cwd):
-    if not re.search(r'\bgit\b[^;&|]*\bcommit\b', cmd):
+    if not re.search(GIT + r'commit\b', cmd):
         return
+    if re.search(GIT + r'(add|rm|mv)\b', cmd):
+        # The hook runs before the whole call, so files staged in the same call aren't in the diff yet.
+        block('stage (`git add`, `git rm`, `git mv`) and commit in separate Bash calls, so the private-data check sees '
+              'what the commit contains.')
     try:
         with open(PATTERNS) as f:
             pats = [l.strip() for l in f if len(l.strip()) >= 6 and not l.startswith('#')]
@@ -132,12 +144,15 @@ def check_private(cmd, cwd):
         return
     if not pats:
         return
-    diff_args = ['diff', 'HEAD'] if re.search(r'\s(-\w*a\w*|--all)\b', cmd) else ['diff', '--cached']
-    try:
-        diff = subprocess.run(['git', '-C', cwd] + diff_args + ['-U0', '--no-color'],
-                              capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        return
+    # The index and every change to tracked files: covers `commit`, `commit -a` and `commit <path>` (a superset, so
+    # an unstaged private value in a tracked file blocks the commit too).
+    diff = ''
+    for diff_args in (['diff', '--cached'], ['diff', 'HEAD']):
+        try:
+            diff += subprocess.run(['git', '-C', cwd] + diff_args + ['-U0', '--no-color'],
+                                   capture_output=True, text=True, timeout=60).stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
     added = '\n'.join(l[1:] for l in diff.splitlines() if l.startswith('+') and not l.startswith('+++')).lower()
     hits = sorted({p for p in pats if p.lower() in added})
     if hits:
@@ -159,7 +174,7 @@ def main():
         for pat, msg in FORBIDDEN:
             if re.search(pat, cmd):
                 block(msg)
-        if LOCK_CMD.search(cmd):
+        if LOCK_MENTION.search(cmd):
             handle_lock_cmd(cmd, session)
             return
         if needs_lock(cmd):

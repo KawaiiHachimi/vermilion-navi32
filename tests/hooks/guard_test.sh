@@ -52,6 +52,9 @@ expect 2 a "bare stash" "git stash"
 expect 2 a "stash pop" "git stash pop"
 expect 0 a "stash push" "git stash push -u -m tag1"
 expect 0 a "stash list" "git stash list"
+expect 2 a "push to a full main ref" "git push fork HEAD:refs/heads/main"
+expect 2 a "push main with git -C" "git -C /tmp/x push fork main"
+expect 0 a "commit message about pushing to main" "git commit -m \"never push to main\""
 
 # the machine lock
 expect 2 a "ESP copy without lock" "sudo cp -R build/efi/OC /Volumes/EFI/EFI/OC"
@@ -79,6 +82,14 @@ expect 0 a "release" ".claude/hooks/machine-lock release"
 expect 0 b "acquire after release" ".claude/hooks/machine-lock acquire b-work"
 python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d["since"]=0; json.dump(d, open(sys.argv[1],"w"))' "$VERMILION_MACHINE_LOCK"
 expect 0 a "steal a stale lock" ".claude/hooks/machine-lock steal stale"
+expect 2 a "release chained with a restart" ".claude/hooks/machine-lock release && sudo shutdown -r now"
+expect 2 a "acquire chained with a command" ".claude/hooks/machine-lock acquire \"x\" && echo hi"
+expect 0 a "acquire through sh" "sh .claude/hooks/machine-lock acquire \"via sh\""
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(d["reason"] != "via sh")' "$VERMILION_MACHINE_LOCK" && pass=$((pass + 1)) || { fail=$((fail + 1)); echo "FAIL: lock reason"; }
+expect 0 a "release through sh" "sh .claude/hooks/machine-lock release"
+expect 0 a "grep for the lock command is not a lock command" "grep -n \"machine-lock acquire\" CLAUDE.md"
+expect 0 a "ESP read with a null redirect" "ls /Volumes/EFI/EFI/OC 2>/dev/null"
+expect 2 a "ESP write by redirect" "echo x > /Volumes/EFI/EFI/OC/x.txt"
 
 # personal data
 printf '%s\n' '# test' 'C02ZZ1234567' 'aa:bb:cc:dd:ee:ff' > "$VERMILION_PRIVATE_PATTERNS"
@@ -88,6 +99,8 @@ git -C "$T/repo" reset -q && echo "fine" > "$T/repo/leak.txt" && git -C "$T/repo
 expect 0 a "commit without private data" "git commit -m ok"
 git -C "$T/repo" commit -q -m ok && echo "mac AA:BB:CC:DD:EE:FF" >> "$T/repo/leak.txt"
 expect 2 a "commit -a with a MAC (case-insensitive)" "git commit -a -m mac"
+expect 2 a "commit <path> with a MAC" "git commit leak.txt -m mac"
+expect 2 a "add and commit in one call" "git add leak.txt && git commit -m mac"
 
 echo "guard_test: $pass passed, $fail failed"
 [ "$fail" = 0 ]
