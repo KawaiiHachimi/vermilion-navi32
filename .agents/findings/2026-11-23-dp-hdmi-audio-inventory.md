@@ -123,3 +123,23 @@ What each step showed, with VermilionAudio (Lilu plugin, `src/vermilion-audio/`)
 Assertions seen every time, not fatal: AppleGFXHDAController line 4775 (`setRequireMaxBusStall`, no max-bus-stall
 property), AppleGFXHDADriver 4838 + controller 5107 (`setCodecProperties` before the controller's power-on: its
 first verb fails).
+
+## 7. Automatic at boot (2026-11-24, XTX machine, EFI changes 30-33)
+
+- `tools/phxctl/phxaudio` computes Linux DC's audio sequence for DIG1 from the EDID (`phxaudio_plan.h`); from the LG's
+  EDID in IOKit it equals the traced plan, 90/90 writes. On a fresh boot (18:08) it programmed the display engine and
+  the end state matched Linux's; `0x52` read 0 before (Linux's writes leave it at 0x10).
+- With the display engine programmed first, the attach alone starts no engine (18:08, 10 s). Delivering
+  `kIOFBNotifyDidPowerOn` (8), or 7 then 8, on PhxAMDFB reached AppleGFXHDA's handler and started nothing (18:24).
+- A ktrace of `AppleGFXHDAController::framebufferEventHandler` (kdebug subclass 0x0524, debug-ids 0x5248811 / 12, arg4
+  high word = the event) during a display sleep / wake: 90 and 92 (WindowServer's defer), 1 and 2 (mode will / did
+  change, the mode WindowServer sets again on wake), 91 and 93. No 7 / 8: PhxAMDFB calls `handleEvent` off
+  IOFramebuffer's power thread, and IOFramebuffer then drops the event.
+- VermilionAudio 1.7.2 delivers 1 then 2 (info 0) on head 0's PhxAMDFB through
+  `IOFramebuffer::deliverFramebufferNotification`, inside the controller's work-loop gate. 18:32: engine up 2 s later,
+  "LG ULTRAGEAR+" listed, a test stream clean (0 late cycles, 0 discontinuities). Nothing visible on the screen.
+- 1.7.0 linked IOGraphicsFamily and did not load: it lives in the System KC, and OpenCore injects into the boot KC.
+  1.7.1 resolves the symbol through Lilu when IOGraphicsFamily loads.
+- A refresh-rate switch through p0odm (240 -> 144 -> 240, 17:54) left the display engine's audio state as Linux's;
+  whether sound continues across it is an owner test.
+

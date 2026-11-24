@@ -182,6 +182,39 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 
 ## 04 DP / HDMI audio, HDMI output
 
+- [x] **04: EFI change 31 = the same stage, VermilionAudio 1.7.0** (`debug.phxaudio_event`: a write of 8 delivers
+  `kIOFBNotifyDidPowerOn` on head 0's PhxAMDFB inside its work-loop gate; links IOGraphicsFamily). Why: 2026-11-24 18:08
+  the daemon's `audio_boot` programmed the display engine and attached AppleGFXHDA, but no engine came within 10 s; a
+  mode switch didn't bring it either, a display sleep / wake (events 7 / 8) did. `audio_match.sh` now delivers 8 when no
+  engine came within 2 s. Check after the boot: desktop as before; `grep audio: /var/log/phxboot.log | tail -6` ends
+  "DP audio engine up", no display blanking at that moment; "LG ULTRAGEAR+" listed. Rollback: `sudo mkdir -p
+  /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1`, in `/private/tmp/efi/EFI`: `sudo mv OC
+  OC.c31-bad && sudo mv OC.prev OC` (= change 30), restart (from Linux: the same under `/boot/EFI`, then power off
+  fully). Or boot-arg `-phxaudiooff`, or `rm ~/gpu/phxboot-audio`.
+  **Result:** booted 2026-11-24 18:15, desktop fine, but VermilionAudio 1.7.0 did not load (`debug.phxaudio_stat`
+  unknown; the daemon logged "VermilionAudio not loaded"): IOGraphicsFamily is in the System KC and a kext OpenCore
+  injects into the boot KC can't link against it. `scripts/build/linkgate` passed it anyway (open: teach the gate).
+- [x] **04: EFI change 32 = the same stage, VermilionAudio 1.7.1** (no IOGraphicsFamily link: Lilu resolves
+  `IOFramebuffer::deliverFramebufferNotification` when IOGraphicsFamily loads). Check after the boot: `sysctl
+  debug.phxaudio_stat` answers; `grep audio: /var/log/phxboot.log | tail -6` ends "DP audio engine up"; "LG ULTRAGEAR+"
+  listed. Rollback: `sudo mkdir -p /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1`, then
+  `sudo mv /private/tmp/efi/EFI/OC /private/tmp/efi/EFI/OC.c32-bad && sudo cp -R
+  ~/vermilion-rollback/EFI-OC.change30-20261124 /private/tmp/efi/EFI/OC` (= change 30; OC.prev is change 31, which
+  boots but has no audio). From Linux: copy the same folder (on a USB stick) to `/boot/EFI/OC`, then power off fully.
+  **Result:** booted 2026-11-24 18:22, the plugin loaded, the daemon programmed the display engine and attached
+  AppleGFXHDA, event 8 was delivered (0x0) and reached AppleGFXHDA's handler, but no engine came (nor with 7 then 8).
+  A ktrace of the handler (subclass 0x0524) during a display sleep / wake shows events 90 / 92, 1, 2, 91 / 93, no 7 / 8
+  (PhxAMDFB's `handleEvent` runs off IOFramebuffer's power thread, which drops them): the engine starts on the mode
+  change 1 / 2. The 18:10 mode-switch test that seemed to say otherwise was void (the 144 Hz switch did not take).
+- [x] **04: EFI change 33 = the same stage, VermilionAudio 1.7.2** (`debug.phxaudio_event` also takes 1 and 2;
+  `audio_match.sh` sends 1 then 2). Check after the boot: `grep audio: /var/log/phxboot.log | tail -6` ends "DP audio
+  engine up", nothing visible on the screen at that moment; "LG ULTRAGEAR+" listed. Rollback: `sudo mkdir -p
+  /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1`, in `/private/tmp/efi/EFI`: `sudo mv OC
+  OC.c33-bad && sudo mv OC.prev OC` (= change 32), restart (from Linux: the same under `/boot/EFI`, then power off
+  fully). Or `rm ~/gpu/phxboot-audio`.
+  **Result:** booted 2026-11-24 18:30: the daemon at 18:32 "display engine programmed (90 writes, end state ok)",
+  AppleGFXHDA attached, "display mode change events delivered", "DP audio engine up after 2 s"; "LG ULTRAGEAR+" listed
+  (the default output, the owner's earlier choice); a 3 s tone: 0 late cycles, 0 discontinuities, -12 ppm.
 - [~] **DP audio works by hand** (2026-11-24 07:53, EFI change 29, [finding](findings/2026-11-23-dp-hdmi-audio-inventory.md)
       section 6): `audio_match.sh on`, `audio_dc_replay.sh plan-240.txt`, a display sleep / wake, then the owner heard a
       tone from the LG's jack. To make it automatic and real-Mac-like:
@@ -190,8 +223,15 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
         AuxKC rebuild + owner's Allow click
   - [ ] VermilionBoot audio programmer: the DC audio sequence from the EDID (DTO from the pixel clock, ELD / SAD from
         the CEA block) instead of the replay plan; pin from the DIG / endpoint, not the fixed 0x050100
-  - [ ] Daemon: attach AppleGFXHDA after the display is up, then an event (instead of the display sleep / wake);
-        keep the LWRAN lines in `~/gpu/phxboot-navi31.sh`
+  - [x] Daemon: `audio_boot` (flag `~/gpu/phxboot-audio`, after `done`; automatic since EFI change 33, 2026-11-24 18:32): `~/gpu/phxaudio apply` (the display engine
+        from the EDID, `tools/phxctl/phxaudio.c`; plan equal to the Linux trace, 90/90), then `audio_match.sh on` (waits
+        10 s for the engine). Installed 2026-11-24 17:58 with the flag; the previous daemon is
+        `~/vermilion-rollback/phxboot-navi31.sh.pre-audio-20261124`. Rollback: `rm ~/gpu/phxboot-audio`. Check after the
+        next boot: `grep audio: /var/log/phxboot.log | tail -4`. Open: does the engine come up without a display sleep /
+        wake when the display engine is programmed first? No (18:08); the mode change events 1 / 2 do (EFI change 33).
+        `0x52` reads 0 before the first audio write (18:08), so Linux's writes leave it at 0x10, not only a toggle.
+        Mode switches keep the state: 2026-11-24 17:54, 240 -> 144 -> 240 through p0odm (3 mode sets, link retrained),
+        `phxaudio state` all ok after each (sound after a switch not yet heard).
   - [ ] After a mode change / replug / wake: the audio must come back (re-program, re-deliver)
 - [ ] HDMI output: the LG over HDMI shows black (2026-11-24, as expected: no plan for it); needs a Linux capture of the LG
       on HDMI
