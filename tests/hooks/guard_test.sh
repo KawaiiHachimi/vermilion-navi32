@@ -93,6 +93,10 @@ python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(d["reas
 expect 0 a "release through sh" "sh .claude/hooks/machine-lock release"
 expect 0 a "grep for the lock command is not a lock command" "grep -n \"machine-lock acquire\" CLAUDE.md"
 expect 0 a "ESP read with a null redirect" "ls /Volumes/EFI/EFI/OC 2>/dev/null"
+expect 0 b "csrutil status is a read" "csrutil status"
+expect 0 b "csrutil authenticated-root status is a read" "diskutil info / ; csrutil authenticated-root status"
+expect 2 b "csrutil authenticated-root disable" "csrutil authenticated-root disable"
+expect 2 b "csrutil clear" "csrutil clear"
 expect 2 a "ESP write by redirect" "echo x > /Volumes/EFI/EFI/OC/x.txt"
 
 # personal data
