@@ -3,9 +3,9 @@
 > **Expert, manual.** This is upstream's hand install for the RX 7900 XT reference machine, kept as the detailed
 > reference for each piece. On the XTX machine the same pieces run with a few differences: the
 > [`vermilion-trust`](../efi/README.md#stages) EFI stage instead of `amfi=0x80`, the XTX notes in [XTX.md](XTX.md), and
-> its live state in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md). A skill-based install
-> (`/ryzentosh-pre-install` on Linux, `/ryzentosh-post-install` in macOS) is planned in threads 06 and 10 of the
-> [ROADMAP](../ROADMAP.md); until then, follow this guide only if you can recover a machine that doesn't boot.
+> its live state in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md). A release you install by
+> dropping one kext into `EFI/OC/Kexts` is the goal of the [ROADMAP](../ROADMAP.md); until then, follow this guide only
+> if you can recover a machine that doesn't boot.
 
 There is no installer yet. Every piece is installed by hand, the way other macOS kexts and GPU bundles
 are: the boot kext through OpenCore, the accelerator kext through the Auxiliary Kernel Collection, the Metal plugin and

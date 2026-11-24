@@ -120,9 +120,9 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
       surface's speed too: a host-memory copy plus a Metal blit per frame today)
 - [ ] The plugin's RADV still lacks patch 0020 (no visible effect: it presents through IOSurfaces). Picked up by the
       next RADV build for the plugin (a trust + EFI change), not on its own
-- [ ] Skills: the post-install steps for decode (flags `phxboot-vcn`, `phxdec-av1`; the bundle on the system volume),
-      `relocate_gpubundle.sh`, the opt-in Vulkan stack: drafted in `.claude/skills/ryzentosh-post-install/`, not run
-      end to end yet
+- [ ] Install docs for decode (flags `phxboot-vcn`, `phxdec-av1`; the bundle on the system volume),
+      `relocate_gpubundle.sh` and the opt-in Vulkan stack: written in `docs/INSTALL.md` 5.5 / 5.6, not run end to
+      end on a fresh install yet (the agent skills that held them were dropped on 2026-11-24)
 
 ## 04 DP / HDMI audio, HDMI output
 
@@ -167,7 +167,7 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] `recovery_install.sh` / `esp_stage.sh`: the air-runtime reader; pick the APFS Data role in Recovery (3
       candidates found)
 - [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator)
-- [ ] `INSTALL.md` rewritten around the skills (it is upstream's manual XT guide); recovery and troubleshooting:
+- [ ] `INSTALL.md` rewritten for the one-kext release (it is upstream's manual XT guide); recovery and troubleshooting:
       black screen after a failed switch, the squat loop, booting `OC.prev`
 
 ## 07 Wireless and Continuity
