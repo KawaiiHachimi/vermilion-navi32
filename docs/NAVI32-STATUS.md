@@ -27,9 +27,10 @@ working - the command that proves it. Measure a row before claiming it.
 | 20 | OpenCL on the GPU | **works** | `apiprobe`: device `AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over ...)` type GPU |
 | 21 | VCN engine power-up + ring | **works** | `vcn_up.sh`: `M1 PASS`, ring test + decode create/destroy IB |
 | 22 | VCN MMHUB VM | **works** | daemon log: `vcn: up, ring adopted, MMHUB VM on (mmvm 1 bad 0x0)` |
-| 23 | VideoToolbox decoder bundle | **not yet** | the driver already offers `VK_KHR_video_decode_h264/h265/av1/vp9` and `RADV_DARWIN_VCN`, so the path is open; the bundle needs FFmpeg n7.1 + `patches/ffmpeg` built on the target (`tools/phxctl/navi32_decoder_build.sh`; the build host is arm64 without Rosetta) |
-| 24 | Vulkan window surface | **driver supports it, not yet measured** | the shipped `libvulkan_radeon.dylib` offers `VK_EXT_metal_surface`, `VK_EXT_metal_objects` and `VK_KHR_surface`; `tools/metaltest/vkwsi.m` is the probe (opens the ICD directly, there is no loader on the target) |
-| 25 | upstream b126/b127 (fault page + recovery) | **not yet** | build numbers collide with the xtx tree; needs renumbering past 160 and a boot test - see NAVI32.md |
+| 23 | VCN hardware decode (HEVC) | **works** | `vtdec_test clip.mp4 10 libphxdec_hevc.dylib`: 10 frames in 197 ms, `debug.phxmmvm_stat` `vcn submits` 6 -> 17, frame md5s identical to Apple software decode |
+| 24 | Vulkan window surface | **works** | `tools/metaltest/vkwsi.m` against `libvulkan_radeon_wsi.dylib` (RADV built with `-Dplatforms=macos`, patch 0020): `VK_EXT_metal_surface` advertised, 640x360 FIFO swapchain, `presented 300/300 frames`, `WSI OK`. The default build enumerates only 8 extensions and no `VK_KHR_surface` - enumerate, never grep the binary |
+| 25 | VideoToolbox bundle in `/System/Library/Video/Plug-Ins` | **not yet** | the decoder itself works (row 23); making VideoToolbox find it in other processes needs `tools/phxctl/sysvol_install.sh` (authenticated-root disabled) and VermilionTrust cdhash entries |
+| 26 | upstream b126/b127 (fault page + recovery) | **not yet** | build numbers collide with the xtx tree; needs renumbering past 160 and a boot test - see NAVI32.md |
 
 ## Tests that need no card
 

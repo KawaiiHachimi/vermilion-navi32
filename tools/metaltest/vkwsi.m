@@ -51,8 +51,7 @@ int main(int argc, char **argv)
             printf("instance extensions (%u):", nex);
             for (uint32_t i = 0; i < nex; i++) {
                 if (!strcmp(ex[i].extensionName, VK_EXT_METAL_SURFACE_EXTENSION_NAME)) metalSurf = 1;
-                if (!strncmp(ex[i].extensionName, "VK_KHR_surface", 14) || !strncmp(ex[i].extensionName, "VK_EXT_metal", 12))
-                    printf(" %s", ex[i].extensionName);
+                printf(" %s", ex[i].extensionName);
             }
             printf("\n");
         }

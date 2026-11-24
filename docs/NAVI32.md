@@ -2042,3 +2042,242 @@ flat context can never reach `takeParked()`. A test's fake environment has to pr
 the code, not of the test.
 
 The host suites are 11/11 green with it, and 260/260 in the mock harness.
+
+## Vulkan window surface: WSI OK on the RX 7800 XT (2026-11-25)
+
+RADV built from Mesa `f5cb8ee0` + `patches/mesa` **with `-Dplatforms=macos`** advertises the window surface and
+presents into a `CAMetalLayer`:
+
+```
+icd: /Library/GPUBundles/nvmtl/libvulkan_radeon_wsi.dylib
+instance extensions (15): VK_KHR_device_group_creation VK_KHR_external_fence_capabilities
+  VK_KHR_external_memory_capabilities VK_KHR_external_semaphore_capabilities
+  VK_KHR_get_physical_device_properties2 VK_KHR_get_surface_capabilities2
+  VK_KHR_surface VK_KHR_surface_maintenance1 VK_KHR_surface_protected_capabilities
+  VK_EXT_debug_report VK_EXT_debug_utils VK_EXT_headless_surface VK_EXT_metal_surface
+  VK_EXT_surface_maintenance1 VK_EXT_swapchain_colorspace
+device: AMD Radeon RX 7800 XT (RADV NAVI32)
+present queue family: 0
+surface: 640x360, 3..3 images, currentTransform 1
+swapchain: 3 images, 640x360, FIFO
+presented 300/300 frames in 0.17 s (1765.0 fps)
+WSI OK
+```
+
+### The measurement that settles it, and the one that did not
+
+`strings -a libvulkan_radeon.dylib | grep VK_EXT_metal_surface` finds the name in **both** builds - the string is
+in Mesa's WSI code either way. So a string search says "supported" for a build that does not advertise it. The
+**default** build (no `-Dplatforms`) enumerates exactly eight instance extensions, and the only surface one is
+`VK_EXT_headless_surface`:
+
+```
+instance extensions (8): VK_KHR_device_group_creation VK_KHR_external_fence_capabilities
+  VK_KHR_external_memory_capabilities VK_KHR_external_semaphore_capabilities
+  VK_KHR_get_physical_device_properties2 VK_EXT_debug_report VK_EXT_debug_utils
+  VK_EXT_headless_surface          <- no VK_KHR_surface, no VK_EXT_metal_surface
+```
+
+The lesson is general and worth keeping: **enumerate extensions, never grep the binary**. The probe
+(`tools/metaltest/vkwsi.m`) prints the whole list before it tries to use anything, which is what turned a wrong
+"already supported" claim into a five-minute diagnosis.
+
+### Two builds, two purposes
+
+| Build | File | Consumer |
+|---|---|---|
+| default (`-Dplatforms=`) | `/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib` | the Metal plugin (`NVMTLDriver`) - headless on purpose |
+| `RADV_PLATFORMS=macos` | `/Library/GPUBundles/nvmtl/libvulkan_radeon_wsi.dylib` | Vulkan applications: `VK_KHR_surface`, `VK_EXT_metal_surface`, swapchains (patch 0020) |
+
+Building the second one, on an arm64 host cross-compiling to x86_64:
+
+```sh
+git clone https://gitlab.freedesktop.org/mesa/mesa && git -C mesa checkout f5cb8ee0
+MESA_DIR=<mesa> sh scripts/build/radv.sh apply          # patches/mesa 0001..0020
+python3 -m venv /tmp/mesavenv && /tmp/mesavenv/bin/pip install mako pyyaml markupsafe packaging
+PATH=/tmp/mesavenv/bin:$PATH MESA_DIR=<mesa> RADV_PLATFORMS=macos sh scripts/build/radv.sh
+```
+
+Mesa's build needs mako, pyyaml, markupsafe and packaging; macOS ships none of them, and `pip install --user` is
+refused by PEP 668, so a venv on `PATH` is the way. The result is 20,744,896 B against 20,720,320 B for the
+default build.
+
+## VCN hardware decode is verified on Navi 32 (2026-11-25)
+
+`libphxdec_hevc.dylib` (FFmpeg n7.1 + `patches/ffmpeg`, built **on the target** because the build host is arm64
+without Rosetta) drives the VCN engine and produces frames identical to Apple's software decoder:
+
+```
+phxdec_register -> 0
+session create 0, codec hvc1
+sent 10, frames out 10, 197.4 ms (50.7 fps)
+
+vcn submits before: 6
+vcn submits after:  17          <- the decode really went through the VCN (debug.phxmmvm_stat)
+
+ours   md5 11daba43c74dfadc65018997238ffe85  d7033c72a25e58149d48867cc59175de
+           # 61a6b8eae2a308a3eebd8571b3d9d2ac  33d323659d5395f7bb648a6b787a5cab
+           # a20e1d783d530f733fe5a6c613515684
+apple  identical, frame for frame
+```
+
+The clip is a 1-second 320x240 HEVC (`x265`, yuv420p, `hvc1`) made on the build host; `vtdec_test` decodes it
+through a `VTDecompressionSession` twice - once with the dylib registered in-process (our decoder), once without
+(VideoToolbox picks Apple's) - and the two md5 lists match exactly.
+
+Two facts made this measurable:
+
+* `debug.phxmmvm_stat`'s **`vcn submits`** counter is the proof that the decode used the engine; a decoder that
+  silently fell back to software would leave it unchanged;
+* `vtdec_test <movie> <frames> [dylib]` registers a decoder dylib in-process, so no system-volume install is needed
+  to test the decode path - the bundle install (INSTALL.md 5.5) is only about VideoToolbox *finding* it in other
+  processes.
+
+The decoder build on the target needs `nasm` (FFmpeg's x86 assembly); MacPorts has it, and without it configure
+stops with "nasm/yasm not found or too old". `tools/phxctl/navi32_decoder_build.sh` does the whole thing: clone
+the tree and FFmpeg n7.1, apply `patches/ffmpeg`, build `libavcodec_phx`/`libavutil_phx`, then
+`src/video-decoder/build.sh` and sign every Mach-O.
+
+## VideoToolbox finds the decoder and uses the VCN (2026-11-25)
+
+With `PhxVideoDecoder.bundle` installed in `/System/Library/Video/Plug-Ins` (through `sysvol_install.sh`, which
+needed only `csrutil authenticated-root status: disabled` - already the case here) and the three dylibs next to
+the Metal plugin, a process that asks VideoToolbox for HEVC gets **our** decoder **without naming it**:
+
+```
+vcn submits before: 0
+session create 0, codec hvc1, hardware decoder ?
+frame 0..4: md5 11daba43... d7033c72... 61a6b8ea... 33d32365... a20e1d78...   (identical to Apple's software decode)
+sent 5, frames out 5, 483.9 ms (10.3 fps)
+vcn submits after:  6
+```
+
+`vtdec_test` was run **without** a dylib argument this time: the decoder came from the bundle, and the
+`vcn submits` counter moving 0 -> 6 proves the frames were produced by the VCN engine. This is the same test that
+printed "identical to Apple" earlier, so the output is still correct - the difference is that the engine is doing
+the work.
+
+The install chain that got here:
+
+```
+src/video-decoder/vtbundle/build.sh          -> PhxVideoDecoder.bundle (27,328 B executable)
+tools/phxctl/sysvol_install.sh <bundle> /System/Library/Video/Plug-Ins
+                                             -> mounts the live volume read-write, copies, blesses a snapshot
+reboot                                       -> the snapshot boots, VT sees the bundle
+```
+
+`sysvol_install.sh` refuses without `authenticated-root` disabled; on this machine SIP reports "unsupported
+configuration" (boot-args `amfi=0x80 amfi_get_out_of_my_way=1`) and authenticated-root is disabled, so the install
+went through and the machine came back on the new snapshot.
+
+One side effect worth knowing: the system volume is no longer sealed, so macOS offers only full updates and a
+system update removes the bundle (INSTALL.md 5.5 documents both, and `--remove` takes it out again).
+
+### Console auto-login stopped working after the power cycle (open, 2026-11-25)
+
+Auto-login worked on 2026-11-24 (`/dev/console` owned by `cool`, Finder running, OpenGL 4.1 and OpenCL verified
+in that session). After the machine hung on a squat boot and was power-cycled, the console has stayed at `root`
+and every attempt to restore auto-login has failed. What has been ruled out, with the evidence:
+
+| Check | Result |
+|---|---|
+| `/etc/kcpassword` present, 12 bytes, mode 600 root:wheel | yes |
+| the file decrypts to the account password | yes (`b'176516\x00\x00\x00\x00\x00\x00'` with the 12-byte XOR key) |
+| `autoLoginUser` in `/Library/Preferences/com.apple.loginwindow.plist` | yes, `cool` (also `autoLoginUserUID = 501`) |
+| FileVault | off |
+| secure token for the account | enabled |
+| `lastLoginPanic` marker | present after the hang, deleted - no change |
+| `SHOWFULLNAME` | absent (the daemon's login-window guard is off) |
+| loginwindow restarted with the credential in place (3 attempts, 20 s apart) | console stays `root`, and the log
+  shows no auto-login attempt at all - only `SecurityAgent` starting its login window |
+
+**One bug of mine is worth recording even though it is not the cause now**: the first `/etc/kcpassword` was built
+by XORing only the password bytes and then appending raw zero padding. The padding has to be XORed too - the whole
+12-byte block is `(password + zero padding) XOR key`. The old file decrypted to `176516` followed by six key bytes,
+which is malformed (it did work on 2026-11-24, so macOS tolerates it or reads only the first block). The generator
+is now correct and both `/etc/kcpassword` and `~/gpu/kcpassword.bin` hold the proper form.
+
+This is a machine-setup problem, not a driver one: nothing in the port changed. It matters only because OpenGL and
+OpenCL can only be probed from a real console session (`CGLChoosePixelFormat` refuses outside one), so their
+re-verification is blocked until a session exists. Both were verified on this port on 2026-11-24.
+
+### What porting upstream b126/b127 actually costs (measured, 2026-11-25)
+
+The two newest upstream features are not a cherry-pick, and the diff is now small enough to inventory exactly.
+`upstream/src/vermilion-boot` against the fork:
+
+| File | Lines changed | What the change is |
+|---|---|---|
+| `PhxFaultDef.h` (new, 134) | - | the register sequence for the fault default page: `phxfd::enable/disable`, page mask, the GC engine-17 flush |
+| `PhxRecover.h` (new, 192) | - | `phxrec::{Stall, Fault, decode, killValue}` and the kill decision, kernel-free so a host test can run it |
+| `phx_recover.cpp` (new, 191) | - | `PhxBringup::recoverPoll()`, `recoverCtl()`, `recoverStat()` |
+| `phx_vm.cpp` | 175 | one self-contained ~166-line block: `faultDefCtl()` plus `PhxFdEnv`/`phxFdFill`/`phxFdNoteAck`; a claim hook (`phxfaultdef=1` boot argument); and `recoverPoll()` in the VMID-free wait |
+| `phx_sysctl.cpp` | 128 | six sysctls: `phxfaultdef`, `_fill`, `_stat`, `phxrecover`, `phxrecover_ms`, `phxrecover_stat`, plus the `PhxRecLast` struct both features share |
+| `phx_classes.cpp` | 138 | the three method declarations, and `recoverPoll()` in the accelerator's retire wait |
+| `phx_wait.cpp` | 3 | `recoverPoll()` in `WAITSEQ` |
+| `phx_client.cpp` | 158 | `recoverPoll()` in the client's retire wait (the rest of that diff is unrelated upstream work) |
+| `PhxBringup.cpp` | 26 | two includes and `#include "phx_recover.cpp"` in the single translation unit |
+| `PhxNativeABI.h` | 24 | the fault-page constants both features read |
+
+So it is ~520 new lines plus ~10 edit sites, and the two features are interlocked: `recoverPoll()` only acts when
+`gFdOn` (the fault default page) is on, because without that page the kill does nothing (the fork's own lab note
+TCP-KILL-1123). Porting b127 alone would be dead code, which is worse than not porting it.
+
+It also has to be **booted** to be trusted: the fault page reprograms `GCVM_L2_CNTL`/`DEFAULT_ADDR` and flushes
+the GC engine, and the recovery kills a VMID's waves. Both are off by default (`debug.phxfaultdef=0`,
+`debug.phxrecover=0`), but a mistake in the fault-page setup can still wedge the hub at the moment it is enabled.
+
+Therefore the port is planned as build 161 with the deployed build left at 160: write it, compile it, then deploy
+it together with a rollback copy of the working `VermilionBoot.kext` so a boot that goes wrong can be undone
+without another power cycle. Doing it in the same step as the current working state would risk a machine that
+takes a human an hour to bring back, for a feature that is off by default.
+
+### A daemon of mine was fighting the login window (fixed)
+
+`local.phxlogin` restarted the login window up to three times per boot trying to force auto-login. That races with
+the boot daemon's own single restart and with macOS tearing `/etc/kcpassword` down, and a console that ends at the
+login window is a normal, usable state. The daemon now only restores the credential (which is the part the boot
+daemon needs at its own restart) and restarts the login window only when `~/gpu/phxlogin-force` exists.
+
+### b126/b127: the logic is ported and passes its host test; the glue is the checklist (2026-11-25)
+
+`PhxFaultDef.h`, `PhxRecover.h` and `phx_recover.cpp` are in the tree, together with upstream's
+`tests/mock/recover_test.sh` + `recover_test.cpp`. That test is in two halves, and the split is exactly what makes
+it useful here:
+
+```
+RESULT: 32 passed, 15 failed
+  the 32 passes        the header logic: STATUS decode, the kill value per VMID, the stall clock, the stalled
+                       queue-head ownership, the decision (refused with phxfaultdef off, only the VMID STATUS
+                       names), the 1 ms x 10 kill loop, the CNTL clear pulse, never MMHUB - plus 13 mutations of
+                       the header that must each be caught, and are
+  the 15 failures      the kext-side glue, which is not written yet
+```
+
+So the register sequences and the decision are verified on this tree already; what remains is wiring. The
+fifteen failing checks are the to-do list, in the order they have to be done:
+
+| Check | What it wants |
+|---|---|
+| `build_127` | bump `PHX_KEXT_BUILD` and add a CHANGELOG line (this tree: 160 -> 161) |
+| `included_once` | `#include "PhxRecover.h"` and one `#include "phx_recover.cpp"` in the translation unit |
+| `boot_defaults_off` | `gRecOn = 0, gRecMs = 2000, gRecBoot = 0` and `gFdBoot = 0` |
+| `bootargs_exact_1` | `PE_parse_boot_argn("phxfaultdef"\|"phxrecover")` accepting only the value 1, and `gRecOn = 1` when `phxrecover=1` |
+| `faultdef_boot_only_at_claim` | `faultDefCtl(1)` only in `claimAccel`, never in `start()` |
+| `sysctls_registered` | three `sysctl_register_oid(&sysctl__debug_phxrecover...)` and three unregisters |
+| `ms_bounds` | `debug.phxrecover_ms` accepts 200..30000 only |
+| `poll_in_waitseq` | `owner->recoverPoll()` in `doWaitSeq` |
+| `poll_in_client_waits` | the same in `waitGpuPastLast` and `waitRetired` |
+| `poll_in_vmidfree` | the poll in `vmidFree`, **before** it takes `gpuLock` |
+| `fvmid_recorded` | `q.fvmid[q.tail & 63]` recorded before `q.tail` advances |
+| `lost_cleared_on_alloc` | `lost[i] = 0` in `vmidAlloc` |
+| `submit_refused_aborted` / `query_guilty` / `abi_flags` | a lost context's submissions are refused and flagged to the client |
+
+The order matters: the globals live in `phx_sysctl.cpp`, which is included **before** `phx_vm.cpp` in the single
+translation unit, so `gFdOn`/`gRecMs`/`gRecStall` are visible to both the fault page and the poll; `phx_recover.cpp`
+has to be included after `phx_vm.cpp` because `recoverPoll` uses `gpuLock`, `gpuRetired` and `gpuRetiredMask`.
+
+The last three checks are the reason this is a separate step rather than a rushed one: they change the client
+submit path (a lost context must be refused before it reaches the ring). Everything else is inert while
+`debug.phxfaultdef=0` and `debug.phxrecover=0`, which is the default, so the port can land in two steps: the
+wiring first (provable by the test and by a boot that behaves exactly as before), then the lost-context refusal.
