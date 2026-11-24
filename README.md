@@ -77,8 +77,8 @@ bash tests/mock/run.sh && bash tests/mock/b15test.sh    # boot daemon and displa
 ## Installing
 
 There is no installer yet: the kexts are installed the way other macOS kexts are. The guide is
-[docs/INSTALL.md](docs/INSTALL.md) (expert, manual). This fork plans a skill-based install from Linux and macOS
-([ROADMAP.md](ROADMAP.md), threads 06 and 10).
+[docs/INSTALL.md](docs/INSTALL.md) (expert, manual). The goal of this fork is a release you install by dropping one kext
+into `EFI/OC/Kexts` ([ROADMAP.md](ROADMAP.md)).
 
 ## License
 

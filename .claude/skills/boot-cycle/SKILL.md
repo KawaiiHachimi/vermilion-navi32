@@ -27,7 +27,7 @@ off. Never use this skill to go from Linux to macOS: that is always a full power
 ## 2. Tell the owner, schedule the wake-up, restart
 
 1. If the owner may be at the PC, ask first and wait for the answer: a restart under their hands is not OK
-   (memory `feedback-decide-yourself`). Otherwise send one short notice, e.g. "Restarting at 14:05 for EFI change 34
+   (ROADMAP.md, rule 6). Otherwise send one short notice, e.g. "Restarting at 14:05 for EFI change 34
    (b161). Back by 14:12. If you hear nothing by then: hold the power button, power on; if it doesn't boot, swap
    EFI/OC and EFI/OC.prev."
 2. Schedule this thread's own wake-up with the T3 `schedule_task` tool: `schedule: {type: "once", runAt: <now + 8

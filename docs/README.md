@@ -18,7 +18,7 @@ context before they change code. Coding agents also have [`../CLAUDE.md`](../CLA
 | know why names start with `phx` / `nv` / `nmx` | [NAMING.md](NAMING.md) |
 | know where the fallback EDIDs come from | [EDID.md](EDID.md) |
 | see the machine's state, the known-good configuration and the cross-thread map | [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md) |
-| see what is planned | [`../ROADMAP.md`](../ROADMAP.md) (threads), [`../.agents/TODO.md`](../.agents/TODO.md) (open tasks) |
+| see what is planned | [`../ROADMAP.md`](../ROADMAP.md) (phases), [`../.agents/TODO.md`](../.agents/TODO.md) (open tasks) |
 
 ## Conventions in these docs
 

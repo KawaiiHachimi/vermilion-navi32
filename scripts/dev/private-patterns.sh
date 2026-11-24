@@ -6,7 +6,7 @@
 #
 # Collected: SMBIOS serial, MLB, ROM and UUID (~/.config/vermilion/smbios-*.json), every MAC address of this
 # machine (ifconfig, or ip on Linux), the git author e-mail and name, the host name and the login name.
-# Nothing is printed: the file is the only output.
+# No value is printed: only their count and the file's path.
 set -eu
 CONF=${VERMILION_CONFIG:-$HOME/.config/vermilion}
 OUT=${VERMILION_PRIVATE_PATTERNS:-$CONF/private-patterns.txt}

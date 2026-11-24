@@ -72,7 +72,8 @@ have built it ([`ROADMAP.md`](ROADMAP.md), "The standard"). It's a fork of
    - Keep the bring-up watchdog and the boot daemon's fallbacks (kill switch, pending mark, GOP revert).
    - One EFI change per boot, with a rollback copy of every replaced binary.
    - Never detach or terminate a driver on the GPU's PCI functions in a running boot (AppleGFXHDA included): IOPCIFamily
-     hot-resets the whole GPU (finding 2026-11-24).
+     hot-resets the whole GPU (seen on the XTX machine; finding `2026-11-24-gfxhda-detach-gpu-hot-reset.md` on branch
+     `ownback/dp-hdmi-audio` until it merges).
 2. **One machine owner.** Changes to the EFI partition, the system volume, `~/gpu`, kexts and restarts need the
    machine lock (`.claude/hooks/machine-lock acquire "<reason>"`). Ask the owner before any change to the system
    volume.

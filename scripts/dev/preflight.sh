@@ -10,8 +10,8 @@
 #      result is only shown (the booted VermilionBoot b160 imports private symbols the KPI lists don't have).
 #   3. OpenCore-injected kexts (--opencore, the default) load with the boot kernel collection: every OSBundleLibraries
 #      entry must be a kext inside BootKernelExtensions.kc or another kext OpenCore injects (EFI/OC/Kexts, $OC_KEXTS).
-#      A library that only lives in the System KC (IOGraphicsFamily, for one) fails at boot (finding 2026-11-24, 04's
-#      change 31).
+#      A library that only lives in the System KC (IOGraphicsFamily, for one) fails at boot (seen on the XTX machine
+#      with VermilionAudio 1.7.0, EFI change 31; recorded on branch ownback/dp-hdmi-audio until it merges).
 #   4. kmutil print-diagnostics: what kmutil itself says about loading the bundle on this macOS.
 #   5. VermilionBoot only: PHX_KEXT_BUILD was bumped against fork/main and CHANGELOG.md has a line for it.
 set -u

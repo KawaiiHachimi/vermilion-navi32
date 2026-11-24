@@ -12,8 +12,8 @@ Exit 0 lets the call run; exit 2 blocks it and the message on stderr goes back t
    One session holds it at a time (`.claude/hooks/machine-lock acquire "<reason>"`), so only one agent changes the
    machine (the one-EFI-change-per-boot rule needs a single owner).
 3. Personal data: `git commit` is blocked when the staged diff contains a value from the private pattern list
-   (~/.config/vermilion/private-patterns.txt, made by scripts/dev/private-patterns.sh: serials, MLB, ROM, MAC
-   addresses, e-mail, host name). The list stays outside the repo; matches are reported masked.
+   (~/.config/vermilion/private-patterns.txt, made by scripts/dev/private-patterns.sh: serials, MLB, ROM, UUID,
+   MAC addresses, e-mail, the host and login names). The list stays outside the repo; matches are reported masked.
 
 The git rules follow mattpocock/skills' git-guardrails-claude-code (MIT), changed so that pushing feature branches
 stays allowed.
@@ -142,7 +142,7 @@ def check_private(cmd, cwd):
     hits = sorted({p for p in pats if p.lower() in added})
     if hits:
         block('the staged changes contain private values (' + ', '.join(mask(h) for h in hits) +
-              '): serials, MAC addresses, e-mail or the host name must never be committed (CLAUDE.md rules 3-4).')
+              '): serials, MAC addresses, e-mail or the host name must never be committed (CLAUDE.md rules 4-5).')
 
 
 def main():

@@ -1,6 +1,7 @@
 # TODO
 
-Open, actionable items only, grouped by the thread of the series in [ROADMAP.md](../ROADMAP.md) that owns them.
+Open, actionable items only, grouped by the thread of the 2026-11-23 series that owned them
+([ROADMAP.md](../ROADMAP.md) replaces that series with phases).
 One or two lines each, with a link to the evidence. The machine's current state is in
 [docs/PROJECT_KNOWLEDGE.md](../docs/PROJECT_KNOWLEDGE.md), questions only the owner can answer are in
 [OWNER-TESTS.md](OWNER-TESTS.md), and the history up to 2026-11-23 (daily logs, done items, the old Phase 0-6
@@ -11,7 +12,7 @@ Rules:
   belongs: the state in PROJECT_KNOWLEDGE, the evidence in a finding, the reason in decisions.
 - **Before every EFI change:** write its check and rollback steps under the item, here, first (ROADMAP rule 3). Remove
   them once the change is verified and PROJECT_KNOWLEDGE's known-good section says what is booted.
-- Something that works on a real Mac and not here goes in as a bug under the thread that owns it (ROADMAP rule 9).
+- Something that works on a real Mac and not here goes in as a bug under the thread that owns it (ROADMAP, "Known limits").
 
 ## Staged now
 
@@ -206,7 +207,7 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 
       *(unverified, web research 2026-11-23)*
 - [ ] MtkWirelessBT's bluetoothd patches (BLE advertising for AirDrop / Handoff) exist only for 25G241 (26.7.1) and
-      25G332 (26.7.2), and Instant Hotspot needs 25G332. So any macOS update (ROADMAP rule 12) is decided together
+      25G332 (26.7.2), and Instant Hotspot needs 25G332. So any macOS update (ROADMAP rule 8) is decided together
       with 09 *(unverified, web research 2026-11-23)*. Open: issue #10's machine ran 26.7.3 with AirDrop working,
       so find out which features really need the build-specific patches.
 - [ ] Study [ForbiddenItlwm](https://github.com/retropineaple/ForbiddenItlwm) (fork of AirportItlwm, GPL-2.0; AWDL for
@@ -255,7 +256,7 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] Apple Secure Boot (`SecureBootModel`) once nothing needs the AuxKC
 - [ ] FileVault, after 06's daemon change
 - [ ] Update policy: pending Safari 27.2, Rapid Security Responses (`CriticalUpdateInstall = 0`), the pre-update
-      checklist (offsets, link gate, AuxKC), rollback. **No macOS update until then** (ROADMAP rule 12)
+      checklist (offsets, link gate, AuxKC), rollback. **No macOS update until then** (ROADMAP rule 8)
 - [ ] Drop `NVMTLDriver-previous` (`8f6eb933`) from the trust list once the old plugin is gone
 - [ ] Widevine in Chrome / Firefox ([OWNER-TESTS](OWNER-TESTS.md))
 

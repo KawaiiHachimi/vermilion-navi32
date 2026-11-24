@@ -47,7 +47,7 @@ may run earlier.
   `megamind-clone` skill.
 - **Phases for vermilion-xtx:**
   1. **Audit.** Ask the last threads for their state, read all the code, test the machine, and write STATUS.md.
-     Make main match the machine (04's DP audio branch).
+     Make main match the machine (merge the DP audio branch, `ownback/dp-hdmi-audio`).
   2. **Stabilise.** Fix what's broken, ranked by how much a Mac user would notice it.
   3. **Do it properly.** Replace each part that doesn't meet the standard, using Linux amdgpu as the hardware
      reference and Apple's own AMD drivers (AMDRadeonX6000, AMDMTLBronzeDriver) as the reference for how macOS
