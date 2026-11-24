@@ -58,7 +58,7 @@ ipc_control_port_options=0 phxdebug=1` (`efi/build.py stages` prints every stage
 
 A stage can add kexts (`kexts_add`), add or remove boot-args (`boot_args_add`, `boot_args_remove`), add Apple-GUID
 NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot), set `csr_active_config` and override the
-machine's booter quirks (`booter_quirks`). Each change is tested on its own boot; the dated
+machine's booter quirks (`booter_quirks`) and drop one of the machine's UEFI drivers (`uefi_drivers_remove`). Each change is tested on its own boot; the dated
 reasons sit next to each entry in the machine file (`_comment` keys) and in [`.agents/`](../.agents/).
 
 ## Install onto the EFI partition
