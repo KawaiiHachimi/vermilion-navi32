@@ -371,6 +371,9 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
         `VTRegisterSupplementalVideoDecoderIfAvailable`; whether that SPI takes a third-party decoder in
         `VTDecoderXPCService` and the WebKit GPU process) (unverified)
       - a cryptex or another auxiliary route (OpenCore-injected, Preboot) (unverified)
+      - AppleGVA's route, as a real AMD Mac decodes: the accelerator publishes `IODVDBundleName` and AppleGVA loads
+        `PhxVA.bundle` from `/Library/GPUBundles` (`src/video-accel/PhxVA.c` is an M0 stub today; audit 2026-11-24)
+        (unverified on 26.7.1)
       **Any change to the system volume needs the owner's OK first** (coordination, 2026-11-23)
 - [ ] **VermilionTrust layout check:** at boot, decode `_mac_file_check_library_validation`, `_mac_file_check_mmap`
       and `_mac_file_check_mmap_downgrade` and check the slots they call through; a pre-update check against the new
@@ -386,6 +389,14 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] Widevine in Chrome / Firefox ([OWNER-TESTS](OWNER-TESTS.md))
 
 ## 13 Performance parity (after 09)
+
+- [ ] **Re-rank before phase 4** (thread 02's proposal, 2026-11-24,
+      [finding](findings/2026-11-24-audit-thread-handover.md)): M3 plus the faster buffer clear first; the Linux twins
+      second; per-submit cost (#7a) behind the composite; the direct Vulkan ICD (#6) as the main MoltenVK fix,
+      multi-draw (#5) only interim; drop the CPU `_CST` item (#7b) or make it a known limit
+- [ ] **Hardware encode** (H.264 / HEVC through VideoToolbox: FaceTime, exports, AirPlay sender): every encoder is
+      software today (audit 2026-11-24). VCN encode through RADV Vulkan Video encode; new VCN programming, so
+      `hw-safety-reviewer` first
 
 Thread 02 is merged; what is left of "Linux GPU parity in every app" is here, run as thread 13 after 09 and before 10
 (ROADMAP) so ryzentosh pins the final driver. Baselines: PROJECT_KNOWLEDGE, "Parity baselines at the end of thread

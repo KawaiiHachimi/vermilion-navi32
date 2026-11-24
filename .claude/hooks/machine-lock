@@ -14,3 +14,4 @@ case "$1" in
   acquire|steal|release|status)
     if [ -f "$LOCK" ]; then echo "machine lock: $(cat "$LOCK")"; else echo "machine lock: free"; fi ;;
   *) sed -n '3,8p' "$0"; exit 2 ;;
+esac

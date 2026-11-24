@@ -26,6 +26,10 @@ expect_write() { # expect_write <code> <session> <path>
   if [ "$got" = "$1" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL ($got, wanted $1): Write $3"; fi
 }
 
+# the lock script itself: it must parse and report (the guard only tests the hook)
+if sh "$HERE/../../.claude/hooks/machine-lock" status >/dev/null 2>&1; then pass=$((pass + 1))
+else fail=$((fail + 1)); echo "FAIL: .claude/hooks/machine-lock status does not run"; fi
+
 git init -q "$T/repo" && git -C "$T/repo" config user.email t@example.invalid && git -C "$T/repo" config user.name t
 
 # never allowed
@@ -89,6 +93,10 @@ python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(d["reas
 expect 0 a "release through sh" "sh .claude/hooks/machine-lock release"
 expect 0 a "grep for the lock command is not a lock command" "grep -n \"machine-lock acquire\" CLAUDE.md"
 expect 0 a "ESP read with a null redirect" "ls /Volumes/EFI/EFI/OC 2>/dev/null"
+expect 0 b "csrutil status is a read" "csrutil status"
+expect 0 b "csrutil authenticated-root status is a read" "diskutil info / ; csrutil authenticated-root status"
+expect 2 b "csrutil authenticated-root disable" "csrutil authenticated-root disable"
+expect 2 b "csrutil clear" "csrutil clear"
 expect 2 a "ESP write by redirect" "echo x > /Volumes/EFI/EFI/OC/x.txt"
 
 # personal data

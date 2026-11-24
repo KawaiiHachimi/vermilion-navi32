@@ -53,7 +53,8 @@ WRITE_VERB = re.compile(
 # Redirections that write nothing: they don't make a read of a protected path a write.
 HARMLESS_REDIRECT = re.compile(r'\d*>>?\s*/dev/null\b|\d*>&\d|&>\s*/dev/null\b')
 MACHINE_TOOL = re.compile(
-    r'(^|[\s;&|(])(bless|kextload|kextunload|kextcache|csrutil|shutdown|reboot|halt)\b'
+    r'(^|[\s;&|(])(bless|kextload|kextunload|kextcache|shutdown|reboot|halt)\b'
+    r'|\bcsrutil\s+(?!status\b|authenticated-root\s+status\b)'
     r'|\bkmutil\s+(install|create|load|unload|clear-staging|rebuild)\b'
     r'|\blaunchctl\s+(bootout|bootstrap|load|unload|kickstart|enable|disable)\s+(-\w+\s+)*system\b'
     r'|\bmount\s+-u?w\b|\bmount_msdos\b'
