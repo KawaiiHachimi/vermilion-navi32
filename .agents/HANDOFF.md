@@ -12,8 +12,8 @@ merged, so main matches the machine. Phase 2 starts now.
 
 You own the plan, `.agents/STATUS.md`, the machine and the merges for `ownback/vermilion-xtx`. You send agents to
 research, find root causes and write fixes. You don't write large fixes yourself. The standard, phases and rules are
-in [`ROADMAP.md`](../ROADMAP.md); read it and CLAUDE.md first. Keep STATUS and this file current on `ownback/megamind`
-(from `fork/main`) and send them as PRs.
+in [`ROADMAP.md`](../ROADMAP.md); read it and [`CLAUDE.md`](../CLAUDE.md) first. Keep STATUS and this file current
+on `ownback/megamind` (from `fork/main`) and send them as PRs.
 
 **Your agents:**
 - **Root causes, fixes and research:** Opus 5.5 (`Agent` tool, or T3 `delegate_task` with `isolation: "worktree"`).
@@ -30,9 +30,9 @@ while they may be at the PC.
 
 The order is in [`STATUS.md`](STATUS.md), "Phase 2 order".
 1. **Item 1, the safety fixes,** one branch (`ownback/safety-fixes`), via an agent in a worktree:
-   - remove `debug.phxfb_kill_iondrv` (VermilionAccel, `nvrm-accel.cpp:1612-1634`, `:1904`): an AuxKC change, so the
+   - remove `debug.phxfb_kill_iondrv` (VermilionAccel, `nvrm-accel.cpp:1612-1635`, `:1904`): an AuxKC change, so the
      owner's Allow click;
-   - `bringup_navi31.sh:64-80` refuses a warm GPU (PSP sOS alive) instead of loading the SMU firmware (hw-safety);
+   - `bringup_navi31.sh:65-79` refuses a warm GPU (PSP sOS alive) instead of loading the SMU firmware (hw-safety);
    - the daemon's "Reset NVRAM" lines (`phxboot-navi31.sh` ~276/282/287) and `docs/XTX.md`; hide `ResetNvramEntry.efi`
      in the profile (an EFI change, its own boot);
    - OWNER-TESTS 04's sleep test marked blocked;
@@ -48,14 +48,14 @@ The order is in [`STATUS.md`](STATUS.md), "Phase 2 order".
 Settle on the way: the WebGPU numbers (20 vs 21 of 43 failing samples, 4 vs 6 GPU-process crash reports) differ
 between the findings; re-count from the crash reports when item 10 starts.
 
-### Machine state (2026-11-24)
+### Machine state (the XTX machine, 2026-11-24)
 
 - **EFI:**
   - change 33 is live: stage `vermilion-trust-bar1g-audio`, VermilionAudio 1.7.2; HDR off by `~/gpu/phxboot-nohdr`,
     DP audio by `~/gpu/phxboot-audio`;
   - `EFI/OC.prev` is change 32;
-  - a change-30 copy is in `~/vermilion-rollback/`.
-  - The ESP mounts as `/Volumes/NO NAME`.
+  - a change-30 copy is in `~/vermilion-rollback/`;
+  - the ESP mounts as `/Volumes/NO NAME`.
 - **Installed daemon** = main's `tools/phxctl/phxboot-navi31.sh` (with the `LWRAN` auto-login lines and `audio_boot`).
 - **The system volume is unsealed** (the decoder bundle). Every change to it needs the owner's OK.
 - **Disk:** about 33 GB free in the APFS container. The owner declined resizing the partitions.
@@ -65,8 +65,9 @@ between the findings; re-count from the crash reports when item 10 starts.
 
 ### Branches, PRs, threads
 
-- No open PRs. `fork` has only `main`. Local: `ownback/megamind` and the old `worktree-agent-a264…` /
-  `worktree-agent-a98b…` branches (not in main; delete with the owner's OK).
+- PR #21 (this handoff) is open; it merges with Megamind 2's first PR. `fork` has `main` and `ownback/megamind`.
+  Local: `ownback/megamind` and the old `worktree-agent-a264…` / `worktree-agent-a98b…` branches (not in main;
+  delete with the owner's OK).
 - The old series threads are all archived. No agents running.
 - `~/Projects/vermilion` is the main checkout that holds `.git` for every worktree (stale main at 7b30f2b): never
   install from it, don't remove it.
