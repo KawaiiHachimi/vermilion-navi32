@@ -62,7 +62,8 @@ PROJECT_KNOWLEDGE.
 - [x] **04: EFI change 27 = VermilionAudio 1.3.0** (re-delivers the AppleDisplay notification). Booted 2026-11-24
   01:57, auto-login again. After `audio_match.sh on`: "re-delivered for 1 display(s)", `audio-selector` = `dpXX` on
   PhxAMDFB. Still no engine, also after a display sleep / wake and after replaying Linux's 90 DC audio writes
-  (`tools/phxctl/audio_dc_replay.sh`, plan from `tools/capture/audio_replay_plan.py`; all writes kr 0, picture fine).
+  (`tools/phxctl/audio_dc_replay.sh`, retired since for `phxaudio apply`; plan from
+  `tools/capture/audio_replay_plan.py`; all writes kr 0, picture fine).
   AppleGFXHDA's event path reads `connector-type`, `av-signal-type`, `AAPL,DisplayPipe` from the framebuffer.
 - [x] **04: EFI change 28 = VermilionAudio 1.4.0** (framebuffer properties). Booted 2026-11-24 02:10. After `on`,
   the DC replay and a display sleep / wake: "Sound assertion in AppleGFXHDAController at line 3170": the event path
@@ -216,8 +217,8 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
   AppleGFXHDA attached, "display mode change events delivered", "DP audio engine up after 2 s"; "LG ULTRAGEAR+" listed
   (the default output, the owner's earlier choice); a 3 s tone: 0 late cycles, 0 discontinuities, -12 ppm.
 - [~] **DP audio works by hand** (2026-11-24 07:53, EFI change 29, [finding](findings/2026-11-23-dp-hdmi-audio-inventory.md)
-      section 6): `audio_match.sh on`, `audio_dc_replay.sh plan-240.txt`, a display sleep / wake, then the owner heard a
-      tone from the LG's jack. To make it automatic and real-Mac-like:
+      section 6): `audio_match.sh on`, `audio_dc_replay.sh plan-240.txt` (now `phxaudio apply`), a display sleep / wake,
+      then the owner heard a tone from the LG's jack. To make it automatic and real-Mac-like:
   - [ ] PhxAMDFB: the framebuffer properties (`connector-type`, `av-signal-type`, `AAPL,DisplayPipe`,
         `audio-codec-info`) and `'aud '` in `setAttributeForConnectionExt` (assertion "EngineOutputDP line 262");
         AuxKC rebuild + owner's Allow click
@@ -238,6 +239,16 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
         kext serialises it with p0odm; (b) before a pipe-0 plan replay with audio on, Linux's audio-off writes, then
         `apply` again; (c) the `DP1_DP_SEC_CNTL` audio packet enables at Linux's point, not in the mode-set plans;
         (d) `debug.phxaudio_event` accepts only 1 and 2 (7 / 8 go to every framebuffer listener)
+  - [ ] Seen in the clean-up pass of 2026-11-24, left alone because each changes machine code or a script:
+        (a) VermilionAudio's head-0 test differs by function: `applyCodecInfo` / `deliverHead0` skip any PhxAMDFB that
+        carries `phx-head`, `publishFbProps` and `phxaudio` read its value (absent = 0); one rule for all;
+        (b) `gStat` / `gMatchStat` / `gEventStat` are written and read without a lock (`debug.phxaudio_stat` can read a
+        half-written line); (c) `phxaudio state` writes the endpoint index register, so it needs `phxdebug=1` and is
+        not read-only; `apply` ignores the read errors of its "before" line; (d) `pa_put`'s overflow result is dropped
+        (the plan is 90 of `PA_PLAN_MAX` 128 writes today); (e) the version sits in `Info.plist` (twice) and in
+        `kmod_info.c`; (f) the daemon's `audio_boot` comment says VermilionAudio 1.6.0 where `audio_match.sh` says
+        1.7.2 (comment only; left so the branch's daemon stays equal to the installed one); (g) `audio_boot` runs in
+        the daemon's foreground: up to 5 s in the kernel (the notifier wait), 5 s for the attach, ENGINE_WAIT (10 s)
 - [ ] HDMI output: the LG over HDMI shows black (2026-11-24, as expected: no plan for it); needs a Linux capture of the LG
       on HDMI
 - [ ] Bug: after a DP unplug / replug the LG stays black (link trains, HBR3 x4 locked); only a restart brought it back

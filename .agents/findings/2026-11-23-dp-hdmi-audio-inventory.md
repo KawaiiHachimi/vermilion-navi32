@@ -59,7 +59,7 @@ from the plan) while `DIG1_AFMT_CNTL` = `0x100`, `AFMT1_AFMT_MEM_PWR` = `0x130` 
 = 0, `DCCG_AUDIO_DTO_SOURCE` = `0x30`, DTO1 phase 0: no audio clock, no audio data.
 
 The values in step 5 come from the EDID (Linux's `fill_audio_info` / `dce_aud_az_configure`), so they are computed
-from the live EDID, not copied (CLAUDE.md rule 2). The captured values serve as the test vector for this LG. The
+from the live EDID, not copied (CLAUDE.md, "Detect, don't overwrite"). The captured values serve as the test vector for this LG. The
 sink info's port-ID words (`SINK_INFO2/3` = `0x5558859e`, `0x0d989449`) are constants in Linux DC
 (`dc_stream.c`, used when the DM gives no container ID, as amdgpu_dm doesn't); the rest of the sink info is the EDID's
 manufacturer / product ID and the monitor name.
@@ -78,7 +78,7 @@ manufacturer / product ID and the monitor name.
 3. `0x52` (section 3).
 4. HDMI: is there an HDMI display to test with?
 
-## 6. AppleGFXHDA on ab30, step by step (2026-11-24, XTX machine, EFI changes 24-27)
+## 6. AppleGFXHDA on ab30, step by step (2026-11-24, XTX machine, EFI changes 24-29)
 
 What each step showed, with VermilionAudio (Lilu plugin, `src/vermilion-audio/`) and `tools/phxctl/audio_match.sh`:
 

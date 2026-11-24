@@ -4,7 +4,7 @@
 //     && /tmp/phxaudio_plan_test [<edid.bin> <plan.txt>]
 // Without arguments: a synthetic EDID (no serial) with the audio block of the XTX machine's LG, checked field by field.
 // With arguments: the computed plan must equal a plan cut from a Linux trace (tools/capture/audio_replay_plan.py),
-// line by line. The real EDID and plan stay out of git (CLAUDE.md rule 3); 2026-11-24 the LG's: 90/90.
+// line by line. The real EDID and plan stay out of git (CLAUDE.md: no EDIDs, no captures); 2026-11-24 the LG's: 90/90.
 #include "phxaudio_plan.h"
 #include <stdio.h>
 #include <stdlib.h>

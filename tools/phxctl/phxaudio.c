@@ -6,7 +6,8 @@
  *   phxaudio plan [<edid.bin>]   print the writes (reg value), from the file or from head 0's EDID in IOKit; no root
  *   phxaudio apply               root, phxdebug=1: check that DP1 carries a stream, write the plan through
  *                                VermilionBoot's register write, print each readback, check the end state
- *   phxaudio state               root: the registers the end-state check reads
+ *   phxaudio state               root, phxdebug=1: the registers the end-state check reads (it writes the endpoint
+ *                                index register to read HOT_PLUG_CONTROL, nothing else)
  *
  * Run after the display is up and before AppleGFXHDA attaches (tools/phxctl/audio_match.sh), and again after anything
  * that redoes the display engine's audio blocks. Writes only to the registers of phxaudio_plan.h (all of them Linux DC
@@ -20,11 +21,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// VermilionBoot's user client: the type 'N48N' and the selectors used here (the same numbers phxctl uses).
 #define UC_TYPE 0x4E34384Eu
 #define SEL_HELLO 0
 #define SEL_READREGS 2
-#define SEL_DBG_WRITE_REG 108
-#define DP1_DP_SEC_CNTL 0x56ebu
+#define SEL_DBG_WRITE_REG 108           // needs phxdebug=1
+#define DP1_DP_SEC_CNTL 0x56ebu         // only read here: bit 0 = stream enable
 
 static io_connect_t conn;
 
@@ -114,7 +116,8 @@ static int load_sink(const char *path, struct pa_sink *s)
 static void describe(const struct pa_sink *s)
 {
 	printf("phxaudio: sink \"%s\" %04x:%04x, CTA rev %d, %d SAD(s), speakers %s0x%02x%s\n", s->name, s->mfg, s->product,
-	       s->cta_rev, s->nsad, s->have_spk ? "" : "default ", s->have_spk ? s->spk : 5, s->lat_present ? ", latency" : "");
+	       s->cta_rev, s->nsad, s->have_spk ? "" : "default ", s->have_spk ? s->spk : PA_SPK_DEFAULT,
+	       s->lat_present ? ", latency" : "");
 	for (int i = 0; i < s->nsad; i++)
 		printf("phxaudio:   SAD format %u, %u ch, rates 0x%02x, byte 2 0x%02x\n", s->sad[i].format, s->sad[i].channels,
 		       s->sad[i].rates, s->sad[i].byte2);
@@ -127,7 +130,7 @@ static int check_state(int verbose)
 	struct { uint32_t reg, mask, want; const char *what; } c[] = {
 		{PA_DTO_SOURCE, 0x00000070, 0x10, "DCCG_AUDIO_DTO_SOURCE DTO_SEL = 1 (DTO1)"},
 		{PA_DTO1_MODULE, 0xffffffff, PA_DPREFCLK_KHZ * 10u, "DCCG_AUDIO_DTO1_MODULE"},
-		{PA_DTO1_PHASE, 0xffffffff, 240000, "DCCG_AUDIO_DTO1_PHASE"},
+		{PA_DTO1_PHASE, 0xffffffff, PA_AUDIO_CLK_KHZ * 10u, "DCCG_AUDIO_DTO1_PHASE"},
 		{PA_AFMT_SRC, 0x7, 1, "AFMT1_AFMT_AUDIO_SRC_CONTROL = 1"},
 		{PA_AFMT_MEM_PWR, 0x1, 0, "AFMT1_AFMT_MEM_PWR forced off = 0"},
 		{PA_DIG_AFMT_CNTL, 0x1, 1, "DIG1_AFMT_CNTL on"},
@@ -142,7 +145,7 @@ static int check_state(int verbose)
 		bad += !ok;
 	}
 	uint32_t rb, v = 0;
-	if (wreg(PA_AZ_INDEX, 0x54, &rb) || rreg(PA_AZ_DATA, &v) || !(v & 0x80000000)) {
+	if (wreg(PA_AZ_INDEX, PA_EP_HOT_PLUG_CONTROL, &rb) || rreg(PA_AZ_DATA, &v) || !(v & PA_EP_AUDIO_ENABLED)) {
 		printf("phxaudio: BAD  endpoint 1 HOT_PLUG_CONTROL = 0x%08x (AUDIO_ENABLED not set)\n", v);
 		bad++;
 	} else if (verbose) printf("phxaudio: ok   endpoint 1 HOT_PLUG_CONTROL = 0x%08x AUDIO_ENABLED\n", v);
@@ -176,7 +179,7 @@ int main(int argc, char **argv)
 		uint32_t r52 = 0, src = 0, hp = 0, rb0 = 0;
 		rreg(PA_REG52, &r52);
 		rreg(PA_DTO_SOURCE, &src);
-		if (!wreg(PA_AZ_INDEX, 0x54, &rb0)) rreg(PA_AZ_DATA, &hp);
+		if (!wreg(PA_AZ_INDEX, PA_EP_HOT_PLUG_CONTROL, &rb0)) rreg(PA_AZ_DATA, &hp);
 		printf("phxaudio: before: 0x0052 = 0x%08x, DTO_SOURCE = 0x%08x, endpoint 1 HOT_PLUG_CONTROL = 0x%08x, DP1_DP_SEC_CNTL = 0x%08x\n",
 		       r52, src, hp, sec);
 		int n = pa_build_dp_dig1(&s, w), err = 0;

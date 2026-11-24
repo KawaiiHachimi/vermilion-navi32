@@ -64,8 +64,10 @@
 //
 // Table layout and contents read from AppleGFXHDA 550.1 of macOS 26.7.1 (25G241), 2026-11-24.
 //
-// Boot-args: -phxaudiooff (the plugin doesn't start), -phxaudiodbg (Lilu debug output).
-// State: sysctl debug.phxaudio_stat (the patch), debug.phxaudio_match (the personality: 1 added, 0 not).
+// Boot-args: -phxaudiooff (the plugin doesn't start), -phxaudiodbg (Lilu debug output), -phxaudiobeta (Lilu's switch
+// for kernels newer than the plugin allows; unverified).
+// Sysctls: debug.phxaudio_stat (read-only: the patch, the attach and the last delivered event), debug.phxaudio_match
+// (1 once the attach ran this boot), debug.phxaudio_codecinfo ("Fifth"), debug.phxaudio_event ("Sixth").
 
 #include <Headers/plugin_start.hpp>
 #include <Headers/kern_api.hpp>
@@ -97,6 +99,17 @@ using DeliverFn = IOReturn (*)(void *fb, int event, void *info);
 DeliverFn gDeliver;
 // IOFramebuffer.h: kIOFBNotifyDisplayModeWillChange / DidChange, kIOFBNotifyWillPowerOff / DidPowerOn
 constexpr int kEvModeWillChange = 1, kEvModeDidChange = 2, kEvWillPowerOff = 7, kEvDidPowerOn = 8;
+
+// PCI IDs: AMD, Navi 31's audio function, and the table entry that is rewritten for it.
+constexpr uint32_t kVendorAmd = 0x1002, kDevNavi31Audio = 0xab30, kDevTableEntry = 0xab20;
+// What publishFbProps gives a head ("Fourth" in the header): IOGraphics kConnectorDisplayPort / kConnectorHDMI,
+// kIOFBAVSignalTypeDP / kIOFBAVSignalTypeHDMI.
+constexpr uint32_t kConnDisplayPort = 0x400, kConnHdmi = 0x800, kAvSignalDp = 0x10, kAvSignalHdmi = 0x08;
+// redeliverDisplays polls for the controller's AppleDisplay notifier: 100 x 50 ms = 5 s.
+constexpr int kNotifierPolls = 100, kNotifierPollMs = 50;
+// findRedelivery: the bytes of gfxMatchedHandler it scans, and the range a notifier offset is accepted in.
+constexpr size_t kHandlerScanBytes = 0x60;
+constexpr uint32_t kNotifierOffMin = 0x100, kNotifierOffEnd = 0x10000;
 
 // The 1002:ab20 entry of the controller table, whole (unique in AppleGFXHDA 550.1), and the same with ab30.
 constexpr uint8_t kFind[] {
@@ -132,14 +145,14 @@ GfxMatched gGfxMatched;
 uint32_t gNotifierOff;
 int gCodecInfo;     // audio-codec-info for head 0, 0 = none (debug.phxaudio_codecinfo)
 int gPropsSet;      // PhxAMDFBs given connector-type / av-signal-type / AAPL,DisplayPipe by matchOn
-
-void redeliverDisplays();
 bool gPatched;      // the table entry reads ab30
 int gMatch;         // 1 once the attach ran this boot (one-way; see the header)
 IOLock *gMatchLock;
 
 constexpr const char *kMatchKey = "PhxAudioMatch";
 constexpr const char *kMatchTag = "VermilionAudio: AppleGFXHDA on the RX 7900 audio function 1002:ab30";
+
+void redeliverDisplays();
 
 void setStat(const char *s) {
 	strlcpy(gStat, s, sizeof(gStat));
@@ -182,15 +195,16 @@ void findRedelivery(KernelPatcher &kp, size_t index) {
 	kp.clearError();
 	if (!h) return;
 	const auto *c = reinterpret_cast<const uint8_t *>(h);
-	for (size_t i = 0; i + 7 <= 0x60; i++)
+	for (size_t i = 0; i + 7 <= kHandlerScanBytes; i++)
 		if (c[i] == 0x48 && c[i + 1] == 0x3b && c[i + 2] == 0x8f) {
 			const uint32_t off = static_cast<uint32_t>(c[i + 3]) | static_cast<uint32_t>(c[i + 4]) << 8 |
 			                     static_cast<uint32_t>(c[i + 5]) << 16 | static_cast<uint32_t>(c[i + 6]) << 24;
-			if (off >= 0x100 && off < 0x10000) gNotifierOff = off;
+			if (off >= kNotifierOffMin && off < kNotifierOffEnd) gNotifierOff = off;
 			return;
 		}
 }
 
+// Lilu's load callback for both kexts of kKexts: IOGraphicsFamily gives the symbol, AppleGFXHDA gets the patches.
 void onGfxHdaLoad(void *, KernelPatcher &kp, size_t index, mach_vm_address_t, size_t) {
 	if (index == kIOGraphics.loadIndex) {
 		gDeliver = reinterpret_cast<DeliverFn>(kp.solveSymbol(index, "__ZN13IOFramebuffer30deliverFramebufferNotificationEiPv"));
@@ -198,8 +212,8 @@ void onGfxHdaLoad(void *, KernelPatcher &kp, size_t index, mach_vm_address_t, si
 		return;
 	}
 	if (index != kGfxHda.loadIndex) return;
-	if (!havePci(0x1002, 0xab30)) { setStat("skipped: no 1002:ab30 audio function\n"); return; }
-	if (havePci(0x1002, 0xab20)) { setStat("skipped: a 1002:ab20 audio function needs its own table entry\n"); return; }
+	if (!havePci(kVendorAmd, kDevNavi31Audio)) { setStat("skipped: no 1002:ab30 audio function\n"); return; }
+	if (havePci(kVendorAmd, kDevTableEntry)) { setStat("skipped: a 1002:ab20 audio function needs its own table entry\n"); return; }
 	const KernelPatcher::LookupPatch table {&kGfxHda, kFind, kReplace, sizeof(kFind), 1};
 	const KernelPatcher::LookupPatch masks {&kGfxHda, kFindMask, kReplaceMask, sizeof(kFindMask), 2};
 	kp.clearError();
@@ -253,7 +267,7 @@ int publishFbProps() {
 			auto *h = OSDynamicCast(OSNumber, fb->getProperty("phx-head"));
 			const uint32_t head = h ? h->unsigned32BitValue() : 0;
 			if (head > 1) continue;
-			const uint32_t conn = head ? 0x800 : 0x400, sig = head ? 0x08 : 0x10;
+			const uint32_t conn = head ? kConnHdmi : kConnDisplayPort, sig = head ? kAvSignalHdmi : kAvSignalDp;
 			auto data = [fb](const char *k, uint32_t v) {
 				if (OSData *d = OSData::withBytes(&v, sizeof(v))) { fb->setProperty(k, d); d->release(); }
 			};
@@ -345,7 +359,6 @@ int codecInfoSysctl SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxaudio_codecinfo, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, codecInfoSysctl, "I",
             "VermilionAudio: head 0's audio-codec-info (codec address | function group << 8 | pin << 16), 0 = none");
 
-// Adds the personality; the catalogue starts matching it at once.
 // Takes the ab30 personality out of the catalogue again. doNubMatching false: a driver already attached stays.
 void removePersonality() {
 	OSDictionary *m = OSDictionary::withCapacity(1);
@@ -356,6 +369,8 @@ void removePersonality() {
 	IOLog("VermilionAudio: ab30 personality removed\n");
 }
 
+// The attach: the framebuffer properties, the personality (the catalogue starts matching it at once), the display
+// re-delivery, then the personality out again. Returns an errno.
 int matchOn() {
 	if (!gPatched) return ENOENT;    // the probe would reject ab30
 	gPropsSet = publishFbProps();
@@ -376,7 +391,7 @@ int matchOn() {
 // The AppleGFXHDA controller on ab30, retained, or null.
 IOService *findController() {
 	IOService *found = nullptr;
-	if (IORegistryEntry *pci = findPci(0x1002, 0xab30)) {
+	if (IORegistryEntry *pci = findPci(kVendorAmd, kDevNavi31Audio)) {
 		if (OSIterator *it = pci->getChildIterator(gIOServicePlane)) {
 			while (OSObject *o = it->getNextObject())
 				if (auto *s = OSDynamicCast(IOService, o); s && s->metaCast("AppleGFXHDAController")) { s->retain(); found = s; break; }
@@ -392,10 +407,10 @@ void redeliverDisplays() {
 	if (!gGfxMatched || !gNotifierOff) { strlcpy(gMatchStat, "match: no display re-delivery (see above)\n", sizeof(gMatchStat)); return; }
 	IOService *ctrl = nullptr;
 	IONotifier *n = nullptr;
-	for (int i = 0; i < 100 && !n; i++) {
+	for (int i = 0; i < kNotifierPolls && !n; i++) {
 		if (!ctrl) ctrl = findController();
 		if (ctrl) n = *reinterpret_cast<IONotifier *const *>(reinterpret_cast<const uint8_t *>(ctrl) + gNotifierOff);
-		if (!n) IOSleep(50);
+		if (!n) IOSleep(kNotifierPollMs);
 	}
 	if (!n) {
 		snprintf(gMatchStat, sizeof(gMatchStat), "match: %s, no display notifier after 5 s\n", ctrl ? "controller up" : "no controller");
@@ -418,7 +433,6 @@ void redeliverDisplays() {
 	         gPropsSet, count);
 	IOLog("VermilionAudio: %s", gMatchStat);
 }
-
 
 int matchSysctl SYSCTL_HANDLER_ARGS {
 	(void)oidp; (void)arg1; (void)arg2;

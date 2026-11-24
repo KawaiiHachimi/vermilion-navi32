@@ -59,7 +59,14 @@ enum {
 	PA_DP_SEC_AUD_N = 0x56f1, PA_DP_SEC_TIMESTAMP = 0x56f5, PA_STREAM_FORMATS = 0x38cc,
 };
 
+// Endpoint registers behind PA_AZ_INDEX / PA_AZ_DATA that phxaudio.c also reads back, and the bits written there.
+enum { PA_EP_HOT_PLUG_CONTROL = 0x54 };
+#define PA_EP_CLOCK_GATING_DISABLE 0x00000001u
+#define PA_EP_AUDIO_ENABLED 0x80000000u
+
 #define PA_DPREFCLK_KHZ 716666u
+#define PA_AUDIO_CLK_KHZ 24000u     // the DTO1 phase is 24 MHz x 10
+#define PA_SPK_DEFAULT 5            // speaker allocation without a CTA speaker block (FL / FR / FC), as Linux
 #define PA_PLAN_MAX 128
 
 // 0 = ok; otherwise a short reason in err.
@@ -136,7 +143,7 @@ static inline void pa_dto(struct pa_write *w, int *n)
 	pa_put(w, n, PA_DTO_SOURCE, 0x00100030);   // DTO_SEL 3 (no DTO), then 1 (DTO1)
 	pa_put(w, n, PA_DTO_SOURCE, 0x00100010);
 	pa_put(w, n, PA_DTO1_MODULE, PA_DPREFCLK_KHZ * 10u);
-	pa_put(w, n, PA_DTO1_PHASE, 24000u * 10u);
+	pa_put(w, n, PA_DTO1_PHASE, PA_AUDIO_CLK_KHZ * 10u);
 	pa_put(w, n, PA_DTO_SOURCE, 0x00100010);
 }
 
@@ -150,8 +157,8 @@ static inline int pa_build_dp_dig1(const struct pa_sink *s, struct pa_write *w)
 	pa_put(w, &n, PA_AFMT_PKT2, 0x300);
 	pa_put(w, &n, PA_AFMT_MEM_PWR, 0);          // AFMT1 memory powered
 	// dce_aud_az_configure
-	const uint8_t spk = s->have_spk ? s->spk : 5;
-	pa_az(w, &n, 0x54, 0x1);                    // HOT_PLUG_CONTROL: CLOCK_GATING_DISABLE
+	const uint8_t spk = s->have_spk ? s->spk : PA_SPK_DEFAULT;
+	pa_az(w, &n, PA_EP_HOT_PLUG_CONTROL, PA_EP_CLOCK_GATING_DISABLE);
 	pa_az(w, &n, 0x25, (uint32_t)(spk & 0x7f) | 0x00020000);   // speaker allocation, DP_CONNECTION
 	pa_az(w, &n, 0x27, (uint32_t)(spk >> 7));   // ACP_DATA: SUPPORTS_AI
 	int ac3 = 0;
@@ -190,10 +197,11 @@ static inline int pa_build_dp_dig1(const struct pa_sink *s, struct pa_write *w)
 		pa_az(w, &n, 0x3e + (uint32_t)r, v);
 	}
 	// dce_aud_az_enable, DIG1 AFMT on, the DP audio packets (enc3_dp_audio_enable / afmt3_setup_dp_audio)
-	pa_az(w, &n, 0x54, 0x10);
+	pa_az(w, &n, PA_EP_HOT_PLUG_CONTROL, 0x10);
 	pa_put(w, &n, PA_DIG_AFMT_CNTL, 1);
-	pa_az(w, &n, 0x54, 0x80000001);             // AUDIO_ENABLED + CLOCK_GATING_DISABLE, then gating back on
-	pa_az(w, &n, 0x54, 0x80000000);
+	// AUDIO_ENABLED with the clock gating still disabled, then gating back on
+	pa_az(w, &n, PA_EP_HOT_PLUG_CONTROL, PA_EP_AUDIO_ENABLED | PA_EP_CLOCK_GATING_DISABLE);
+	pa_az(w, &n, PA_EP_HOT_PLUG_CONTROL, PA_EP_AUDIO_ENABLED);
 	pa_put(w, &n, PA_DIG_AFMT_CNTL, 0x101);
 	pa_put(w, &n, PA_DP_SEC_AUD_N, 0x8000);
 	pa_put(w, &n, PA_DP_SEC_TIMESTAMP, 1);

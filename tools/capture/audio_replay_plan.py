@@ -3,13 +3,13 @@
 # audio_replay_plan.py (thread 04, 2026-11-24): from a Linux mode-set trace (linux_display_capture.py, ftrace
 # amdgpu_dc_wreg) of a DP monitor on DIG1, print DC's audio-enable writes as "reg value" lines, for a replay on macOS
 # while the stream already runs. Now the reference for tools/phxctl/phxaudio_plan.h, which computes the same writes from
-# the EDID (CLAUDE.md rule 3); the replay prototype audio_dc_replay.sh was retired 2026-11-24.
-# Kept, from the first DTO write to the last write of reg 0x52: the audio clock (DCCG DTO1, reg 0x52 around it), AFMT1, the codec endpoint 1 (index / data: pin control,
-# channel allocation, short audio descriptors, latency, sink info = the ELD), the audio packets. Left out: everything
-# before the first DTO write (DC's "audio off" for the stream change) and the stream's own DP_SEC_CNTL / FRAMING4 /
-# SEC_CNTL2 writes (the plans already left them at their final values).
-# The sink info words come from the monitor (the port-ID words may derive from the EDID serial: unverified), so the
-# printed plan is for the machine, not for git.
+# the EDID (CLAUDE.md, "Detect, don't overwrite"); the replay prototype audio_dc_replay.sh was retired 2026-11-24.
+# Kept, from the first DTO write to the last write of reg 0x52: the audio clock (DCCG DTO1, reg 0x52 around it), AFMT1,
+# the codec endpoint 1 (index / data: pin control, channel allocation, short audio descriptors, latency, sink info =
+# the ELD), the audio packets. Left out: everything before the first DTO write (DC's "audio off" for the stream change)
+# and the stream's own DP_SEC_CNTL / FRAMING4 / SEC_CNTL2 writes (the plans already left them at their final values).
+# The sink info words come from the monitor's EDID (manufacturer / product ID, name; the two port-ID words are
+# constants of Linux's dc_stream.c), so the printed plan is for the machine, not for git.
 # Usage: audio_replay_plan.py <trace-modeset.txt>
 import re, sys
 
