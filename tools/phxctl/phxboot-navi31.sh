@@ -796,6 +796,22 @@ gl_boot(){
     echo "gl: OpenGL over Metal on"
   else echo "gl: debug.phxgl=1 refused: off"; fi; }
 [ "${PHXBOOT_NO_GL:-0}" = 1 ] || [ $SAFE = 1 ] || gl_boot
+# 2026-11-24 (thread 04): with $G/phxboot-audio, on a desktop boot: DP audio on head 0, as a real Mac with an AMD GPU has
+# it. First the display engine's audio blocks from the monitor's EDID ($G/phxaudio apply: Linux DC's sequence for DIG1;
+# its full output in $G/phxaudio.log), then Apple's AppleGFXHDA on the GPU's audio function ($G/audio_match.sh on, which
+# needs VermilionAudio 1.6.0 in the EFI and waits for the audio engine). Once per boot, never undone: a detach makes the
+# next attach hot-reset the whole GPU (findings/2026-11-24-gfxhda-detach-gpu-hot-reset.md).
+audio_boot(){
+  [ -e "$G/phxboot-audio" ] || return 0
+  [ $DESK = 1 ] || { echo "audio: not a desktop boot: skip"; return 0; }
+  sysctl -n debug.phxaudio_match >/dev/null 2>&1 || { echo "audio: VermilionAudio not loaded (not in the EFI, or -phxaudiooff): off"; return 0; }
+  { [ -x "$G/phxaudio" ] && [ -e "$G/audio_match.sh" ]; } || { echo "audio: $G/phxaudio or $G/audio_match.sh missing: off"; return 0; }
+  if ! "$G/phxaudio" apply >"$G/phxaudio.log" 2>&1; then
+    echo "audio: display engine not programmed ($(tail -1 "$G/phxaudio.log")): AppleGFXHDA not attached"; return 0
+  fi
+  echo "audio: display engine programmed ($(tail -1 "$G/phxaudio.log" | sed 's/^phxaudio: //'))"
+  sh "$G/audio_match.sh" on 2>&1; }
+[ "${PHXBOOT_NO_AUDIO:-0}" = 1 ] || [ $SAFE = 1 ] || audio_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes
