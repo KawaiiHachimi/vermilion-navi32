@@ -17,7 +17,8 @@ Dependencies may sit in `deps/`, which git ignores: `deps/MacKernelSDK` (pass it
 | `radv.sh apply` / `radv.sh` | `libvulkan_radeon.dylib` (`RADV_PLATFORMS=macos`: the app-facing build with the Metal window surface, patch 0020, in its own build dir) | `MESA_DIR` = Mesa checkout at f5cb8ee0; meson, ninja, glslangValidator, python3 with mako, pyyaml, markupsafe, packaging |
 | `ffmpeg.sh` | `libavcodec_phx.61.dylib`, `libavutil_phx.59.dylib` into `FFMPEG_PREFIX` (default `deps/ffmpeg-lib/prefix`) | network for the first clone (FFmpeg n7.1), `VULKAN_HEADERS` |
 | `phxdec.sh` | `libphxdec_hevc.dylib` | `FFMPEG_PREFIX` = FFmpeg n7.1 + `patches/ffmpeg` built as shared `libavcodec_phx` / `libavutil_phx` (LGPL, no GPL parts); `VULKAN_HEADERS` |
-| `tools.sh` | `phxctl`, `mesboot`, `vcn_write_test`, `submit_test` | - |
+| `audio.sh` | `VermilionAudio.kext` (a Lilu plugin: DP audio through Apple's AppleGFXHDA) | `MKSDK`; the Lilu SDK from Lilu's DEBUG release (fetched and checked by sha256, or `LILU_SDK`); the same optional link gate as `accel.sh` |
+| `tools.sh` | `phxctl`, `mesboot`, `vcn_write_test`, `submit_test`, `phxaudio` | - |
 | `metaltest.sh` | `metaltest` (the boot daemon's Metal-device probe, `tools/metaltest/metaltest.m`) | - |
 
 Plugins, dylibs and kexts must be ad-hoc signed (`codesign -fs -`): WindowServer falls back to the firmware
@@ -30,6 +31,7 @@ bash tests/mock/run.sh            # boot daemon (tools/phxctl/phxboot-navi31.sh)
 bash tests/mock/b15test.sh        # display power recipe and watchdog (tools/phxctl/b15_boot.sh)
 bash tests/mock/m7test.sh         # second monitor at boot (m7_boot.sh, m7_phase.sh)
 bash tests/mock/dettest.sh        # det.sh
+bash tests/mock/audio_match_test.sh   # audio_match.sh (one AppleGFXHDA attach per boot, no detach)
 bash tests/mock/phxctl_serve_test.sh
 ```
 The mutation runners (`*_mut.sh`, `hotplug0_mut.py`) check that the suites catch broken variants; see

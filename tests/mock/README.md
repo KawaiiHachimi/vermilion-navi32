@@ -47,6 +47,7 @@ bash b15test.sh                # the idle-power display recipe script (must be 1
 bash m7test.sh                 # the M7 second-monitor boot script m7_boot.sh (must be 8/8)
 bash idledpm_test.sh           # idle_dpm.sh (one-display idle clocks + underflow watchdog), stand-in tools (7/7, 2026-11-23)
 bash dettest.sh                # det.sh -p <pipe> show/clear/set/rollback (must be 11/11)
+bash audio_match_test.sh       # tools/phxctl/audio_match.sh: one attach per boot, a display mode change when no engine came, no `off` (a detach makes the next attach hot-reset the GPU), fake kmutil/sysctl/ioreg (8/8, 11-24; portable)
 bash b21guard_mut.sh           # 15 mutations of the login-window guard (b21_on / b21_off and their hooks), each CAUGHT by run.sh b21_* (11-04)
 ```
 

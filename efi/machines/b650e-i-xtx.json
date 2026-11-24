@@ -120,6 +120,11 @@
       "booter_quirks": {"ResizeAppleGpuBars": 10},
       "ocvalidate_accept": ["Booter->Quirks->ResizeAppleGpuBars is set to 10, which is unstable with macOS sleep-wake!"]
     },
+    "vermilion-trust-bar1g-audio": {
+      "_comment": "Thread 04 (2026-11-24), DP / HDMI audio step 1: vermilion-trust-bar1g + VermilionAudio (a Lilu plugin that, when AppleGFXHDA loads, rewrites its controller table entry 1002:ab20 to the RX 7900's 1002:ab30; findings/2026-11-23-dp-hdmi-audio-inventory.md). Inert at boot: AppleGFXHDA loads only when the daemon adds the ab30 personality (tools/phxctl/audio_match.sh), after the GPU bring-up. Check: sysctl debug.phxaudio_stat. Rollback: EFI/OC.prev.",
+      "inherits": "vermilion-trust-bar1g",
+      "kexts_add": ["VermilionAudio"]
+    },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "vermilion",

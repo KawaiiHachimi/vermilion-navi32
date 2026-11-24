@@ -576,3 +576,17 @@ per-app setup, and it worked on the first try: correct pixels, ~190x the softwar
 Minecraft 26.3 playable (thread 03 finding section 8). Mesa's Zink has no CGL / NSOpenGL front end on macOS.
 **Cost:** OpenGL speed and correctness now depend on our Metal plugin (its gaps show up in OpenGL apps too).
 **Undo:** `sudo sysctl -w debug.phxgl=0` (new processes) and `rm ~/gpu/phxboot-gl` (from the next boot).
+
+## 2026-11-24: DP audio merged with three sequencing differences from Linux
+
+**Decision:** merge `ownback/dp-hdmi-audio` as it runs on the reference machine (EFI change 33) and fix the order in
+follow-up work (TODO 04, "hw-safety review 2026-11-24").
+**Why:** the hw-safety review found no wrong value, register instance or offset (the 90 writes equal Linux 7.2.15's
+trace for the LG at 1440p240) and nothing that detaches a driver on the GPU's PCI functions. It found three
+sequencing differences: the audio packet enables in `DP1_DP_SEC_CNTL` are set by the mode-set plans before the audio
+setup, without Linux's audio-off steps; audio stays on through later pipe-0 mode sets, where Linux turns it off and
+on around each stream change; `phxaudio apply` can race a p0odm mode set (not seen). The first two come from the
+replayed display plans on main, which phase 3 replaces with the driver's own mode setting. Merging makes main match the
+machine; holding it back leaves the live daemon unrecorded.
+**Not sent, on purpose:** Linux's `DALSMC_MSG_BacoAudioD3PME` before the endpoint enable (no new SMU message).
+**Revisit:** when VermilionBoot does its own mode set (phase 3), it does the audio off / on around each stream change.
