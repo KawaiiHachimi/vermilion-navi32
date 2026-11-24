@@ -30,7 +30,7 @@ have built it ([`ROADMAP.md`](ROADMAP.md), "The standard"). It's a fork of
 | `src/vermilion-boot/` | `VermilionBoot.kext` (OpenCore): register access, bring-up, DCN display pipes, DMUB, GPU VM, the `N48N` user client RADV talks to | MIT (nullarc files: MIT or GPL-2.0) |
 | `src/vermilion-accel/` | `VermilionAccel.kext` (AuxKC): `PhxAMDFB` framebuffer, `NMXAccel` accelerator, `PhxAGDC` | **PolyForm Noncommercial** |
 | `src/vermilion-trust/` | `VermilionTrust.kext` (OpenCore, after Lilu): lets only Vermilion's cdhashes past library validation | MIT |
-| `src/vermilion-audio/` (branch `ownback/dp-hdmi-audio` until it merges) | `VermilionAudio.kext`: DP audio on the GPU's HDA function | MIT |
+| `src/vermilion-audio/` | `VermilionAudio.kext`: DP audio on the GPU's HDA function | MIT |
 | `src/metal-plugin/` | `NVMTLDriver`: the Metal driver, Metal on Vulkan | **PolyForm Noncommercial** |
 | `src/translator/` | `libnvmtl_translate.dylib`: Metal AIR to SPIR-V (Rust) | LGPL-3.0-or-later |
 | `src/video-decoder/`, `src/video-accel/` | HEVC/AV1 decode (VCN via FFmpeg Vulkan) and its VideoToolbox bundle | MIT / LGPL deps |
@@ -72,8 +72,7 @@ have built it ([`ROADMAP.md`](ROADMAP.md), "The standard"). It's a fork of
    - Keep the bring-up watchdog and the boot daemon's fallbacks (kill switch, pending mark, GOP revert).
    - One EFI change per boot, with a rollback copy of every replaced binary.
    - Never detach or terminate a driver on the GPU's PCI functions in a running boot (AppleGFXHDA included): IOPCIFamily
-     hot-resets the whole GPU (seen on the XTX machine; finding `2026-11-24-gfxhda-detach-gpu-hot-reset.md` on branch
-     `ownback/dp-hdmi-audio` until it merges).
+     hot-resets the whole GPU (seen on the XTX machine; finding `2026-11-24-gfxhda-detach-gpu-hot-reset.md`).
 2. **One machine owner.** Changes to the EFI partition, the system volume, `~/gpu`, kexts and restarts need the
    machine lock (`.claude/hooks/machine-lock acquire "<reason>"`). Ask the owner before any change to the system
    volume.

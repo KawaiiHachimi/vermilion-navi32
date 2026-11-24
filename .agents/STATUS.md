@@ -82,7 +82,7 @@ mode setting).
 | 4K YouTube | broken (stutters; ~13.3 ms per frame, synchronous) | Phase 2 item 10 | M |
 | H.264, VP9 decode | missing | Phase 2 item 10 (VP9 after checking what a real Mac does) | M |
 | Hardware encode (FaceTime, exports, AirPlay sender) | missing (not in TODO before this audit) | VCN encode via RADV Vulkan Video (hw-safety), phase 3 | M |
-| DP audio to the LG | works (owner-tested), not standard (set up by the daemon, a Lilu patch); on `ownback/dp-hdmi-audio` until it merges | Merge; then PhxAMDFB publishes the audio properties, the kernel programs DC audio | M, thread handover |
+| DP audio to the LG | works (owner-tested), not standard (set up by the daemon, a Lilu patch); merged in #20 | PhxAMDFB publishes the audio properties, the kernel programs DC audio | M, thread handover |
 | DP audio sequencing vs Linux | works, three order differences (hw-safety review 2026-11-24) | TODO 04 follow-ups; decision on the branch | decisions.md |
 | GPU idle power | works, not standard (daemon flags) | DPM in the kext (phase 3) | M |
 | GPU temperature, fan, power in Mac apps | missing | Publish SMU metrics in PerformanceStatistics | M |

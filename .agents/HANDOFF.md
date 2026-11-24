@@ -29,16 +29,14 @@ Done:
   [`findings/2026-11-24-audit-thread-handover.md`](findings/2026-11-24-audit-thread-handover.md).
 - The audit is written: [`STATUS.md`](STATUS.md), with the evidence in `findings/2026-11-24-audit-*.md`. It sets the
   phase 2 order.
-- `ownback/dp-hdmi-audio`: hw-safety review done (no wrong value or instance; three sequencing differences, recorded
+- `ownback/dp-hdmi-audio` merged as #20: hw-safety review done (no wrong value or instance; three sequencing differences, recorded
   as a decision with TODO 04 follow-ups; the replay prototype retired). The installed daemon equals the branch copy,
   including the auto-login lines.
 - `fork/ownback/linux-horizon` deleted (its finding is already on main). Stale worktrees of 02, 03 and 07 removed.
 
 Next:
-1. The Fable pass on `ownback/dp-hdmi-audio` (running or done; check its commit on the branch), then the owner's OK,
-   merge, delete the branch.
-2. Merge this branch's PR (STATUS, HANDOFF, the machine-lock and guard fixes).
-3. Phase 2, item 1 (the safety fixes in STATUS), then the rest in STATUS order.
+1. Phase 2, item 1 (the safety fixes in STATUS), then the rest in STATUS order. #19 and #20 are merged; main matches
+   the machine (EFI change 33, the installed daemon).
 
 **Also open:**
 - DDC/CI over DP AUX for brightness and volume: phase 2 item 9. The owner asked for both (thread 04).
