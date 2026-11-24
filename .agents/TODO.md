@@ -31,6 +31,62 @@ PROJECT_KNOWLEDGE.
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
   before going on. Every thread that restarts asks the owner to glance at the screen.
 
+- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; remove it to get HDR back once fixed).
+  After the HDMI / DP replug at 00:08 WindowServer composites in BGRA while the scan-out is 10-bit HDR, the plugin's
+  CPU widen path presents stale frames: the picture freezes a few minutes after login (input works).
+  [Finding](findings/2026-11-24-hdr-freeze-after-replug.md). Fix: the widen path in the plugin (a trust + EFI change)
+  and the reason for the BGRA surfaces. The logger LaunchAgent `~/Library/LaunchAgents/local.t04watch.plist` still
+  runs (remove after the next check: `launchctl bootout gui/501/local.t04watch; rm` it).
+
+- [x] **Daemon: auto-login fix** (works: 2026-11-24 01:46 boot, logged in at 01:46:51 by loginwindow pid 1101 with
+  FirstRunKey 1, "loginUserIsAutoLoginUser") (installed 2026-11-24 ~01:33 by the auto-login thread, in the branch as commit
+  "phxboot: remove loginwindow's first-run marker ..."): `al_on()` removes
+  `/private/var/run/com.apple.loginwindow.didRunThisBoot` before the Metal WindowServer restart. **Never reinstall the
+  daemon from a copy without these lines** (fork/main lacks them until 04 merges). Check after the next boot: `grep
+  autologin: /var/log/phxboot.log | tail -3` ends with `first-run marker removed`, and no password prompt
+  (OWNER-TESTS 04). If the prompt still shows, read `lastLoginPanic` in `/Library/Preferences/com.apple.loginwindow`.
+  The boot of 01:27 predates the change (its log line has no marker part).
+
+- [x] **04: EFI change 24 = stage `vermilion-trust-bar1g-audio`** with VermilionAudio 1.0.0. Booted 2026-11-24 01:18:
+  desktop as before, `denied_unlisted=0`; after `kmutil load -b com.apple.driver.AppleGFXHDA` the stat reads "patched".
+  The user-space personality add (`phxcatalog`, IOCatalogueSendData) returned 0 but the kernel log says "Not
+  entitled": nothing matched. Hence 1.1.0.
+- [x] **04: EFI change 25 = VermilionAudio 1.1.0** (the personality added in the kernel, `debug.phxaudio_match`).
+  Booted 2026-11-24 01:27, desktop as before. `audio_match.sh on`: AppleGFXHDAEGController attaches to ab30 (codec
+  0 present, `vendorcodecID` 0x1002aa01, `GFX BDF` found), then AppleGFXHDADriver stops: "Sound assertion in
+  AppleGFXHDAFunctionGroupFactory at line 94", the codec factories don't know the controller ID ab30. `off` works.
+- [x] **04: EFI change 26 = VermilionAudio 1.2.0** (ab30 in the two factory masks). Booted 2026-11-24 01:46, desktop
+  as before, auto-login worked. `audio_match.sh on`: AppleGFXHDADriver starts (`HDMIDPAudioCapabilities`), but no
+  audio engine: AppleGFXHDA's AppleDisplay notification fires inside `addMatchingNotification` for our existing
+  display, before the notifier is stored, and the handler drops it (no `audio-selector` on PhxAMDFB, no EDID message).
+- [x] **04: EFI change 27 = VermilionAudio 1.3.0** (re-delivers the AppleDisplay notification). Booted 2026-11-24
+  01:57, auto-login again. After `audio_match.sh on`: "re-delivered for 1 display(s)", `audio-selector` = `dpXX` on
+  PhxAMDFB. Still no engine, also after a display sleep / wake and after replaying Linux's 90 DC audio writes
+  (`tools/phxctl/audio_dc_replay.sh`, plan from `tools/capture/audio_replay_plan.py`; all writes kr 0, picture fine).
+  AppleGFXHDA's event path reads `connector-type`, `av-signal-type`, `AAPL,DisplayPipe` from the framebuffer.
+- [x] **04: EFI change 28 = VermilionAudio 1.4.0** (framebuffer properties). Booted 2026-11-24 02:10. After `on`,
+  the DC replay and a display sleep / wake: "Sound assertion in AppleGFXHDAController at line 3170": the event path
+  now wants the framebuffer's `audio-codec-info` (codec address, function group node, pin node).
+- [x] **04: EFI change 29 = the same stage, VermilionAudio 1.5.0** (`debug.phxaudio_codecinfo` puts head 0's
+  `audio-codec-info` on PhxAMDFB at run time; `audio_match.sh on` writes 0x050100 = pin 5 first). Check after the
+  boot: desktop as before; `sysctl debug.phxaudio_codecinfo` = 0. Rollback: `sudo diskutil mount disk0s1`, in
+  `/Volumes/NO NAME/EFI`: `sudo mv OC OC.c29-bad && sudo mv OC.prev OC` (= change 28), restart (from Linux: the same
+  under `/boot/EFI`, then power off fully). Or boot-arg `-phxaudiooff`. Change 23 is also in
+  `~/vermilion-rollback/EFI-OC.change23-20261124`. **Result:** booted 02:16 and 07:46, desktop as before; after the
+  three hand steps CoreAudio lists "LG ULTRAGEAR+" and the owner heard a test tone on the LG's jack (07:53).
+- [x] **04: EFI change 30 = the same stage, VermilionAudio 1.6.0** (the attach is one-way, once per boot: the ab30
+  personality is removed again right after the controller is up, `debug.phxaudio_match=0` and a second `=1` return
+  EBUSY; `audio_match.sh off` is gone). Why: 2026-11-24 07:55, `off` then `on` under 1.5.0 made IOPCIFamily hot-reset the
+  whole GPU ([finding](findings/2026-11-24-gfxhda-detach-gpu-hot-reset.md)). Check after the boot: desktop as before;
+  `sudo ~/gpu/audio_match.sh on`, the DC replay, a display sleep / wake: "LG ULTRAGEAR+" listed, `ioreg` shows no
+  ab30 personality left in the catalogue, a second `on` says "already attached". Rollback: `sudo mkdir -p
+  /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/efi disk0s1`, in `/private/tmp/efi/EFI`: `sudo mv OC
+  OC.c30-bad && sudo mv OC.prev OC` (= change 29), restart (from Linux: the same under `/boot/EFI`, then power off
+  fully). Or boot-arg `-phxaudiooff`.
+  **Result:** booted 2026-11-24 17:35, desktop at 240 Hz, auto-login. After the three steps "LG ULTRAGEAR+" is
+  listed again; the match key is only on the attached controller; a second `on` says "already attached", `off` exits 2,
+  `sysctl -w debug.phxaudio_match=0` gives "Resource busy".
+
 ## 01 GPU stability
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
@@ -126,7 +182,20 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 
 ## 04 DP / HDMI audio, HDMI output
 
-- [ ] Inventory and a Linux capture: nothing in the stack implements DP / HDMI audio or HDMI output today
+- [~] **DP audio works by hand** (2026-11-24 07:53, EFI change 29, [finding](findings/2026-11-23-dp-hdmi-audio-inventory.md)
+      section 6): `audio_match.sh on`, `audio_dc_replay.sh plan-240.txt`, a display sleep / wake, then the owner heard a
+      tone from the LG's jack. To make it automatic and real-Mac-like:
+  - [ ] PhxAMDFB: the framebuffer properties (`connector-type`, `av-signal-type`, `AAPL,DisplayPipe`,
+        `audio-codec-info`) and `'aud '` in `setAttributeForConnectionExt` (assertion "EngineOutputDP line 262");
+        AuxKC rebuild + owner's Allow click
+  - [ ] VermilionBoot audio programmer: the DC audio sequence from the EDID (DTO from the pixel clock, ELD / SAD from
+        the CEA block) instead of the replay plan; pin from the DIG / endpoint, not the fixed 0x050100
+  - [ ] Daemon: attach AppleGFXHDA after the display is up, then an event (instead of the display sleep / wake);
+        keep the LWRAN lines in `~/gpu/phxboot-navi31.sh`
+  - [ ] After a mode change / replug / wake: the audio must come back (re-program, re-deliver)
+- [ ] HDMI output: the LG over HDMI shows black (2026-11-24, as expected: no plan for it); needs a Linux capture of the LG
+      on HDMI
+- [ ] Bug: after a DP unplug / replug the LG stays black (link trains, HBR3 x4 locked); only a restart brought it back
 
 ## 05 Sleep and wake
 

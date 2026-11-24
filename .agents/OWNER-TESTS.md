@@ -102,6 +102,20 @@ and reopen Safari once before these tests (a Safari that was open before 18:07 k
       Monitor's CPU use for about a minute.
 - [ ] **Photos:** open a few videos and HEIC photos in Photos. Smooth? Any black or green frames?
 
+## 04 DP / HDMI audio, HDMI output
+
+- [x] **Auto-login after a restart** (daemon change of 2026-11-24, from the auto-login thread): 2026-11-24 01:46
+      restart, checked from the logs: the daemon line ends `first-run marker removed`, the relaunched loginwindow
+      (pid 1101) logged "setting FirstRunKey in authref to: 1" and "loginUserIsAutoLoginUser", user on the console
+      at 01:46:51, 7 s after the WindowServer restart. Owner: say if you saw a password prompt anyway.
+- [x] **Sound from the LG's headphone jack:** 2026-11-24 07:53, EFI change 29, speakers on the LG's jack: a 440 Hz
+      tone at -30 dBFS, 5 s, on "LG ULTRAGEAR+" (DisplayPort): owner "we got sound!". Still set up by hand after each
+      boot (`audio_match.sh on`, the DC replay, a display sleep / wake); no glitches in the probe (0 late cycles,
+      0 discontinuities, device clock -24 ppm vs the host).
+- [ ] **Music from the LG** (after the hand steps move into the daemon): pick "LG ULTRAGEAR+" in Control Centre >
+      Sound, play music for a few minutes, change the volume, switch back to the Realtek. Any clicks, drop-outs or
+      silence?
+
 ## 07 Wireless and Continuity
 
 - [ ] **Router channel (no EFI change):** in the router, set 5 GHz to channel **44** at 80 MHz (not "auto", not 52-64
