@@ -3,46 +3,50 @@
 What the megamind needs in its first five minutes. Each megamind replaces this file when it hands over
 (`.claude/skills/megamind-clone`).
 
-## 2026-11-24: to Megamind 1
+## 2026-11-24: Megamind 1 to Megamind 2
 
-From the coordination thread that ran the 00-13 series and then the restructure. That series is closed. Its history
-is in PRs #9-#18 and in `.agents/findings/`.
+Why: phase 1 (audit) is done. #19 (the audit, STATUS, the machine-lock and guard fixes) and #20 (DP audio) are
+merged, so main matches the machine. Phase 2 starts now.
 
 ### Your job
 
 You own the plan, `.agents/STATUS.md`, the machine and the merges for `ownback/vermilion-xtx`. You send agents to
 research, find root causes and write fixes. You don't write large fixes yourself. The standard, phases and rules are
-in [`ROADMAP.md`](../ROADMAP.md); read it and CLAUDE.md first. Work this repo to a stable release before
-`ryzentosh-airdrop` and `ryzentosh` (research for those may run earlier).
+in [`ROADMAP.md`](../ROADMAP.md); read it and CLAUDE.md first. Keep STATUS and this file current on `ownback/megamind`
+(from `fork/main`) and send them as PRs.
 
 **Your agents:**
-- **Root causes, fixes and research:** Opus 5.5 (`Agent` tool, or T3 `delegate_task` for an isolated worktree).
+- **Root causes, fixes and research:** Opus 5.5 (`Agent` tool, or T3 `delegate_task` with `isolation: "worktree"`).
   Several may run in parallel, as long as each one only reads the machine or works in its own worktree.
 - **Machine changes:** only you make them, one at a time, under the machine lock.
 - **Clean-up:** the `fable-cleanup` agent on every branch before you ask the owner to merge.
 - **GPU programming changes:** the `hw-safety-reviewer` agent.
 
-### Phase 1, audit: where it stands (Megamind 1, 2026-11-24 evening)
+**The owner wants:** short replies with numbered actions for them, details in files; routine reversible calls made
+by you and reported after; questions only for hard-rule items, system-volume changes, GPU load, merges, and restarts
+while they may be at the PC.
 
-Done:
-- The last threads (02, 03, 04, auto-login) answered and are archived; their state is in
-  [`findings/2026-11-24-audit-thread-handover.md`](findings/2026-11-24-audit-thread-handover.md).
-- The audit is written: [`STATUS.md`](STATUS.md), with the evidence in `findings/2026-11-24-audit-*.md`. It sets the
-  phase 2 order.
-- `ownback/dp-hdmi-audio` merged as #20: hw-safety review done (no wrong value or instance; three sequencing differences, recorded
-  as a decision with TODO 04 follow-ups; the replay prototype retired). The installed daemon equals the branch copy,
-  including the auto-login lines.
-- `fork/ownback/linux-horizon` deleted (its finding is already on main). Stale worktrees of 02, 03 and 07 removed.
+### Phase 2: the next three steps
 
-Next:
-1. Phase 2, item 1 (the safety fixes in STATUS), then the rest in STATUS order. #19 and #20 are merged; main matches
-   the machine (EFI change 33, the installed daemon).
+The order is in [`STATUS.md`](STATUS.md), "Phase 2 order".
+1. **Item 1, the safety fixes,** one branch (`ownback/safety-fixes`), via an agent in a worktree:
+   - remove `debug.phxfb_kill_iondrv` (VermilionAccel, `nvrm-accel.cpp:1612-1634`, `:1904`): an AuxKC change, so the
+     owner's Allow click;
+   - `bringup_navi31.sh:64-80` refuses a warm GPU (PSP sOS alive) instead of loading the SMU firmware (hw-safety);
+   - the daemon's "Reset NVRAM" lines (`phxboot-navi31.sh` ~276/282/287) and `docs/XTX.md`; hide `ResetNvramEntry.efi`
+     in the profile (an EFI change, its own boot);
+   - OWNER-TESTS 04's sleep test marked blocked;
+   - read the 2026-11-24 00:05 replug logs for an ab30 detach (`detachFromChild`, "needing hardware reset") before
+     any replug test.
+   Deploy the daemon part first (no EFI change), then the EFI part, then the AuxKC part, each with its check and
+   rollback in TODO.
+2. **Item 2, the plugin crashes:** Music's `nvmtl_vk_image_read` fault (two reports on 2026-11-24, 18:47 and 19:32,
+   in `~/Library/Logs/DiagnosticReports`), Maps' null texture, no nil command buffer to WindowServer. Root cause first
+   (agent, read-only), then a fix branch. A plugin install is a VermilionTrust + EFI change.
+3. **Item 3, the recovery trap and the GOP fallback** (STATUS, D7 / D30): research the squat decision in the kext.
 
-**Also open:**
-- DDC/CI over DP AUX for brightness and volume: phase 2 item 9. The owner asked for both (thread 04).
-- HDMI output: later, before work on ryzentosh starts (owner, 2026-11-24).
-- The XT question (keep the detection code, drop it, or rename the project): the owner hasn't decided. Don't work
-  on the XT.
+Settle on the way: the WebGPU numbers (20 vs 21 of 43 failing samples, 4 vs 6 GPU-process crash reports) differ
+between the findings; re-count from the crash reports when item 10 starts.
 
 ### Machine state (2026-11-24)
 
@@ -52,27 +56,39 @@ Next:
   - `EFI/OC.prev` is change 32;
   - a change-30 copy is in `~/vermilion-rollback/`.
   - The ESP mounts as `/Volumes/NO NAME`.
-- **The system volume is unsealed** (the decoder bundle). Every change to it needs the owner's OK. Its volume name
-  was changed by hand and is cosmetic; leave it.
+- **Installed daemon** = main's `tools/phxctl/phxboot-navi31.sh` (with the `LWRAN` auto-login lines and `audio_boot`).
+- **The system volume is unsealed** (the decoder bundle). Every change to it needs the owner's OK.
 - **Disk:** about 33 GB free in the APFS container. The owner declined resizing the partitions.
-- **Tools:** described in [`docs/AGENT-TOOLING.md`](../docs/AGENT-TOOLING.md). The private pattern list exists.
-  The machine lock is free. The debug LaunchAgent `local.t04watch` is removed (plist in `~/vermilion-rollback/`).
+- **Tools:** [`docs/AGENT-TOOLING.md`](../docs/AGENT-TOOLING.md). The machine lock is free. The debug LaunchAgent
+  `local.t04watch` is removed (plist in `~/vermilion-rollback/`).
 - **macOS 26.7.1 (25G241):** never update it.
+
+### Branches, PRs, threads
+
+- No open PRs. `fork` has only `main`. Local: `ownback/megamind` and the old `worktree-agent-a264…` /
+  `worktree-agent-a98b…` branches (not in main; delete with the owner's OK).
+- The old series threads are all archived. No agents running.
+- `~/Projects/vermilion` is the main checkout that holds `.git` for every worktree (stale main at 7b30f2b): never
+  install from it, don't remove it.
+
+### Waiting on the owner
+
+- Night Shift: does the LG's picture tint (STATUS, head-0 gamma)?
+- What is missing for monitor volume control (DDC/CI, phase 2 item 9)?
+- The XT question (keep the detection code, drop it, rename). Don't work on the XT.
+- HDMI output: after phase 2, before ryzentosh (owner, 2026-11-24).
 
 ### Owner decisions since the restructure
 
-All of them are in ROADMAP and in the memory notes:
-- agents restart the machine themselves (the `boot-cycle` skill);
-- parallel threads: unsure, so parallel agents are allowed, but machine changes go through you;
-- a post-installer comes later; no ryzentosh pre/post-install skills;
-- the SMBIOS stays git-ignored, and there's no private repo;
-- branches are deleted on merge;
-- reverse engineering copies the result, never the code.
+All in ROADMAP and the memory notes: agents restart the machine themselves (`boot-cycle`); parallel agents allowed,
+machine changes through the megamind; a post-installer later; SMBIOS git-ignored, no private repo; branches deleted
+on merge; reverse engineering copies the result, never the code. 2026-11-24: DP audio merged with its sequencing
+differences as follow-ups (decisions.md).
 
 ### Don't, yet
 
-- Don't detach or unload any driver on the GPU's PCI functions in a running boot: IOPCIFamily hot-resets the GPU
-  and the machine hangs (seen on the XTX machine, 2026-11-24; the finding is on `ownback/dp-hdmi-audio`).
-- Don't install anything from `~/Projects/vermilion`: it's a stale checkout of an old main.
+- Don't detach or unload any driver on the GPU's PCI functions in a running boot (hard rule; finding
+  `2026-11-24-gfxhda-detach-gpu-hot-reset.md`).
+- Don't ask the owner for a sleep or replug test before the item 1 checks.
 - Don't start benchmarks or stress runs without asking the owner (`vkbench` with no arguments runs for 20 s).
 - Don't start performance work before phase 4.
