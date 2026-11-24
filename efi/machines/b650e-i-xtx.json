@@ -123,7 +123,9 @@
     "vermilion-trust-bar1g-audio": {
       "_comment": "Thread 04 (2026-11-24), DP / HDMI audio step 1: vermilion-trust-bar1g + VermilionAudio (a Lilu plugin that, when AppleGFXHDA loads, rewrites its controller table entry 1002:ab20 to the RX 7900's 1002:ab30; findings/2026-11-23-dp-hdmi-audio-inventory.md). Inert at boot: AppleGFXHDA loads only when the daemon adds the ab30 personality (tools/phxctl/audio_match.sh), after the GPU bring-up. Check: sysctl debug.phxaudio_stat. Rollback: EFI/OC.prev.",
       "inherits": "vermilion-trust-bar1g",
-      "kexts_add": ["VermilionAudio"]
+      "kexts_add": ["VermilionAudio"],
+      "uefi_drivers_remove": ["ResetNvramEntry.efi"],
+      "_uefi_drivers_remove": "Phase 2 item 1 (2026-11-24; not built or booted yet, unverified): no Reset NVRAM entry in the picker. Reset NVRAM deletes phxfb-squat, which macOS can't set again (DisableVariableWrite), so every later boot falls back to the firmware display (CLAUDE.md hard rule 1). Without the driver the picker has no entry and OpenCore has no reset. Check after the boot: the picker shows no Reset NVRAM, /var/log/phxboot.log still says 'squat boot ...: 1'. Rollback: EFI/OC.prev."
     },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",

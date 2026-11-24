@@ -145,7 +145,10 @@ from macOS). Which one is the default is open (TODO, thread 10).
 - **Debug:** verbose boot and an OpenCore log file on the EFI partition (`Target = 67`) during bring-up (still on).
   The partition collected one log per boot until 2026-11-22 23:20; none since, for reasons unknown. Delete old logs
   now and then (keep the newest few).
-- **`ResetNvramEntry.efi --preserve-boot`:** the picker's Reset NVRAM keeps the firmware boot entries.
+- **`ResetNvramEntry.efi --preserve-boot`:** the picker's Reset NVRAM keeps the firmware boot entries. The live stage
+  `vermilion-trust-bar1g-audio` drops the driver (`uefi_drivers_remove`), so its picker has no Reset NVRAM entry:
+  Reset NVRAM deletes `phxfb-squat`, which macOS can't set again (CLAUDE.md hard rule 1). OpenCore 1.0.8 has no other
+  NVRAM reset (unverified).
 - **Don't boot Linux through OpenCore.** It would get OpenCore's SMBIOS and ACPI tables, and `efibootmgr` would see
   OpenCore's private boot variables instead of the firmware's. Start Linux from the firmware (Limine is the default).
 
