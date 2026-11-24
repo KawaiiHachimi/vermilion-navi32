@@ -88,18 +88,14 @@ static const char *gAsicName = "navi31";
 
 // Called once in start(), before any register is touched. deviceId is PCI vendor|device >> 16 (0x744c, 0x747e, ...).
 static void phxSelectAsic(uint32_t deviceId) {
-    switch (deviceId) {
-        case 0x747e:   // Navi 32: RX 7800 XT and RX 7700 XT (same die, told apart by VRAM)
-            gNavi32 = true;
-            gAsicName = "navi32";
-            gGcVersion = (11u << 16) | (3u << 8) | 0u;
-            gGbAddrConfig = 0x00000444u;
-            gGcVmShift = 0x10u;
-            gGcL2Shift = 0x04u;
-            break;
-        default:       // Navi 31 (0x744c) and anything else keeps the reference values
-            break;
-    }
+    // The per-ASIC values live in PhxAsic.h, where tests/kext/asic_test.cpp checks them without a card.
+    const phxasic::Asic &a = phxasic::select(deviceId);
+    gNavi32 = a.navi32;
+    gAsicName = a.name;
+    gGcVersion = a.gcVersion;
+    gGbAddrConfig = a.gbAddrConfig;
+    gGcVmShift = a.gcVmShift;
+    gGcL2Shift = a.gcL2Shift;
 }
 
 // Pools reported to RADV. E1 backs every BO with system memory, so these are budgets, not hardware:

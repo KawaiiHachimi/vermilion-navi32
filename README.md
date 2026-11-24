@@ -16,7 +16,7 @@ WindowServer opens the displays.
 > **The `navi32` branch of this fork adds RX 7800 XT support** (Navi 32, PCI `1002:747e`, 16 GiB): GC 11.0.3,
 > MP0/MP1 13.0.10, SDMA 6.0.3, `GB_ADDR_CONFIG` 0x444, and the board's monitor on OTG0 + DIG4 + DP4 (HPD 4).
 > `ASIC=navi32 scripts/build/kext.sh` builds it; the reference driver is unchanged under the default `ASIC=navi31`.
-> What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**. The 7900 XT/XTX
+> What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**, the feature-by-feature state in **[docs/NAVI32-STATUS.md](docs/NAVI32-STATUS.md)**, and a clean-install runbook in **[docs/NAVI32-INSTALL.md](docs/NAVI32-INSTALL.md)**. The 7900 XT/XTX
 > path below is untouched by this branch.
 >
 > **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,
@@ -64,7 +64,7 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 | | |
 |---|---|
 | **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI** (`submit_test` reaches `target = 0x5eed0001`) · **the MES** (all API frames complete) · **a gfx queue created by the MES** that executes and is adopted by the accelerator · **RADV**: 270k compute dispatches in 4 s with 0 GPU errors, 47.8 GB/s buffer bandwidth, 162 us per waited submit |
-| **In progress** | **OpenGL / OpenCL and video decode.** Everything below them is done: the boot daemon now runs the Navi 32 bring-up, arms `phxfb-squat`, brings up Metal and restarts WindowServer once - `SUCCESS ... accelerated desktop survived`, `debug.nvaccel_iop_ok` climbing past 3800 frames. What is left is OpenGL / OpenCL (both go through the Metal device, which works), the Vulkan window surface (`RADV_PLATFORMS=macos`) and the VideoToolbox decoder bundle (VCN itself is up via the daemon) |
+| **In progress** | **Video decode and the Vulkan window surface.** Everything else is verified on this port: the boot daemon runs the Navi 32 bring-up, arms `phxfb-squat`, brings up Metal, restarts WindowServer once (`SUCCESS ... accelerated desktop survived`, `debug.nvaccel_iop_ok` past 3800 frames), and `debug.phxgl=1` gives OpenGL 4.1 core on the GPU (`vendor 'AMD' renderer 'AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over ...)' version '4.1 Metal - 90.5'`) with OpenCL enumerating the GPU. What is left is the VideoToolbox decoder bundle and a *measurement* of the Vulkan window surface: the shipped RADV already offers `VK_EXT_metal_surface` and the Vulkan Video decode set, so neither needs a driver rebuild - `tools/metaltest/vkwsi.m` is the probe for the surface, and the decoder needs FFmpeg built on the target (`tools/phxctl/navi32_decoder_build.sh`) |
 | **Not started** | Metal plugin (`NVMTLDriver`), WindowServer, OpenGL / OpenCL, Vulkan window surface, VCN decode. All of these are the Navi 31 tree's existing work, waiting for the bottom of the stack |
 
 ### The fixes that took the port from "no signal" to executing commands

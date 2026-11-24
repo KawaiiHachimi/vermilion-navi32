@@ -1820,3 +1820,355 @@ Two traps this round:
   which silently stopped auto-login on the following boots (the daemon reported SUCCESS, the console stayed at
   `root`). Re-writing `/etc/kcpassword` (the XOR form) restored it. If auto-login stops working after a
   sysadminctl attempt, regenerate that file rather than trusting the tool.
+
+### What is left for full Navi 31 parity (2026-11-24)
+
+Two pieces, both build work rather than driver work:
+
+| Piece | State | What it needs |
+|---|---|---|
+| VideoToolbox decode (HEVC / AV1) | VCN engine is up (`M1 PASS`, ring + decode create/destroy IB, MMHUB VM on); no decoder bundle installed | `libphxdec_hevc.dylib` + `PhxVideoDecoder.bundle` from `src/video-decoder`, which link FFmpeg n7.1 + `patches/ffmpeg`. The build host is **arm64 without Rosetta**, so FFmpeg's configure cannot run its own test programs for an x86_64 target - FFmpeg has to be built on the target Mac (Intel, clang + git available, no nasm: use `--disable-x86asm`) |
+| Vulkan window surface | RADV works headless; the installed dylib was built without `RADV_PLATFORMS=macos` | rebuild RADV from Mesa `f5cb8ee0` + `patches/mesa` with `-Dplatforms=macos`. The Mesa tree under `amd-hackintosh/.cache/postinstall/mesa` is present but **unpatched** (no `radv_darwin*` sources), so it has to be a clean checkout at that commit with the series applied |
+
+Everything else in the objective is verified on the RX 7800 XT: firmware, MES, gfx and compute queues, RADV,
+Metal 3, WindowServer compositing on the GPU, OpenGL 4.1, OpenCL, and the VCN engine.
+
+### The boot daemon's state machine: what a port must not fight (2026-11-24)
+
+The accelerated desktop works, but the daemon keeps state across boots and a manual poke can put it in a state
+where it refuses to arm. What was learned the hard way, all of it visible in `/var/log/phxboot.log`:
+
+| Marker | Meaning | Who writes it |
+|---|---|---|
+| `~/gpu/phxboot-auto` | re-arm `phxfb-squat` after a successful boot | the operator; only the daemon reads it |
+| `~/gpu/phxboot-desktop` | force a desktop-arm boot even without a squat | the operator; **`m2_fail` deletes it** |
+| `~/gpu/phxboot-failed` | the last accelerated attempt failed; blocks re-arming | `m2_fail` |
+| `~/gpu/phxboot-gl` | set `debug.phxgl=1` after `done` (OpenGL over Metal) | the operator |
+| `~/gpu/phxboot-autologin` | the user name the daemon auto-logs in **just before** its WindowServer restart | the operator |
+
+Two consequences that cost a lot of time here:
+
+* **Do not touch the flags while a daemon run is still in flight.** The run lasts ~150 s (120 s crash watch).
+  A failure in that window calls `m2_fail`, which deletes `phxboot-desktop` and `phxfb-squat` and touches
+  `phxboot-failed` - so a flag written a minute earlier silently disappears. Check `pgrep -f phxboot-navi31`
+  first, and only then set flags.
+* **`sysadminctl -autologin set` corrupts the credential.** It answered
+  `SACSetAutoLoginPassword error:22` on this machine and left `/etc/kcpassword` unreadable; auto-login then
+  stopped on every later boot while the daemon still reported SUCCESS (the console stayed at `root`). Writing
+  `/etc/kcpassword` directly (the XOR form, 12 bytes, mode 600 root:wheel) fixes it. A separate
+  `local.phxlogin` LaunchDaemon restores that file and sets `autoLoginUser` after `phxboot` finishes, which is
+  what the daemon cannot do itself (it deletes `autoLoginUser` at start and shutdown, and macOS tears the
+  password file down with it).
+
+The daemon also owns `/var/log/phxboot.log`: it writes `== <timestamp> phxboot(navi31, Option 1b)` per boot and
+`done` at the end. A bring-up script that truncates that file destroys the daemon's own record and its
+`vcn_up.sh` pre-flight marker, which is why the port's `navi32_up.sh` takes `PHX_SKIP_VCN=1` when the daemon
+calls it.
+
+## Where this repo sits relative to the two upstreams (2026-11-25)
+
+The port tracks **`ownback/vermilion-xtx`**, not `leolivm/vermilion`, and that is deliberate. Measured today:
+
+| Tree | HEAD | `PHX_KEXT_BUILD` | Contents |
+|---|---|---|---|
+| `ownback/vermilion-xtx` (this port's base) | `e953e2a` | **160** | the full XTX work: VRAM-backed BOs (b156/b157/b159), GPU-present scanout, 240 Hz / Adaptive Sync, DMUB, DP-B retrain |
+| `leolivm/vermilion` (upstream main) | `9a91901` | **127** | the original driver, plus b126 (GFX hub fault default page) and b127 (automatic recovery of a fault-stalled queue) |
+
+`navi32` is **121 commits ahead** of that upstream main and carries the xtx tree, so merging the two histories
+would not be a rebase - it would be a merge of two branches that diverged before build 126.
+
+### The build numbers collide, and that is the real obstacle
+
+`b126` and `b127` mean **different things** on the two sides:
+
+```
+xtx    b126 = PhxScanLayout.h      GPU-present scanout slot layout by frame size
+       b129..b160 = DP-B retrain, 240 Hz, Adaptive Sync, VRAM BO pools, ...
+upstream b126 = PhxFaultDef.h      GFX hub fault default page
+         b127 = PhxRecover.h       automatic recovery of a fault-stalled queue
+```
+
+So upstream's two newest features cannot be dropped in as-is: they would have to be renumbered past 160 and
+wired into `PhxBringup.cpp` (include + `phx_recover.cpp` inclusion + `recoverCtl`/`recoverStat` members),
+`phx_sysctl.cpp` (three sysctls), `phx_vm.cpp` (the fault default page) and `phx_classes.cpp`. That is a real
+port of its own, not a cherry-pick, and it must be built and booted on the card before it ships - upstream ties
+it to `debug.phxfaultdef=1` and `debug.phxrecover=0` by default precisely because it can kill a VMID's waves.
+
+Until then the port follows the fork: the port tree is at the fork's latest commit, and every Navi 32 change is
+on top of it. The two upstream features are recorded here as the next thing to port, with the exact reason they
+are not a fast-forward.
+
+### An armed squat boot that fails leaves the machine unreachable (2026-11-24)
+
+Sequence that cost this machine for an hour: `phxboot-desktop` and `phxfb-squat` were both set for a desktop
+attempt while a previous daemon run was still inside its 120 s crash watch. That run then failed, `m2_fail`
+removed `phxfb-squat` and `phxfb-desktop` and touched `phxboot-failed`, and the reboot went to a squat boot with
+no usable framebuffer: no ping, no ssh, nothing logged anywhere reachable. The machine had to be power-cycled by
+hand.
+
+Two rules follow, and they are cheap to follow:
+
+1. **Never arm a squat boot while a daemon run is alive.** `pgrep -f phxboot-navi31` must be empty before
+   flag writing; a run lasts ~150 s.
+2. **Prefer the daemon's own arming.** A boot that ends in SUCCESS re-arms `phxfb-squat` itself when
+   `phxboot-auto` exists, so a healthy machine needs no manual `nvram` at all. Manual arming is only for
+   recovering from a failure, and then it must be done with the flags consistent: `phxboot-desktop` present,
+   `phxboot-failed` absent, no daemon running.
+
+## The host test suites, and how to run them (2026-11-25)
+
+Both suites run on any Mac and need **no GPU**, which makes them the cheapest check before touching the card:
+
+```sh
+sh scripts/test/host.sh            # everything, one command
+sh scripts/test/host.sh --kext     # the C++ suites only
+sh scripts/test/host.sh --mock     # the daemon harness only
+```
+
+`scripts/test/host.sh` exists because the kext suites have no Makefile: each is one translation unit that
+includes a header from `src/vermilion-boot` (or `src/vermilion-accel/accel`), and without those two `-I` paths
+every one of them fails on its first `#include`. The script compiles and runs them all and exits non-zero if any
+fails, so a fresh checkout needs no knowledge of that.
+
+Result on this port today (the tree with every Navi 32 change applied):
+
+```
+mock    260 passed, 0 failed
+kext    dpb_retrain 69/69 · edid_full 38/38 · gputime 15/15 · head0_1440 83/83
+        p0odm 690621/690621 · pipe0_1440 45/45 · scan_layout 43/43
+        vram_bo 625/625 · vrr_ramp 14/14
+```
+
+**There is no Makefile for the kext tests**: compiled without `-I` they all fail on their first include
+(`PhxDpbRetrain.h`, `PhxDdc.h`, `PhxGpuTime.h`, `phxhead.h`, ...). The two include paths above are what they
+need, and every one of them then passes.
+
+## The shipped RADV already has macOS WSI and Vulkan Video (2026-11-25)
+
+An earlier note in this file said the installed RADV was built without `RADV_PLATFORMS=macos` and would have to
+be rebuilt for a window surface. That was wrong. `strings -a build/libvulkan_radeon.dylib` shows the ICD offers:
+
+```
+VK_KHR_surface, VK_KHR_surface_maintenance1, VK_KHR_surface_protected_capabilities
+VK_EXT_metal_surface, VK_EXT_metal_objects
+VK_KHR_video_decode_h264, _h265, _av1, _vp9, VK_KHR_video_decode_queue
+VK_KHR_video_encode_h264 / _h265 / _av1
+RADV_DARWIN_CANNED, RADV_DARWIN_MOCK, RADV_DARWIN_HOST_BO, RADV_DARWIN_ALLOW_ADDRCFG,
+RADV_DARWIN_PROXY, RADV_DARWIN_VERBOSE, RADV_DARWIN_VCN
+```
+
+So **both** of the pieces listed as "needs a rebuild" are already in the driver: the macOS window surface
+(`VK_EXT_metal_surface` over a `CAMetalLayer`) and hardware video decode (`VK_KHR_video_decode_h265`, plus
+`RADV_DARWIN_VCN`). What was missing was a way to exercise them: the target has no Vulkan loader, and
+`tools/metaltest/vkwindow.m` links against one.
+
+`tools/metaltest/vkwsi.m` fills that gap. It opens the ICD directly (dlopen + `vkGetInstanceProcAddr`, the same
+way `tools/vkbench` does), makes an NSWindow with a `CAMetalLayer`, creates a `VK_EXT_metal_surface`, a FIFO
+swapchain, clears and presents every frame, prints the ICD's surface extensions up front and ends with `WSI OK`.
+It cross-compiles to x86_64 on the build host; running it needs the target.
+
+That changes the remaining-work picture: the Vulkan window surface is a *verification* task, not a driver build,
+and the decoder bundle is the only piece that needs FFmpeg built (on the target, where x86_64 is native).
+
+## The ASIC table is now a tested header (2026-11-25)
+
+The per-die values the port depends on used to live inside `phxSelectAsic()` in `phx_globals.cpp`, where no test
+could reach them. They are now `src/vermilion-boot/PhxAsic.h`:
+
+```
+kNav31  navi31  0x744c  GC 11.0.0  GB_ADDR_CONFIG 0x545  vm +0x00  l2 +0x00
+kNav32  navi32  0x747e  GC 11.0.3  GB_ADDR_CONFIG 0x444  vm +0x10  l2 +0x04
+select(id)  ->  the matching entry, or Navi 31 for anything else (never a guess)
+```
+
+`tests/kext/asic_test.cpp` checks all of it on any Mac - 23 checks: the two ids, the two `GB_ADDR_CONFIG` values,
+GC 11.0.0 against 11.0.3, the two shifts, the names, `select()` for both known ids and for three unknown ones,
+that the two dies differ on every value that matters, and that no device id appears twice in the table.
+
+Why this matters more than it looks: a wrong constant here is **silent**. Reading `0x545` on a GC 11.0.3 die, or
+shifting the VM block by 0 instead of 0x10 dwords, programs the wrong registers without faulting - and
+`GB_ADDR_CONFIG` also goes into the MES frame and into the pool setup RADV sees.
+
+The full host set is green with the change, and the kext builds (build 160, no bump: behaviour is identical on both
+dies, the values simply moved into a header):
+
+```
+asic_test 23/23   dpb_retrain 69/69   edid_full 38/38   gputime 15/15   head0_1440 83/83
+p0odm 690621/690621   pipe0_1440 45/45   scan_layout 43/43   vram_bo 625/625   vrr_ramp 14/14
+tests/mock/run.sh: 260 passed, 0 failed
+```
+
+## Every artefact builds from this tree (2026-11-25)
+
+Ran every build script with `ASIC=navi32` on the port's tree, so a fresh checkout is known to produce all of it:
+
+| Script | Result | Artefact |
+|---|---|---|
+| `scripts/build/kext.sh` | OK (16 warnings) | `build/VermilionBoot.kext` |
+| `scripts/build/accel.sh` | OK (4 warnings) | `build/VermilionAccel.kext` |
+| `scripts/build/plugin.sh` | OK (331 warnings, all deprecation notes from Apple's Metal headers) | `build/NVMTLDriver` 1,719,808 B |
+| `scripts/build/translator.sh` | OK | `build/libnvmtl_translate.dylib` 15,106,368 B |
+| `scripts/build/tools.sh` | OK | `mesboot`, `phxctl`, `submit_test`, `vcn_write_test` |
+| `scripts/build/metaltest.sh` | OK | `build/metaltest` |
+| `scripts/build/metalbench.sh` | OK | `build/metalbench` |
+| `scripts/build/vkbench.sh` | OK | `build/vkbench` |
+| `scripts/build/vkwsi.sh` | OK (new) | `build/vkwsi` - the Vulkan window-surface probe |
+
+`vkwsi` had no build script; `scripts/build/vkwsi.sh` adds it. It needs Vulkan-Headers and fails with a clear
+message when `VULKAN_HEADERS` does not point at a tree with `vulkan/vulkan_core.h` - the repo does not vendor
+them, so that is the one input a fresh checkout has to supply for the plugin, the translator and `vkwsi`.
+
+Two inputs the build host must supply, both documented in `docs/NAVI32-INSTALL.md`:
+
+* `VULKAN_HEADERS` for `plugin.sh`, `translator.sh` (via Mesa's headers) and `vkwsi.sh`;
+* `rustup target add x86_64-apple-darwin` for `translator.sh` on an arm64 host.
+
+### The client flat-table walk is now tested (2026-11-25)
+
+`tests/kext/vm_flat_test.cpp` covers the one page-table path this port actually uses for client contexts:
+`Ctx::flat`, a single depth-0 table indexed by `va >> 12`. 17 checks, all host code:
+
+* entry *i* is `table[i]` for every page the table covers, and the walker reports `kNil` for the pool table (a
+  flat context has none);
+* one past the end, `0x7ffffff000` and `0xffffffffff000` all return **nullptr** instead of reading off the table;
+* the low 12 bits of the VA never change which entry is addressed (`0x1000` and `0x1fff` are the same entry);
+* a context whose table is not mapped into BAR0 yet (`cpu == nullptr`) has no entries at all - the state a client
+  VMID is in before its table is mapped;
+* `kAddrMask` keeps bits 12..47 of a physical address and nothing else, including for a sign-extended value.
+
+Writing it also documents a property of the header: `pte()` is a template whose *whole* body is instantiated, so
+the walker's environment needs `mode()`, `retired()`, `poolCpu` and a `flush(volatile uint64_t *)` even when a
+flat context can never reach `takeParked()`. A test's fake environment has to provide them; that is a property of
+the code, not of the test.
+
+The host suites are 11/11 green with it, and 260/260 in the mock harness.
+
+## Vulkan window surface: WSI OK on the RX 7800 XT (2026-11-25)
+
+RADV built from Mesa `f5cb8ee0` + `patches/mesa` **with `-Dplatforms=macos`** advertises the window surface and
+presents into a `CAMetalLayer`:
+
+```
+icd: /Library/GPUBundles/nvmtl/libvulkan_radeon_wsi.dylib
+instance extensions (15): VK_KHR_device_group_creation VK_KHR_external_fence_capabilities
+  VK_KHR_external_memory_capabilities VK_KHR_external_semaphore_capabilities
+  VK_KHR_get_physical_device_properties2 VK_KHR_get_surface_capabilities2
+  VK_KHR_surface VK_KHR_surface_maintenance1 VK_KHR_surface_protected_capabilities
+  VK_EXT_debug_report VK_EXT_debug_utils VK_EXT_headless_surface VK_EXT_metal_surface
+  VK_EXT_surface_maintenance1 VK_EXT_swapchain_colorspace
+device: AMD Radeon RX 7800 XT (RADV NAVI32)
+present queue family: 0
+surface: 640x360, 3..3 images, currentTransform 1
+swapchain: 3 images, 640x360, FIFO
+presented 300/300 frames in 0.17 s (1765.0 fps)
+WSI OK
+```
+
+### The measurement that settles it, and the one that did not
+
+`strings -a libvulkan_radeon.dylib | grep VK_EXT_metal_surface` finds the name in **both** builds - the string is
+in Mesa's WSI code either way. So a string search says "supported" for a build that does not advertise it. The
+**default** build (no `-Dplatforms`) enumerates exactly eight instance extensions, and the only surface one is
+`VK_EXT_headless_surface`:
+
+```
+instance extensions (8): VK_KHR_device_group_creation VK_KHR_external_fence_capabilities
+  VK_KHR_external_memory_capabilities VK_KHR_external_semaphore_capabilities
+  VK_KHR_get_physical_device_properties2 VK_EXT_debug_report VK_EXT_debug_utils
+  VK_EXT_headless_surface          <- no VK_KHR_surface, no VK_EXT_metal_surface
+```
+
+The lesson is general and worth keeping: **enumerate extensions, never grep the binary**. The probe
+(`tools/metaltest/vkwsi.m`) prints the whole list before it tries to use anything, which is what turned a wrong
+"already supported" claim into a five-minute diagnosis.
+
+### Two builds, two purposes
+
+| Build | File | Consumer |
+|---|---|---|
+| default (`-Dplatforms=`) | `/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib` | the Metal plugin (`NVMTLDriver`) - headless on purpose |
+| `RADV_PLATFORMS=macos` | `/Library/GPUBundles/nvmtl/libvulkan_radeon_wsi.dylib` | Vulkan applications: `VK_KHR_surface`, `VK_EXT_metal_surface`, swapchains (patch 0020) |
+
+Building the second one, on an arm64 host cross-compiling to x86_64:
+
+```sh
+git clone https://gitlab.freedesktop.org/mesa/mesa && git -C mesa checkout f5cb8ee0
+MESA_DIR=<mesa> sh scripts/build/radv.sh apply          # patches/mesa 0001..0020
+python3 -m venv /tmp/mesavenv && /tmp/mesavenv/bin/pip install mako pyyaml markupsafe packaging
+PATH=/tmp/mesavenv/bin:$PATH MESA_DIR=<mesa> RADV_PLATFORMS=macos sh scripts/build/radv.sh
+```
+
+Mesa's build needs mako, pyyaml, markupsafe and packaging; macOS ships none of them, and `pip install --user` is
+refused by PEP 668, so a venv on `PATH` is the way. The result is 20,744,896 B against 20,720,320 B for the
+default build.
+
+## VCN hardware decode is verified on Navi 32 (2026-11-25)
+
+`libphxdec_hevc.dylib` (FFmpeg n7.1 + `patches/ffmpeg`, built **on the target** because the build host is arm64
+without Rosetta) drives the VCN engine and produces frames identical to Apple's software decoder:
+
+```
+phxdec_register -> 0
+session create 0, codec hvc1
+sent 10, frames out 10, 197.4 ms (50.7 fps)
+
+vcn submits before: 6
+vcn submits after:  17          <- the decode really went through the VCN (debug.phxmmvm_stat)
+
+ours   md5 11daba43c74dfadc65018997238ffe85  d7033c72a25e58149d48867cc59175de
+           # 61a6b8eae2a308a3eebd8571b3d9d2ac  33d323659d5395f7bb648a6b787a5cab
+           # a20e1d783d530f733fe5a6c613515684
+apple  identical, frame for frame
+```
+
+The clip is a 1-second 320x240 HEVC (`x265`, yuv420p, `hvc1`) made on the build host; `vtdec_test` decodes it
+through a `VTDecompressionSession` twice - once with the dylib registered in-process (our decoder), once without
+(VideoToolbox picks Apple's) - and the two md5 lists match exactly.
+
+Two facts made this measurable:
+
+* `debug.phxmmvm_stat`'s **`vcn submits`** counter is the proof that the decode used the engine; a decoder that
+  silently fell back to software would leave it unchanged;
+* `vtdec_test <movie> <frames> [dylib]` registers a decoder dylib in-process, so no system-volume install is needed
+  to test the decode path - the bundle install (INSTALL.md 5.5) is only about VideoToolbox *finding* it in other
+  processes.
+
+The decoder build on the target needs `nasm` (FFmpeg's x86 assembly); MacPorts has it, and without it configure
+stops with "nasm/yasm not found or too old". `tools/phxctl/navi32_decoder_build.sh` does the whole thing: clone
+the tree and FFmpeg n7.1, apply `patches/ffmpeg`, build `libavcodec_phx`/`libavutil_phx`, then
+`src/video-decoder/build.sh` and sign every Mach-O.
+
+## VideoToolbox finds the decoder and uses the VCN (2026-11-25)
+
+With `PhxVideoDecoder.bundle` installed in `/System/Library/Video/Plug-Ins` (through `sysvol_install.sh`, which
+needed only `csrutil authenticated-root status: disabled` - already the case here) and the three dylibs next to
+the Metal plugin, a process that asks VideoToolbox for HEVC gets **our** decoder **without naming it**:
+
+```
+vcn submits before: 0
+session create 0, codec hvc1, hardware decoder ?
+frame 0..4: md5 11daba43... d7033c72... 61a6b8ea... 33d32365... a20e1d78...   (identical to Apple's software decode)
+sent 5, frames out 5, 483.9 ms (10.3 fps)
+vcn submits after:  6
+```
+
+`vtdec_test` was run **without** a dylib argument this time: the decoder came from the bundle, and the
+`vcn submits` counter moving 0 -> 6 proves the frames were produced by the VCN engine. This is the same test that
+printed "identical to Apple" earlier, so the output is still correct - the difference is that the engine is doing
+the work.
+
+The install chain that got here:
+
+```
+src/video-decoder/vtbundle/build.sh          -> PhxVideoDecoder.bundle (27,328 B executable)
+tools/phxctl/sysvol_install.sh <bundle> /System/Library/Video/Plug-Ins
+                                             -> mounts the live volume read-write, copies, blesses a snapshot
+reboot                                       -> the snapshot boots, VT sees the bundle
+```
+
+`sysvol_install.sh` refuses without `authenticated-root` disabled; on this machine SIP reports "unsupported
+configuration" (boot-args `amfi=0x80 amfi_get_out_of_my_way=1`) and authenticated-root is disabled, so the install
+went through and the machine came back on the new snapshot.
+
+One side effect worth knowing: the system volume is no longer sealed, so macOS offers only full updates and a
+system update removes the bundle (INSTALL.md 5.5 documents both, and `--remove` takes it out again).

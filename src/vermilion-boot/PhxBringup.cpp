@@ -32,6 +32,7 @@
 #include <kern/sched_prim.h>
 
 #include "PhxNativeABI.h"
+#include "PhxAsic.h"    // per-ASIC identity: GC version, GB_ADDR_CONFIG, GC memory-hub shifts
 #include "PhxVmTables.h"
 #include "phx_regs_dcn32.h"
 #include "PhxVramPool.h"   // b156: VRAM-backed BOs (phx_vram.cpp)
