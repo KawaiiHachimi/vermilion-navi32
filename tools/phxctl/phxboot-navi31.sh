@@ -320,6 +320,13 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
 echo "== bring-up + claim =="
 UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); echo "$UPOUT" | tail -4
+echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at every boot (is a warm restart cold?)
+# A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. No claim, no Metal on it: a desktop
+# boot reverts to GOP (m2_fail), any other boot stays on the firmware display. Only a full power-off makes it cold again.
+case "$UPOUT" in *"refused: warm GPU"*)
+  [ $DESK = 1 ] && m2_fail "warm GPU: bring-up refused; power the machine off fully, then boot macOS"
+  echo "warm GPU: bring-up refused, no Metal this boot (firmware display); power the machine off fully, then boot macOS"
+  release; exit 0;; esac
 # Idle power: clock gating and the UCLK pin right after the GPU is up, not only after `done`: without them the card sat at
 # ~110 C hotspot / 260 W for the ~2 min of the boot; the late calls below re-apply them after
 # vcn_boot.
