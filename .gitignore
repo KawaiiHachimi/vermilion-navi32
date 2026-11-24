@@ -30,3 +30,7 @@ target/
 /deps/
 # generated per machine from the installed Vermilion code (gen_list.sh)
 src/vermilion-trust/phxtrust_list.inc
+# agent tooling: per-checkout code index, Serena's local state, personal Claude Code settings
+compile_commands.json
+/.serena/
+.claude/settings.local.json

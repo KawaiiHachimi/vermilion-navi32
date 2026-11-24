@@ -1,9 +1,9 @@
 # Owner tests
 
 Everything only the owner can check: by eye, by ear, with another device, or in the BIOS. This list merges section 4
-of the eight final reports of the first round (2026-11-23), without duplicates, grouped by the thread of the series
-([ROADMAP.md](../ROADMAP.md)) that needs the answer. A thread may ask for its tests at any time; doing a later
-thread's tests early is fine.
+of the eight final reports of the first round (2026-11-23), without duplicates, grouped by the thread of the 2026-11-23
+series that needs the answer ([ROADMAP.md](../ROADMAP.md) replaces that series with phases). A thread may ask for its
+tests at any time; doing a later thread's tests early is fine.
 
 How to report: tick the box, add the date and one line of result, or tell the active thread. Where a test asks for a
 command's output, paste the whole output. None of these needs an EFI change. Ask first before anything that does.

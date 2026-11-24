@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# machine-lock: who may change this machine (EFI partition, system volume, ~/gpu, kexts, restarts).
+#
+#   .claude/hooks/machine-lock acquire "<reason>"   take the lock for this Claude Code session
+#   .claude/hooks/machine-lock release              give it back
+#   .claude/hooks/machine-lock steal "<reason>"     take over a lock older than 12 hours
+#   .claude/hooks/machine-lock status               show the holder
+#
+# Run it as a Bash call of its own. The PreToolUse hook (.claude/hooks/guard.py) does the actual locking, because
+# only the hook knows the session id; this script only reports the result.
+LOCK=${VERMILION_MACHINE_LOCK:-$HOME/.vermilion/machine.lock}
+case "$1" in
+  acquire|steal|release|status)
+    if [ -f "$LOCK" ]; then echo "machine lock: $(cat "$LOCK")"; else echo "machine lock: free"; fi ;;
+  *) sed -n '3,8p' "$0"; exit 2 ;;

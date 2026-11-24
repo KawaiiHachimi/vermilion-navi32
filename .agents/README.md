@@ -8,8 +8,9 @@ first, and update it when the machine's state, the known-good configuration or a
 
 | File | What | How to update |
 |---|---|---|
-| [../ROADMAP.md](../ROADMAP.md) | The thread series 00-12, the rules, the known limits | One status line per thread; rarely edited |
-| [TODO.md](TODO.md) | Open tasks, grouped by series thread | Delete an item when done (record it where it belongs); add items under the owning thread |
+| [../ROADMAP.md](../ROADMAP.md) | The standard, the repositories, the phases, the rules, the known limits | Rarely edited |
+| [STATUS.md](STATUS.md) | What works, what's broken, what's next | Kept by the megamind |
+| [TODO.md](TODO.md) | Open tasks, grouped by the threads of the 2026-11-23 series | Delete an item when done (record it where it belongs); add items under the owning thread |
 | [OWNER-TESTS.md](OWNER-TESTS.md) | Tests only the owner can do, grouped by the thread that needs the answer | Tick with the date and the result |
 | [HANDOFF-LINUX-REFERENCE.md](HANDOFF-LINUX-REFERENCE.md) | The plan for the next Linux boot (read-only captures) | Replace when done; record results in a finding |
 | [decisions.md](decisions.md) | Why things are the way they are | Append only; newest at the bottom |

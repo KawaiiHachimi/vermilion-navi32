@@ -12,7 +12,7 @@ One source of truth for each kind of fact:
 
 | File | Holds |
 |---|---|
-| [ROADMAP.md](../ROADMAP.md) | the goal, the thread series 00-12 and its status, the rules, the known limits |
+| [ROADMAP.md](../ROADMAP.md) | the standard, the repositories, the phases, the rules, the known limits |
 | [.agents/TODO.md](../.agents/TODO.md) | open tasks, grouped by series thread; check and rollback steps while a change is staged |
 | **this file** | the machine's state per area, the known-good configuration and its rollback, dependencies, failed attempts, the performance record |
 | [.agents/OWNER-TESTS.md](../.agents/OWNER-TESTS.md) | tests only the owner can do |
@@ -257,7 +257,7 @@ How each piece works: [ARCHITECTURE.md](ARCHITECTURE.md). Install paths: [INSTAL
 
 ## Cross-thread rules
 
-The full rules are in [ROADMAP.md](../ROADMAP.md) "Rules for every thread" and [CLAUDE.md](../CLAUDE.md) "Hard rules".
+The full rules are in [ROADMAP.md](../ROADMAP.md) "Rules for every agent" and [CLAUDE.md](../CLAUDE.md) "Hard rules".
 The ones that touch the machine:
 
 1. **One EFI change per boot**, built and installed only with `efi/build.py install` (keeps `EFI/OC.prev`). Rollback
