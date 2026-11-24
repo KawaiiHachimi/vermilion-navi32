@@ -118,8 +118,8 @@ squat survived its reboot and brings up a safe desktop instead (`~/gpu/phxboot-n
 The squat is the intended state: `phxfb-squat` is set from Linux, and every OpenCore boot is a squat boot.
 
 **Never Reset NVRAM** (hard rule 1). It deletes `phxfb-squat`, macOS can't set it again, and every later boot runs on
-the firmware display with a phantom display. The EFI builder hides the picker's Reset NVRAM entry for that reason.
-Recovery after a failed boot instead:
+the firmware display with a phantom display. For that reason the EFI builder leaves the picker's Reset NVRAM entry out
+of the live stage (`vermilion-trust-bar1g-audio`; not booted yet, unverified). Recovery after a failed boot instead:
 - **Safe desktop after a failure:** `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back at the next
   boot.
 - **Dark screen** (the safe desktop didn't finish the boot before): ssh still reaches the machine. Restart once and the
@@ -127,8 +127,9 @@ Recovery after a failed boot instead:
 - **A bad change:** boot-arg `-phxbringupoff` for one boot, the kill switch (`touch ~/gpu/phxboot-off`, or from Linux
   `touch /boot/vermilion/flags/phxboot-off`), or the previous EFI (`EFI/OC.prev`,
   [runbooks](../.agents/runbooks.md)).
-- **Linux to macOS:** always a full power-off. If the boot log says `warm GPU: bring-up refused`, shut down, power on and
-  boot macOS again.
+- **Linux to macOS:** always a full power-off. If the boot log says `warm GPU: bring-up refused`, shut down, power on
+  and boot macOS again. A refusal on a desktop boot counts as a failed attempt (`~/gpu/phxboot-failed`), so the full
+  desktop comes back with the `rm` of the first point (from the daemon's code; unverified on hardware).
 
 ## First boot on the XTX
 

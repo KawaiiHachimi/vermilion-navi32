@@ -187,7 +187,8 @@ efi/build.py build --stage vermilion && efi/build.py install --esp /boot --stage
 ```
 
 Then power off, F8 > OpenCore > Reset NVRAM > OpenCore > the Recovery entry > Utilities > Terminal (the Reset NVRAM
-step was the first install only, before `phxfb-squat` existed: never do it now, hard rule 1; the picker hides the entry):
+step was the first install only, before `phxfb-squat` existed: never do it now, hard rule 1; the live stage's picker
+has no such entry once phase 2 item 1 (b) has booted):
 
 ```sh
 mkdir -p /tmp/efi && diskutil mount -mountPoint /tmp/efi disk2s1 && sh /tmp/efi/vermilion/install.sh

@@ -77,6 +77,13 @@ sc_readerr() {
   nowrite || { ok=0; why="$why wrote to the GPU or armed the watchdog;"; }
   res readerr $ok "$why"
 }
+sc_openfail() {
+  mk 0x00000000 openfail; run_bringup env; ok=1; why=""
+  [ "$RC" = 3 ] || { ok=0; why="$why rc $RC!=3;"; }
+  echo "$OUT" | tail -1 | grep -q '^refused: warm GPU check failed: C2PMSG_81 unreadable (PhxBringup service not found)' || { ok=0; why="$why no unreadable refusal;"; }
+  nowrite || { ok=0; why="$why wrote to the GPU or armed the watchdog;"; }
+  res openfail $ok "$why"
+}
 sc_cold() {
   mk 0x00000000; run_bringup env STOP_AFTER=sos; ok=1; why=""
   [ "$RC" = 0 ] || { ok=0; why="$why rc $RC!=0;"; }
@@ -86,13 +93,6 @@ sc_cold() {
   echo "$OUT" | grep -q 'sOS up' || { ok=0; why="$why sOS did not come up;"; }
   echo "$OUT" | grep -qx 'sOS check: C2PMSG_81=0x00000000 (cold)' || { ok=0; why="$why no sOS check line;"; }
   res cold $ok "$why"
-}
-sc_openfail() {
-  mk 0x00000000 openfail; run_bringup env; ok=1; why=""
-  [ "$RC" = 3 ] || { ok=0; why="$why rc $RC!=3;"; }
-  echo "$OUT" | tail -1 | grep -q '^refused: warm GPU check failed: C2PMSG_81 unreadable (PhxBringup service not found)' || { ok=0; why="$why no unreadable refusal;"; }
-  nowrite || { ok=0; why="$why wrote to the GPU or armed the watchdog;"; }
-  res openfail $ok "$why"
 }
 sc_warm; sc_readerr; sc_openfail; sc_cold
 echo "RESULT: $PASSN passed, $FAILN failed"
