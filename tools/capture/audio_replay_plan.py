@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 # audio_replay_plan.py (thread 04, 2026-11-24): from a Linux mode-set trace (linux_display_capture.py, ftrace
 # amdgpu_dc_wreg) of a DP monitor on DIG1, print DC's audio-enable writes as "reg value" lines, for a replay on macOS
-# while the stream already runs (tools/phxctl/audio_dc_replay.sh). Prototype: the kext will compute the same values from
-# the EDID instead (CLAUDE.md rule 2).
+# while the stream already runs. Now the reference for tools/phxctl/phxaudio_plan.h, which computes the same writes from
+# the EDID (CLAUDE.md rule 3); the replay prototype audio_dc_replay.sh was retired 2026-11-24.
 # Kept, from the first DTO write to the last write of reg 0x52: the audio clock (DCCG DTO1, reg 0x52 around it), AFMT1, the codec endpoint 1 (index / data: pin control,
 # channel allocation, short audio descriptors, latency, sink info = the ELD), the audio packets. Left out: everything
 # before the first DTO write (DC's "audio off" for the stream change) and the stream's own DP_SEC_CNTL / FRAMING4 /

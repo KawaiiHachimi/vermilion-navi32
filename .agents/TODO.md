@@ -233,6 +233,11 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
         Mode switches keep the state: 2026-11-24 17:54, 240 -> 144 -> 240 through p0odm (3 mode sets, link retrained),
         `phxaudio state` all ok after each (sound after a switch not yet heard).
   - [ ] After a mode change / replug / wake: the audio must come back (re-program, re-deliver)
+  - [ ] hw-safety review 2026-11-24 (decision "DP audio merged with Linux sequencing differences"): (a) `audio_boot`
+        waits for a settled display (p0odm state line + OTG0 `H_TOTAL`, as `idle_dpm.sh`) before `phxaudio apply`, or the
+        kext serialises it with p0odm; (b) before a pipe-0 plan replay with audio on, Linux's audio-off writes, then
+        `apply` again; (c) the `DP1_DP_SEC_CNTL` audio packet enables at Linux's point, not in the mode-set plans;
+        (d) `debug.phxaudio_event` accepts only 1 and 2 (7 / 8 go to every framebuffer listener)
 - [ ] HDMI output: the LG over HDMI shows black (2026-11-24, as expected: no plan for it); needs a Linux capture of the LG
       on HDMI
 - [ ] Bug: after a DP unplug / replug the LG stays black (link trains, HBR3 x4 locked); only a restart brought it back
