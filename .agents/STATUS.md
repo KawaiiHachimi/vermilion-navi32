@@ -26,6 +26,12 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 | 9 | **DDC/CI over DP AUX** (MonitorControl, BetterDisplay: brightness and volume) | Owner requirement; a known limit that must work | M | D21 |
 | 10 | **Video:** 4K AV1 frames in flight; WebGPU render bundles (Safari GPU process crash); H.264 decode; AV1 fallback | YouTube 4K stutters; WebGPU crashes take every tab's video | M-L | M, A15, TODO 13 items 11-13 |
 
+Item 1 is PR #22 (not deployed). Before its deploy step (a): a one-shot read-only probe (`vermilion/run-once.sh` on
+the ESP, installed 2026-11-24) logs C2PMSG_81 at the next boot, to learn whether a warm restart leaves the sOS running.
+If it does, the warm refusal would cost Metal after every restart, and item 1 needs Linux's answer (Mode1 reset,
+hw-safety) first. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
+still claims the GPU (part of item 3).
+
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).
 
