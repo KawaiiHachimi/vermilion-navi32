@@ -102,6 +102,23 @@ and reopen Safari once before these tests (a Safari that was open before 18:07 k
       Monitor's CPU use for about a minute.
 - [ ] **Photos:** open a few videos and HEIC photos in Photos. Smooth? Any black or green frames?
 
+## 04 DP / HDMI audio, HDMI output
+
+- [x] **Auto-login after a restart** (daemon change of 2026-11-24, from the auto-login thread): 2026-11-24 01:46
+      restart, checked from the logs: the daemon line ends `first-run marker removed`, the relaunched loginwindow
+      (pid 1101) logged "setting FirstRunKey in authref to: 1" and "loginUserIsAutoLoginUser", user on the console
+      at 01:46:51, 7 s after the WindowServer restart. Owner: say if you saw a password prompt anyway.
+- [x] **Sound from the LG's headphone jack:** 2026-11-24 07:53, EFI change 29, speakers on the LG's jack: a 440 Hz
+      tone at -30 dBFS, 5 s, on "LG ULTRAGEAR+" (DisplayPort): owner "we got sound!". Still set up by hand after each
+      boot (`audio_match.sh on`, the DC replay, a display sleep / wake); no glitches in the probe (0 late cycles,
+      0 discontinuities, device clock -24 ppm vs the host).
+- [x] **Music from the LG:** 2026-11-24 evening, EFI change 33, audio turned on by the boot daemon: music on "LG
+      ULTRAGEAR+", volume changes, a switch to the Realtek and back, 240 -> 144 -> 240 Hz while playing. Owner: "Works
+      fine! no problems so far!"
+- [ ] **Audio after a replug and after sleep** (thread 04 checks the logs first): unplug the LG's DP cable while music
+      plays on the LG, plug it back; later, sleep the Mac (Apple menu > Sleep), wake it. Does the sound come back on
+      the LG by itself?
+
 ## 07 Wireless and Continuity
 
 - [ ] **Router channel (no EFI change):** in the router, set 5 GHz to channel **44** at 80 MHz (not "auto", not 52-64

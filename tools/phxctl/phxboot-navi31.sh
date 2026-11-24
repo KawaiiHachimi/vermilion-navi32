@@ -150,7 +150,7 @@ b21_file(){ "$PB" -c "Print :SHOWFULLNAME" "$LWDOM.plist" 2>/dev/null || echo ab
 # login-window guard goes ON (daemon start, shutdown TERM, every revert to GOP), written right before the Metal WindowServer
 # restart, so the accelerated loginwindow logs the user in. ~/gpu/phxboot-autologin holds the user name; /etc/kcpassword (made
 # once by `sysadminctl -autologin set`) holds the password. Either missing = the key is only ever deleted (password login).
-KCPW=${PHXBOOT_KCPASSWORD:-/etc/kcpassword}
+KCPW=${PHXBOOT_KCPASSWORD:-/etc/kcpassword}; LWRAN=${PHXBOOT_LWRAN:-/private/var/run/com.apple.loginwindow.didRunThisBoot}
 al_user(){ tr -d ' \t\r\n' 2>/dev/null <"$G/phxboot-autologin"; }
 al_off(){ [ -e "$G/phxboot-autologin" ] || return 0
   defaults delete "$LWDOM" autoLoginUser >/dev/null 2>&1
@@ -161,7 +161,12 @@ al_on(){ [ -e "$G/phxboot-autologin" ] || return 0
   [ -n "$u" ] || { echo "autologin: ~/gpu/phxboot-autologin is empty: no automatic login"; return 0; }
   [ -s "$KCPW" ] || { echo "autologin: $KCPW missing (run sysadminctl -autologin set once): no automatic login"; return 0; }
   defaults write "$LWDOM" autoLoginUser "$u" >/dev/null 2>&1
-  echo "autologin: $(date '+%T') on for '$u' before the Metal WindowServer restart (reads '$(defaults read "$LWDOM" autoLoginUser 2>/dev/null)')"; }
+  # 2026-11-24: loginwindow autologins only on its first run of the boot (FirstRunKey in the authref), and it decides that
+  # from $LWRAN, which the boot's first loginwindow creates. The loginwindow relaunched by the restart below found it and
+  # showed the password prompt. Removing it makes that relaunched loginwindow the "first run"; it re-creates the file at
+  # once, so any later loginwindow this boot (a crash of the Metal WindowServer) still asks for the password: no loop.
+  rm -f "$LWRAN" 2>/dev/null
+  echo "autologin: $(date '+%T') on for '$u' before the Metal WindowServer restart (reads '$(defaults read "$LWDOM" autoLoginUser 2>/dev/null)'; first-run marker $([ -e "$LWRAN" ] && echo "STILL PRESENT: password prompt likely" || echo removed))"; }
 b21_on(){ al_off "$1"
   b21_ok || return 0
   local was o rec=earlier rc f how=""
@@ -791,6 +796,22 @@ gl_boot(){
     echo "gl: OpenGL over Metal on"
   else echo "gl: debug.phxgl=1 refused: off"; fi; }
 [ "${PHXBOOT_NO_GL:-0}" = 1 ] || [ $SAFE = 1 ] || gl_boot
+# 2026-11-24 (thread 04): with $G/phxboot-audio, on a desktop boot: DP audio on head 0, as a real Mac with an AMD GPU has
+# it. First the display engine's audio blocks from the monitor's EDID ($G/phxaudio apply: Linux DC's sequence for DIG1;
+# its full output in $G/phxaudio.log), then Apple's AppleGFXHDA on the GPU's audio function ($G/audio_match.sh on, which
+# needs VermilionAudio 1.6.0 in the EFI and waits for the audio engine). Once per boot, never undone: a detach makes the
+# next attach hot-reset the whole GPU (findings/2026-11-24-gfxhda-detach-gpu-hot-reset.md).
+audio_boot(){
+  [ -e "$G/phxboot-audio" ] || return 0
+  [ $DESK = 1 ] || { echo "audio: not a desktop boot: skip"; return 0; }
+  sysctl -n debug.phxaudio_match >/dev/null 2>&1 || { echo "audio: VermilionAudio not loaded (not in the EFI, or -phxaudiooff): off"; return 0; }
+  { [ -x "$G/phxaudio" ] && [ -e "$G/audio_match.sh" ]; } || { echo "audio: $G/phxaudio or $G/audio_match.sh missing: off"; return 0; }
+  if ! "$G/phxaudio" apply >"$G/phxaudio.log" 2>&1; then
+    echo "audio: display engine not programmed ($(tail -1 "$G/phxaudio.log")): AppleGFXHDA not attached"; return 0
+  fi
+  echo "audio: display engine programmed ($(tail -1 "$G/phxaudio.log" | sed 's/^phxaudio: //'))"
+  sh "$G/audio_match.sh" on 2>&1; }
+[ "${PHXBOOT_NO_AUDIO:-0}" = 1 ] || [ $SAFE = 1 ] || audio_boot
 
 # 11-03: a WindowServer pid change counts as a crash only with the kernel's "WindowServer[pid] Corpse allowed" line for the
 # old pid (a logout also restarts WindowServer, cleanly); .ips files alone missed silent crashes
