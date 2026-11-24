@@ -64,7 +64,7 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 | | |
 |---|---|
 | **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI** (`submit_test` reaches `target = 0x5eed0001`) · **the MES** (all API frames complete) · **a gfx queue created by the MES** that executes and is adopted by the accelerator · **RADV**: 270k compute dispatches in 4 s with 0 GPU errors, 47.8 GB/s buffer bandwidth, 162 us per waited submit |
-| **In progress** | **Metal.** RADV runs (above), so the next step is the Metal stack on top of it: the `NVMTLDriver` plugin, the `libnvmtl_translate` shader translator, the `VermilionAccel` accelerator kext and the boot daemon that moves WindowServer onto the GPU. The port has not yet loaded any of them |
+| **In progress** | **OpenGL / OpenCL and video decode.** Everything below them is done: the boot daemon now runs the Navi 32 bring-up, arms `phxfb-squat`, brings up Metal and restarts WindowServer once - `SUCCESS ... accelerated desktop survived`, `debug.nvaccel_iop_ok` climbing past 3800 frames. What is left is OpenGL / OpenCL (both go through the Metal device, which works), the Vulkan window surface (`RADV_PLATFORMS=macos`) and the VideoToolbox decoder bundle (VCN itself is up via the daemon) |
 | **Not started** | Metal plugin (`NVMTLDriver`), WindowServer, OpenGL / OpenCL, Vulkan window surface, VCN decode. All of these are the Navi 31 tree's existing work, waiting for the bottom of the stack |
 
 ### The fixes that took the port from "no signal" to executing commands
@@ -88,8 +88,8 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 | Step | Blocks |
 |---|---|
 | GFX queue (`CP_GFX_HQD_*`, ring base in the MQD) | RADV's submissions - it emits graphics-level packets even for a compute workload |
-| Metal plugin + translator on top of RADV | WindowServer, apps' Metal device |
-| WindowServer / OpenGL / OpenCL | the accelerated desktop |
+| ~~Metal plugin + translator on top of RADV~~ | **done**: Metal 3 device, compute correct, Core Image on it |
+| ~~WindowServer on the GPU~~ | **done**: squat boot, PhxAMDFB on panel, one WindowServer restart, SUCCESS with frames flowing |
 | Vulkan window surface (`RADV_PLATFORMS=macos`) | apps that present through Vulkan |
 | VCN decode | HEVC / AV1 in VideoToolbox |
 

@@ -1621,3 +1621,202 @@ MacPorts on the target has **`llvm-21 @21.1.8_3`**, exactly the version NullMoth
 installing it plus re-running `tools/phxctl/air_runtime_install.sh` from `/opt/local/libexec/llvm-21/lib` is the
 next step. `air-opt` (the fallback the plugin also tries) lives in Apple's Metal toolchain and is not on this
 machine; the LLVM reader is the path that does not need it.
+
+### What the Metal device reports on this port (2026-11-24)
+
+`tools/metaltest/apiprobe` on the reference machine:
+
+```
+Metal: AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over AMD Radeon RX 7800 XT (RADV NAVI32))
+  recommendedMaxWorkingSetSize 6144 MiB, maxBufferLength 4095 MiB
+  families: common1 1 common2 1 common3 1 mac2 1 metal3 1 metal4 0 apple1 0
+  raytracing 1 (from render 1) functionPointers 1 dynamicLibraries 1 renderDynamicLibraries 1
+  BC 1 depth24stencil8 1 32bitMSAA 1 32bitFloatFiltering 1 queryTextureLOD 1
+  argumentBuffers tier 1 readWriteTexture tier 2
+  samples: 2 1 4 1 8 1 16 0; counter sets: timestamp
+Core Image default context: <CIContext: 0x600002cfc490 (metal-DG 1) MTLDevice=0x7fc7e0008000>
+OpenCL device: 'AMD Ryzen 9 9900X 12-Core Processor' type CPU
+```
+
+So the device presents itself as **Metal 3** with the ray-tracing, function-pointer and dynamic-library flags,
+and **Core Image already runs on it** (`metal-DG 1`) - which is what many system components use. Metal 4 is not
+advertised (NVMTL tops out at Metal 3, same as the XTX reference).
+
+OpenCL still lists only the CPU: exposing the GPU to OpenCL needs the OpenCL side of the accelerator (the XTX
+tree does it through `IOGLBundleName` plus its OpenCL bundle), which this port has not installed.
+
+OpenGL reports "no pixel format (invalid CoreGraphics connection)" only because the probe runs over SSH with no
+GUI session; it needs a session-scoped run (or a WindowServer that composites on the GPU) to answer.
+
+### The AIR reader had to be signed and made self-contained (2026-11-24)
+
+With the accelerator claimed and Metal live, WindowServer still failed to build its compositor libraries:
+
+```
+NVMTL: library: in-memory bitcode reader unavailable: dlopen(... air-runtime/libLLVM.dylib): Library not
+       loaded: /opt/local/lib/libffi.8.dylib
+kernel: (AppleMobileFileIntegrity) library_validation_failure: Rejecting '.../air-runtime/libLLVM.dylib'
+        (Team ID: none, platform: no) for process 'WindowServer' ... mapped file has no cdhash,
+        completely unsigned? Code has to be at least ad-hoc signed.
+```
+
+Two problems, both about how the AIR reader is delivered:
+
+1. **Library validation.** WindowServer runs with library validation, so every dylib it dlopens - and every
+   dylib *those* pull in - has to carry at least an ad-hoc signature. A MacPorts LLVM build is unsigned.
+   `codesign -fs -` on `libLLVM.dylib` fixed the first rejection and exposed the second: its /opt/local
+   dependencies were unsigned too.
+2. **Absolute MacPorts paths.** `libLLVM.dylib` links `/opt/local/lib/libffi.8.dylib`, `libedit.0.dylib`,
+   `libz.1.dylib`, `libzstd.1.dylib` and `libxml2.16.dylib` by absolute path (which then pull in libicu,
+   libiconv and libncurses).
+
+The bundle is now self-contained: every one of those ten dylibs sits in `air-runtime/`, each reference was
+rewritten to `@loader_path/<name>` with `install_name_tool`, and every file is ad-hoc signed (verified: zero
+unsigned dylibs left). That is the same shape NullMoth's bundle has - which is why it ships `libzstd.1.dylib`
+next to `libLLVM.dylib`.
+
+### Where the desktop stands
+
+After that fix the machine's console has **no logged-in user** (the WindowServer restart that followed the
+first attempt rebooted the machine, and nothing has logged in since), and WindowServer only creates its Metal
+context once a session needs one. So the compositor step is not yet exercised: the port has a working Metal
+device, Core Image on it, correct compute results and benchmark numbers, but the desktop is still drawn by the
+firmware framebuffer.
+
+The next step needs a logged-in console session (the KVM is not reachable from here): log in once, and
+WindowServer will enumerate the Metal device, translate `CoreDisplay`'s `default.metallib`, and - if the
+translation now succeeds - composite on the GPU. That is exactly what the boot daemon
+(`phxboot-navi31.sh`) does at the end of its run: one clean WindowServer restart at zero users.
+
+### The desktop needs the squat boot, not another WindowServer restart (2026-11-24)
+
+The console here sits at the login window, and WindowServer only creates a Metal context for a real session, so
+auto-login was enabled on this machine (`/etc/kcpassword` + `autoLoginUser = cool`). The machine now boots
+straight to a desktop (`/dev/console` owned by `cool`, Finder and Dock running).
+
+With a session up, the accelerator claimed and Metal live, the port reaches this state:
+
+```
+ioreg: NMXAccel 4, PhxAMDFB 1, PhxDisplay 3          <- the accelerator and its framebuffer are published
+metaltest: device AMD Radeon RX 7800 XT (RADV NAVI32), compute 4096/4096 correct
+framebuffer in use by WindowServer: IONDRVFramebuffer  <- still the firmware one
+```
+
+So Metal works for every process that asks for it, the GPU framebuffer exists, but **the desktop is still
+drawn by `IONDRVFramebuffer`**. That is the ordering the XTX relies on and this port has not run yet: the boot
+daemon arms the NVRAM variable `phxfb-squat`, `PhxFBSquatter` holds the IOFramebuffer category at probe time so
+`PhxAMDFB` becomes the only display, and only then does a WindowServer restart make the desktop composite on
+the GPU. Forcing WindowServer restarts after the fact does not do it - and two forced restarts in a row
+rebooted this machine, which is exactly the failure the daemon's "exactly ONE killall, only at 0 users, only at
+the end" rule exists to prevent.
+
+So the remaining step for the desktop is the boot daemon (`phxboot-navi31.sh` + `local.phxboot.plist`), which
+is in the tree and needs the Navi 32 bring-up inserted where it calls the Navi 31 one.
+
+## The accelerated desktop is alive on Navi 32 (2026-11-24)
+
+With the boot daemon installed (`/Library/LaunchDaemons/local.phxboot.plist` -> `~/gpu/phxboot-navi31.sh`),
+the Navi 31 bring-up replaced by a wrapper that runs `navi32_up.sh --no-test`, and `phxfb-squat` armed, a boot
+gives:
+
+```
+squat boot (PhxFBSquatter holds IOFramebuffer, no IONDRV console): 1
+desktop-arm: 1 (phxboot-desktop file or squat boot)
+== bring-up + claim ==      computeq adopt -> kr 0x0;  claim -> kr 0x0
+NMXAccel up
+PhxAMDFB on panel after 1s
+Metal device ready after 1s
+AGDC up after 1s
+autologin: on for 'cool' before the Metal WindowServer restart
+restarting WindowServer once (Metal ready, AGDC up) at 15:18:30
+watching 120s for crashes with Metal ready (baseline 30 .ips, WindowServer pid 888)...
+SUCCESS at 15:20:40: WindowServer pid 888, frames=2833 -- accelerated desktop survived
+phxfb-squat re-armed for the next boot (phxboot-auto present; read-back ok)
+done 15:20:40
+vcn: up, ring adopted, MMHUB VM on (mmvm 1 bad 0x0; MX_L1_TLB_CNTL 0x0000185)
+```
+
+`debug.nvaccel_iop_ok` was 2833 at the verdict and 3815 a minute later, so WindowServer is presenting frames
+through the accelerator - the desktop composites on the RX 7800 XT.
+
+### Two things a port has to get right for the daemon
+
+1. **The bring-up wrapper.** The daemon calls `$G/phxctl/navi31_up.sh`; on this port that file is a three-line
+   wrapper around `navi32_up.sh --no-test` with `PHX_SKIP_VCN=1`, because the daemon runs VCN itself after its
+   own `done` line and owns `/var/log/phxboot.log` (a script that truncates that file would erase the daemon's
+   record and its pre-flight marker).
+2. **Auto-login must be the daemon's, not the system's.** An `/etc/kcpassword` + `autoLoginUser` set by hand
+   logs a user in *before* the daemon arms, and the daemon then refuses the WindowServer restart
+   ("a user logged in during arm -- refusing the WindowServer restart") and reverts to GOP. The right form is
+   `~/gpu/phxboot-autologin` holding the user name: the daemon turns auto-login on immediately before the
+   restart, so the accelerated loginwindow logs the user in on the GPU-composited login.
+
+### Where the port stands against the Navi 31 work
+
+| Capability | Navi 31 (XTX) | Navi 32 (this port) |
+|---|---|---|
+| GPU bring-up (PSP, TMR, SMU, RLC, GCVM) | works | **works** |
+| MES | works | **works** (the completion fence must be MC) |
+| gfx + compute queues | works | **works** (MES `ADD_QUEUE(gfx)` + adopt) |
+| RADV / Vulkan | works | **works**: 270k dispatches, 0 errors, 47.8 GB/s |
+| Metal | works (Metal 3) | **works**: Metal 3 device, correct compute, 68502 frames/3 s, Core Image on it |
+| WindowServer on the GPU | works | **works**: `SUCCESS ... accelerated desktop survived`, frames flowing |
+| VCN / video decode engine | works | **works**: ring + decode create/destroy IB (M1 PASS), MMHUB VM on |
+| OpenGL / OpenCL | works | not yet verified |
+| VideoToolbox decode (HEVC/AV1) | works | not yet (needs the decoder bundle; the build host is arm64 without Rosetta, so ffmpeg has to be built on the target) |
+| Vulkan window surface | works | not yet (needs `RADV_PLATFORMS=macos`) |
+
+### OpenCL reaches the GPU; OpenGL needs a console session (2026-11-24)
+
+The accelerator kext in `/Library/Extensions` was an older build that predates the OpenGL switch, and a kext
+in that directory is not what macOS loads - the **Auxiliary Kernel Collection** is. Checking the UUIDs is what
+catches it:
+
+```
+installed file : 5D81C6B3-AD94-3802-9D80-6821BF8B7412   (rebuilt from this tree)
+AuxKC          : dated Nov 23 22:01                 (the old build)
+debug.phxgl    : unknown oid                        (the old build has no such sysctl)
+```
+
+`sudo kmutil install --volume-root / --update-all` rebuilds the AuxKC (it reports a failure for the boot and
+system collections because the sealed system volume is read-only, but the Auxiliary collection is rebuilt and
+its timestamp changes). After a reboot the loaded UUID is the new one and `debug.phxgl` exists.
+
+With `debug.phxgl=1` and a fresh process, OpenCL now lists the GPU:
+
+```
+OpenCL device: 'AMD Ryzen 9 9900X 12-Core Processor' type CPU
+OpenCL device: 'AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over AMD Radeon RX 7800 XT (RADV NAVI32))' type GPU
+```
+
+OpenGL cannot be answered from an SSH login: `CGLChoosePixelFormat` reports "invalid CoreGraphics connection"
+for every request, which is what a process outside the console session gets. `launchctl asuser` is not enough -
+the console must have a logged-in user. The same auto-login inconsistency shows here: the daemon turns
+auto-login on before the WindowServer restart, and on some boots the console ends up at `root` (login window)
+rather than the desktop, so the GL probe has to wait for a session.
+
+### OpenGL 4.1 and OpenCL both run on the GPU (2026-11-24)
+
+With a real console session (auto-login working), `debug.phxgl=1` on the accelerator and the new kext in the
+AuxKC, `apiprobe` inside the session reports:
+
+```
+Metal: AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over AMD Radeon RX 7800 XT (RADV NAVI32))
+GL 4.1 core, accelerated only: vendor 'AMD' renderer 'AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over ...)'
+                              version '4.1 Metal - 90.5'
+GL legacy, any renderer:       vendor 'AMD' renderer '...' version '2.1 Metal - 90.5'
+OpenCL device: 'AMD Radeon RX 7800 XT (RADV NAVI32) (NVMTL over ...)' type GPU
+```
+
+So OpenGL 4.1 core goes through Apple's `AppleMetalOpenGLRenderer` onto our Metal device, legacy GL 2.1 comes
+with it, and OpenCL enumerates the GPU. `~/gpu/phxboot-gl` makes the boot daemon set `debug.phxgl=1` after
+`done`, so this survives a reboot.
+
+Two traps this round:
+
+* OpenGL cannot be probed over SSH at all - `CGLChoosePixelFormat` answers "invalid CoreGraphics connection"
+  for every request, and `launchctl asuser` is not enough: the process has to be in the console user's session;
+* `sysadminctl -autologin set` failed with `SACSetAutoLoginPassword error:22` and **corrupted `/etc/kcpassword`**,
+  which silently stopped auto-login on the following boots (the daemon reported SUCCESS, the console stayed at
+  `root`). Re-writing `/etc/kcpassword` (the XOR form) restored it. If auto-login stops working after a
+  sysadminctl attempt, regenerate that file rather than trusting the tool.

@@ -30,7 +30,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DATA=$HERE/vcn
 PHXCTL=${PHXCTL:-$HOME/gpu/phxctl.bin}
 MESBOOT=${MESBOOT:-/usr/local/sbin/mesboot}
-FW=${FW:-$HOME/gpu/fw/navi31/vcn_4_0_0.bin}
+FW=${FW:-$HOME/gpu/fw/navi32/vcn_4_0_0.bin}
 WPTR_MODE=${WPTR_MODE:-mmio}
 FROM=${FROM:-1}
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo -n"
@@ -159,7 +159,7 @@ preflight(){
   fi
   # The SRAM list carries this card's GB_ADDR_CONFIG (UVD_GFX10_ADDR_CONFIG). 0x545 is the Navi 31 value,
   # 0x444 the Navi 32 one; EXPECT_GB_ADDR_CONFIG selects which the vcn0_ram.bin in use was generated for.
-  EXPECT_GB_ADDR_CONFIG=${EXPECT_GB_ADDR_CONFIG:-0x00000545}
+  EXPECT_GB_ADDR_CONFIG=${EXPECT_GB_ADDR_CONFIG:-0x00000444}
   say "GB_ADDR_CONFIG $(rd 0x263e) (vcn0_ram.bin built for $EXPECT_GB_ADDR_CONFIG)"
   [ "$(rd 0x263e)" = "$EXPECT_GB_ADDR_CONFIG" ] || die "GB_ADDR_CONFIG differs from the SRAM list"
 }

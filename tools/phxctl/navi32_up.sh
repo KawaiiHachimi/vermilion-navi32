@@ -42,7 +42,10 @@ step 'compute queue via MES-less direct programming + adopt'
 env ADOPT=1 $MES computeq | grep -E 'ring test|adopt' | tail -2
 
 step 'VCN bring-up (video decode engine)'
-if [ -f "$HOME/gpu/fw/navi32/vcn_4_0_0.bin" ]; then
+if [ "${PHX_SKIP_VCN:-0}" = 1 ]; then
+  # called from phxboot-navi31.sh, which runs VCN itself after its own done line (it owns /var/log/phxboot.log)
+  echo '  skipped (the boot daemon brings VCN up after done)'
+elif [ -f "$HOME/gpu/fw/navi32/vcn_4_0_0.bin" ]; then
   # vcn_up.sh refuses to touch the GPU unless the boot daemon logged done for this boot; this script is that
   # step, so record it. The pre-flight checks that follow are the real safety (PSP idle, SMU OK, address config).
   sudo sh -c 'printf "== navi32_up.sh bring-up\ndone\n" > /var/log/phxboot.log' 2>/dev/null || true
