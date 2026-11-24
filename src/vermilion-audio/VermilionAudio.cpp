@@ -50,6 +50,14 @@
 // is removed again as soon as the controller is up (nothing can match ab30 a second time), the controller is never
 // terminated, and any further write returns EBUSY.
 //
+// Sixth: the engine. AppleGFXHDA starts its DP output engine from a framebuffer event, not at the attach: on the XTX
+// machine none came within 10 s of the attach at boot (2026-11-24 18:08), while a display sleep / wake brought it
+// (IOFramebuffer delivers kIOFBNotifyWillPowerOff 7 and kIOFBNotifyDidPowerOn 8, info false; a mode switch's 1 / 2 did
+// not). A write of 8 (or 7) to debug.phxaudio_event (root, after the attach) delivers that one event on head 0's PhxAMDFB
+// through IOFramebuffer::deliverFramebufferNotification, inside the framebuffer controller's work-loop gate as
+// IOFramebuffer::handleEvent does. Nothing is powered: only the power on / off subscribers hear it (IODisplay isn't one,
+// IOGraphics source).
+//
 // Table layout and contents read from AppleGFXHDA 550.1 of macOS 26.7.1 (25G241), 2026-11-24.
 //
 // Boot-args: -phxaudiooff (the plugin doesn't start), -phxaudiodbg (Lilu debug output).
@@ -63,6 +71,8 @@
 #include <IOKit/IOCatalogue.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/graphics/IOFramebuffer.h>
 #include <libkern/libkern.h>
 #include <sys/sysctl.h>
 
@@ -97,6 +107,7 @@ static_assert(sizeof(kFindMask) == sizeof(kReplaceMask), "same length");
 
 char gStat[160] = "waiting for AppleGFXHDA to load\n";
 char gMatchStat[160] = "";
+char gEventStat[64] = "";
 
 // AppleGFXHDAController::_gfxMatchedHandler(void *target, void *ref, IOService *, IONotifier *), and the offset of the
 // controller's AppleDisplay notifier, read from the handler's first instruction that compares against it.
@@ -255,6 +266,56 @@ int applyCodecInfo() {
 	return n;
 }
 
+// deliverFramebufferNotification is protected; a pointer to it taken in a derived class (never instantiated) calls it on
+// any IOFramebuffer, the same function IOFramebuffer::handleEvent calls.
+struct FbNotify : IOFramebuffer {
+	static IOReturn deliver(IOFramebuffer *fb, IOIndex ev) {
+		IOReturn (IOFramebuffer::*f)(IOIndex, void *) = &FbNotify::deliverFramebufferNotification;
+		return (fb->*f)(ev, nullptr);
+	}
+};
+
+IOReturn deliverAction(OSObject *owner, void *ev, void *, void *, void *) {
+	return FbNotify::deliver(static_cast<IOFramebuffer *>(owner), static_cast<IOIndex>(reinterpret_cast<uintptr_t>(ev)));
+}
+
+// Delivers framebuffer event ev on head 0's PhxAMDFB (see "Sixth" in the header). Returns an errno.
+int deliverHead0(int ev) {
+	int err = ENODEV;
+	OSDictionary *m = IOService::serviceMatching("IOFramebuffer");
+	if (!m) return ENOMEM;
+	if (OSIterator *it = IOService::getMatchingServices(m)) {
+		while (OSObject *o = it->getNextObject()) {
+			auto *fb = OSDynamicCast(IOFramebuffer, o);
+			if (!fb || !fb->metaCast("PhxAMDFB") || fb->getProperty("phx-head")) continue;   // head 1 carries phx-head
+			IOWorkLoop *wl = fb->getWorkLoop();
+			if (!wl) break;
+			const IOReturn r = wl->runAction(deliverAction, fb, reinterpret_cast<void *>(static_cast<uintptr_t>(ev)));
+			snprintf(gEventStat, sizeof(gEventStat), "event: %d delivered on head 0 -> 0x%08x\n", ev, r);
+			err = r == kIOReturnSuccess ? 0 : EIO;
+			break;
+		}
+		it->release();
+	}
+	m->release();
+	return err;
+}
+
+int eventSysctl SYSCTL_HANDLER_ARGS {
+	(void)oidp; (void)arg1; (void)arg2;
+	int v = 0;
+	int err = SYSCTL_OUT(req, &v, sizeof(v));
+	if (err || !req->newptr) return err;
+	if ((err = SYSCTL_IN(req, &v, sizeof(v)))) return err;
+	if (v != kIOFBNotifyWillPowerOff && v != kIOFBNotifyDidPowerOn) return EINVAL;
+	IOLockLock(gMatchLock);
+	err = gMatch ? deliverHead0(v) : ENOENT;    // only after the attach
+	IOLockUnlock(gMatchLock);
+	return err;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxaudio_event, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, eventSysctl, "I",
+            "VermilionAudio: write 8 (kIOFBNotifyDidPowerOn) or 7 to deliver that framebuffer event on head 0 (root, after the attach)");
+
 int codecInfoSysctl SYSCTL_HANDLER_ARGS {
 	(void)oidp; (void)arg1; (void)arg2;
 	int v = gCodecInfo;
@@ -365,9 +426,10 @@ SYSCTL_PROC(_debug, OID_AUTO, phxaudio_match, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG
 int statSysctl SYSCTL_HANDLER_ARGS {
 	(void)oidp; (void)arg1; (void)arg2;
 	if (req->newptr) return EPERM;
-	char b[sizeof(gStat) + sizeof(gMatchStat)];
+	char b[sizeof(gStat) + sizeof(gMatchStat) + sizeof(gEventStat)];
 	strlcpy(b, gStat, sizeof(b));
 	strlcat(b, gMatchStat, sizeof(b));
+	strlcat(b, gEventStat, sizeof(b));
 	return SYSCTL_OUT(req, b, strlen(b) + 1);
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxaudio_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, statSysctl, "A",
@@ -379,6 +441,7 @@ void pluginStart() {
 	if (gMatchLock) {
 		sysctl_register_oid(&sysctl__debug_phxaudio_match);
 		sysctl_register_oid(&sysctl__debug_phxaudio_codecinfo);
+		sysctl_register_oid(&sysctl__debug_phxaudio_event);
 	}
 	lilu.onKextLoadForce(&kGfxHda, 1, onGfxHdaLoad);
 }
