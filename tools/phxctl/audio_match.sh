@@ -4,13 +4,14 @@
 # GPUs) on the RX 7900's audio function 1002:ab30, once per boot. Root. Nothing persists across a restart.
 #   audio_match.sh on      load AppleGFXHDA, attach it to ab30 (once; a second `on` does nothing), report what
 #                          attached, wait up to ENGINE_WAIT s (10) for the DP audio engine; when none came within
-#                          2 s, deliver the display power-on event first (debug.phxaudio_event=8, VermilionAudio 1.7.0)
+#                          2 s, deliver a display mode change (debug.phxaudio_event=1 then 2, VermilionAudio 1.7.2):
+#                          AppleGFXHDA starts the engine on it, as after a display wake (nothing on the screen changes)
 #   (run tools/phxctl/phxaudio apply first: the engine starts only for a pin the display engine reports present)
 #   audio_match.sh status  the patch state, whether the attach ran, the driver on ab30, the audio engines
 # There is no `off`, on purpose: a driver that leaves ab30 makes IOPCIFamily mark it "needing hardware reset", and the
 # next attach hot-resets the whole GPU (XTX machine 2026-11-24 07:55: VRAM mappings failed, the display and the SMU
 # went down, WindowServer crashed, a power-off was needed). Never terminate or unload AppleGFXHDA on this machine.
-# Needs VermilionAudio.kext 1.7.0 (EFI stage vermilion-trust-bar1g-audio). It patches AppleGFXHDA's controller table
+# Needs VermilionAudio.kext 1.7.2 (EFI stage vermilion-trust-bar1g-audio). It patches AppleGFXHDA's controller table
 # and its two codec factories (they lack ab30) when AppleGFXHDA loads, and on a write to debug.phxaudio_match adds the
 # personality, re-delivers the display, then removes the personality again (the attached driver stays). User space
 # can't add it: IOCatalogueSendData from root is refused ("Not entitled", macOS 26.7.1, 2026-11-24).
@@ -35,9 +36,11 @@ case "${1:-status}" in
     echo "audio: AppleGFXHDA controllers attached: $(attached)"
     w=${ENGINE_WAIT:-10}; ev=""; i=0
     while [ $i -lt $((w * 4)) ] && [ "$(engines)" = 0 ]; do
-      if [ $i = 8 ] && [ -z "$ev" ]; then   # 2 s: AppleGFXHDA starts the engine on a display power-on event
-        ev=1; $SYSCTL -w debug.phxaudio_event=8 >/dev/null 2>&1 && echo "audio: no engine after 2 s: display power-on event delivered" \
-          || echo "audio: no engine after 2 s; debug.phxaudio_event=8 refused (VermilionAudio older than 1.7.0?)"
+      if [ $i = 8 ] && [ -z "$ev" ]; then   # 2 s: AppleGFXHDA starts the engine on a display mode change
+        ev=1
+        if $SYSCTL -w debug.phxaudio_event=1 >/dev/null 2>&1 && $SYSCTL -w debug.phxaudio_event=2 >/dev/null 2>&1; then
+          echo "audio: no engine after 2 s: display mode change events delivered"
+        else echo "audio: no engine after 2 s; debug.phxaudio_event=1 / 2 refused (VermilionAudio older than 1.7.2?)"; fi
       fi
       sleep 0.25; i=$((i + 1))
     done

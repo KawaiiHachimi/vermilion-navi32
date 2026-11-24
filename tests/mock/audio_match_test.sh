@@ -8,7 +8,7 @@ HERE=$(cd "$(dirname "$0")" && pwd); S=$HERE/../../tools/phxctl/audio_match.sh
 . "$HERE/lib/portable.sh"
 T=$(mktemp -d "$MOCKTMP/audiomatch.XXXXXX"); PASSN=0; FAILN=0
 fake() {   # fake <match 0|1> [busy]: the sysctl state in $T/match; "busy" = the kernel refuses a write with EBUSY
-  mkdir -p "$T/bin"; echo "$1" >"$T/match"; : >"$T/calls"; rm -f "$T/busy" "$T/noengine" "$T/evengine" "$T/noevent"; [ "${2:-}" = busy ] && : >"$T/busy"
+  mkdir -p "$T/bin"; echo "$1" >"$T/match"; : >"$T/calls"; rm -f "$T/busy" "$T/noengine" "$T/evengine" "$T/noevent" "$T/ev1"; [ "${2:-}" = busy ] && : >"$T/busy"
   cat >"$T/bin/kmutil" <<EOF
 #!/bin/bash
 echo "kmutil \$*" >>"$T/calls"
@@ -20,7 +20,8 @@ case "\$1" in
   -n) case "\$2" in debug.phxaudio_match) cat "$T/match";; debug.phxaudio_stat) echo "patched: test";; *) echo 0;; esac;;
   -w) case "\$2" in debug.phxaudio_match=*) [ -e "$T/busy" ] && { echo "sysctl: Device busy" >&2; exit 1; }
                     echo "\${2#*=}" >"$T/match";;
-                    debug.phxaudio_event=8) [ -e "$T/noevent" ] && exit 1; [ -e "$T/evengine" ] && rm -f "$T/noengine";; esac;;
+                    debug.phxaudio_event=1) [ -e "$T/noevent" ] && exit 1; : >"$T/ev1";;
+                    debug.phxaudio_event=2) [ -e "$T/noevent" ] && exit 1; [ -e "$T/ev1" ] && [ -e "$T/evengine" ] && rm -f "$T/noengine";; esac;;
 esac
 EOF
   cat >"$T/bin/ioreg" <<EOF
@@ -49,11 +50,12 @@ check on_no_engine '[ "$(cat "$T/rc")" = 1 ]' 'grep -q "no DP audio engine after
   '! grep -q "phxaudio_event" "$T/calls"'
 
 fake 0; : >"$T/noengine"; : >"$T/evengine"; EW=4 run on
-check on_event_brings_engine '[ "$(cat "$T/rc")" = 0 ]' 'grep -q "debug.phxaudio_event=8" "$T/calls"' \
-  'grep -q "display power-on event delivered" "$T/out"' 'grep -q "DP audio engine up after 2 s" "$T/out"'
+check on_event_brings_engine '[ "$(cat "$T/rc")" = 0 ]' 'grep -q "debug.phxaudio_event=1" "$T/calls"' \
+  '[ "$(grep -n phxaudio_event=1 "$T/calls" | cut -d: -f1)" -lt "$(grep -n phxaudio_event=2 "$T/calls" | cut -d: -f1)" ]' \
+  'grep -q "display mode change events delivered" "$T/out"' 'grep -q "DP audio engine up after 2 s" "$T/out"'
 
 fake 0; : >"$T/noengine"; : >"$T/noevent"; EW=3 run on
-check on_event_refused '[ "$(cat "$T/rc")" = 1 ]' 'grep -q "debug.phxaudio_event=8 refused" "$T/out"' 'grep -q "no DP audio engine after 3 s" "$T/out"' \
+check on_event_refused '[ "$(cat "$T/rc")" = 1 ]' 'grep -q "debug.phxaudio_event=1 / 2 refused" "$T/out"' 'grep -q "no DP audio engine after 3 s" "$T/out"' \
   '[ "$(grep -c phxaudio_event "$T/calls")" = 1 ]'
 
 fake 1; run on

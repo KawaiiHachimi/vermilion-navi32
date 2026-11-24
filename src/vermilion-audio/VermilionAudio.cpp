@@ -51,12 +51,16 @@
 // terminated, and any further write returns EBUSY.
 //
 // Sixth: the engine. AppleGFXHDA starts its DP output engine from a framebuffer event, not at the attach: on the XTX
-// machine none came within 10 s of the attach at boot (2026-11-24 18:08), while a display sleep / wake brought it
-// (IOFramebuffer delivers kIOFBNotifyWillPowerOff 7 and kIOFBNotifyDidPowerOn 8, info false; a mode switch's 1 / 2 did
-// not). A write of 8 (or 7) to debug.phxaudio_event (root, after the attach) delivers that one event on head 0's PhxAMDFB
-// through IOFramebuffer::deliverFramebufferNotification (resolved when IOGraphicsFamily loads), inside the framebuffer controller's work-loop gate as
-// IOFramebuffer::handleEvent does. Nothing is powered: only the power on / off subscribers hear it (IODisplay isn't one,
-// IOGraphics source).
+// machine none came within 10 s of the attach at boot (2026-11-24 18:08), while a display sleep / wake brought it. A
+// kdebug trace of AppleGFXHDAController::framebufferEventHandler (ktrace, subclass 0x0524, 2026-11-24 18:26) shows what
+// a display sleep / wake hands it: WindowServer's defer events 90 / 92 and 91 / 93 and, between them, 1 and 2
+// (kIOFBNotifyDisplayModeWillChange / DidChange, info 0) from the mode WindowServer sets again on wake; not 7 / 8
+// (PhxAMDFB's handleEvent calls are off IOFramebuffer's power thread, so IOFramebuffer drops them). Delivered by hand, 7
+// and 8 reached the handler and started nothing. A write of 1, 2, 7 or 8 to debug.phxaudio_event (root, after the
+// attach) delivers that event on head 0's PhxAMDFB through IOFramebuffer::deliverFramebufferNotification (resolved when
+// IOGraphicsFamily loads), inside the framebuffer controller's work-loop gate, info 0, as IOFramebuffer does; nothing
+// on the display changes. Mode-change listeners hear 1 / 2 too (IODisplay re-applies its parameters, as after any mode
+// set); tools/phxctl/audio_match.sh sends 1 then 2.
 //
 // Table layout and contents read from AppleGFXHDA 550.1 of macOS 26.7.1 (25G241), 2026-11-24.
 //
@@ -91,7 +95,8 @@ KernelPatcher::KextInfo &kIOGraphics = kKexts[1];
 // IOFramebuffer::deliverFramebufferNotification(IOIndex, void *), non-virtual: called as a function with this first
 using DeliverFn = IOReturn (*)(void *fb, int event, void *info);
 DeliverFn gDeliver;
-constexpr int kEvWillPowerOff = 7, kEvDidPowerOn = 8;   // kIOFBNotifyWillPowerOff, kIOFBNotifyDidPowerOn (IOFramebuffer.h)
+// IOFramebuffer.h: kIOFBNotifyDisplayModeWillChange / DidChange, kIOFBNotifyWillPowerOff / DidPowerOn
+constexpr int kEvModeWillChange = 1, kEvModeDidChange = 2, kEvWillPowerOff = 7, kEvDidPowerOn = 8;
 
 // The 1002:ab20 entry of the controller table, whole (unique in AppleGFXHDA 550.1), and the same with ab30.
 constexpr uint8_t kFind[] {
@@ -314,7 +319,7 @@ int eventSysctl SYSCTL_HANDLER_ARGS {
 	int err = SYSCTL_OUT(req, &v, sizeof(v));
 	if (err || !req->newptr) return err;
 	if ((err = SYSCTL_IN(req, &v, sizeof(v)))) return err;
-	if (v != kEvWillPowerOff && v != kEvDidPowerOn) return EINVAL;
+	if (v != kEvModeWillChange && v != kEvModeDidChange && v != kEvWillPowerOff && v != kEvDidPowerOn) return EINVAL;
 	if (!gDeliver) return ENOSYS;               // IOFramebuffer's symbol not found
 	IOLockLock(gMatchLock);
 	err = gMatch ? deliverHead0(v) : ENOENT;    // only after the attach
@@ -322,7 +327,7 @@ int eventSysctl SYSCTL_HANDLER_ARGS {
 	return err;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxaudio_event, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, eventSysctl, "I",
-            "VermilionAudio: write 8 (kIOFBNotifyDidPowerOn) or 7 to deliver that framebuffer event on head 0 (root, after the attach)");
+            "VermilionAudio: write 1, 2 (display mode will / did change), 7 or 8 (power) to deliver that framebuffer event on head 0 (root, after the attach)");
 
 int codecInfoSysctl SYSCTL_HANDLER_ARGS {
 	(void)oidp; (void)arg1; (void)arg2;
