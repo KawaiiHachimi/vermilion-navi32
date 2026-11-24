@@ -150,7 +150,7 @@ b21_file(){ "$PB" -c "Print :SHOWFULLNAME" "$LWDOM.plist" 2>/dev/null || echo ab
 # login-window guard goes ON (daemon start, shutdown TERM, every revert to GOP), written right before the Metal WindowServer
 # restart, so the accelerated loginwindow logs the user in. ~/gpu/phxboot-autologin holds the user name; /etc/kcpassword (made
 # once by `sysadminctl -autologin set`) holds the password. Either missing = the key is only ever deleted (password login).
-KCPW=${PHXBOOT_KCPASSWORD:-/etc/kcpassword}
+KCPW=${PHXBOOT_KCPASSWORD:-/etc/kcpassword}; LWRAN=${PHXBOOT_LWRAN:-/private/var/run/com.apple.loginwindow.didRunThisBoot}
 al_user(){ tr -d ' \t\r\n' 2>/dev/null <"$G/phxboot-autologin"; }
 al_off(){ [ -e "$G/phxboot-autologin" ] || return 0
   defaults delete "$LWDOM" autoLoginUser >/dev/null 2>&1
@@ -161,7 +161,12 @@ al_on(){ [ -e "$G/phxboot-autologin" ] || return 0
   [ -n "$u" ] || { echo "autologin: ~/gpu/phxboot-autologin is empty: no automatic login"; return 0; }
   [ -s "$KCPW" ] || { echo "autologin: $KCPW missing (run sysadminctl -autologin set once): no automatic login"; return 0; }
   defaults write "$LWDOM" autoLoginUser "$u" >/dev/null 2>&1
-  echo "autologin: $(date '+%T') on for '$u' before the Metal WindowServer restart (reads '$(defaults read "$LWDOM" autoLoginUser 2>/dev/null)')"; }
+  # 2026-11-24: loginwindow autologins only on its first run of the boot (FirstRunKey in the authref), and it decides that
+  # from $LWRAN, which the boot's first loginwindow creates. The loginwindow relaunched by the restart below found it and
+  # showed the password prompt. Removing it makes that relaunched loginwindow the "first run"; it re-creates the file at
+  # once, so any later loginwindow this boot (a crash of the Metal WindowServer) still asks for the password: no loop.
+  rm -f "$LWRAN" 2>/dev/null
+  echo "autologin: $(date '+%T') on for '$u' before the Metal WindowServer restart (reads '$(defaults read "$LWDOM" autoLoginUser 2>/dev/null)'; first-run marker $([ -e "$LWRAN" ] && echo "STILL PRESENT: password prompt likely" || echo removed))"; }
 b21_on(){ al_off "$1"
   b21_ok || return 0
   local was o rec=earlier rc f how=""
