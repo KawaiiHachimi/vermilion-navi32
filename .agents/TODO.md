@@ -91,8 +91,8 @@ PROJECT_KNOWLEDGE.
   After the HDMI / DP replug at 00:08 WindowServer composites in BGRA while the scan-out is 10-bit HDR, the plugin's
   CPU widen path presents stale frames: the picture freezes a few minutes after login (input works).
   [Finding](findings/2026-11-24-hdr-freeze-after-replug.md). Fix: the widen path in the plugin (a trust + EFI change)
-  and the reason for the BGRA surfaces. The logger LaunchAgent `~/Library/LaunchAgents/local.t04watch.plist` still
-  runs (remove after the next check: `launchctl bootout gui/501/local.t04watch; rm` it).
+  and the reason for the BGRA surfaces. The logger LaunchAgent `local.t04watch` is removed (2026-11-24; plist in
+  the rollback folder).
 
 - [x] **Daemon: auto-login fix** (works: 2026-11-24 01:46 boot, logged in at 01:46:51 by loginwindow pid 1101 with
   FirstRunKey 1, "loginUserIsAutoLoginUser") (installed 2026-11-24 ~01:33 by the auto-login thread, in the branch as commit

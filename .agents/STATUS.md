@@ -26,6 +26,15 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 | 9 | **DDC/CI over DP AUX** (MonitorControl, BetterDisplay: brightness and volume) | Owner requirement; a known limit that must work | M | D21 |
 | 10 | **Video:** 4K AV1 frames in flight; WebGPU render bundles (Safari GPU process crash); H.264 decode; AV1 fallback | YouTube 4K stutters; WebGPU crashes take every tab's video | M-L | M, A15, TODO 13 items 11-13 |
 
+Item 1 is PR #22 (not deployed). A warm macOS restart leaves the sOS stopped (C2PMSG_81 = 0, one probe, 2026-11-25:
+[finding](findings/2026-11-25-warm-restart-sos-cold.md)), so the warm refusal doesn't fire on a restart and #22
+deploys as planned. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
+still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`), open (its stderr point is fixed in `71f87e9`):
+- a warm refusal on a squat boot (every boot here) goes `m2_fail` → `squat_reboot` → a second warm reboot → a stuck,
+  dark squat boot; after a power-off the safe desktop until the `rm` (item 3 territory);
+- `m2_fail` after a refusal still runs `debug.phxagdc=0` and `apps_only` on the untouched GPU: unreviewed;
+- STATUS row 1 and the audit finding call `debug.phxfb_kill_iondrv` live until deploy step (c).
+
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).
 
@@ -92,6 +101,8 @@ mode setting).
 
 - `machine-lock` didn't parse since #18 (missing `esac`): fixed on `ownback/megamind`, `guard_test` runs it.
 - The guard blocked read-only SIP status reads: fixed on `ownback/megamind`.
+- The guard blocks a Bash command as "changes the machine" when its text only mentions the rollback folder or the
+  ESP mount path (seen 2026-11-24 in two docs edits): a false positive to fix in `guard.py`.
 - `efi/build.py build` without `--stage` builds the 256 MiB BAR stage, not the live `vermilion-trust-bar1g`: one clear
   default needed (thread 02).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).
