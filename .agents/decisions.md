@@ -590,3 +590,15 @@ replayed display plans on main, which phase 3 replaces with the driver's own mod
 machine; holding it back leaves the live daemon unrecorded.
 **Not sent, on purpose:** Linux's `DALSMC_MSG_BacoAudioD3PME` before the endpoint enable (no new SMU message).
 **Revisit:** when VermilionBoot does its own mode set (phase 3), it does the audio off / on around each stream change.
+
+## 2026-11-24: A warm GPU is refused, not reset
+
+**Decision:** `bringup_navi31.sh` reads C2PMSG_81 before any write. If the PSP sOS is running, or the value can't be
+read, it refuses: nothing is written and no watchdog is armed. The daemon then takes its fallback (the GOP revert on
+a desktop boot) before the claim.
+**Why:** the power-up is the cold-boot sequence, and on a warm GPU it loaded the SMU firmware into a running SMU, which
+Linux never does (hard rule 1). On a warm GPU, Linux resets the ASIC at init instead: `soc21_need_reset_on_init` reads
+the same register, then a Mode1 reset (an SMU message and PCI config writes; hw-safety-reviewer, 2026-11-24).
+Refusing is the part of that we can do without adding a message.
+**Revisit:** if a warm macOS restart turns out to leave the sOS running (the daemon logs `sOS check:` at every boot).
+Then the warm restart needs Linux's Mode1 reset path, with its own hw-safety review.

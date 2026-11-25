@@ -273,18 +273,20 @@ echo "squat boot (PhxFBSquatter holds IOFramebuffer, no IONDRV console): $SQUAT 
 # $NVSTUCK holds "pending" when a boot rebooted to clear phxfb-squat. A squat boot that finds it knows the clear did not
 # stick (STUCK=1): no reboot can help, so the recovery runs a SAFE desktop on the squat instead, the plain path (CPU copy
 # at the boot mode: no pipe-0 mode list, GPU present, flip, M7, b15, VCN). A safe attempt that does not finish leaves
-# the next boot headless (dark, reachable over the network), never a loop. Reset NVRAM in the OpenCore picker clears
-# phxfb-squat; the first boot without a squat removes $NVSTUCK and $SAFEF.
+# the next boot headless (dark, reachable over the network), never a loop; the boot after that tries the safe desktop
+# again. `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back. The squat itself is the intended state
+# (phxfb-squat is set from Linux): never Reset NVRAM, which deletes it (CLAUDE.md, hard rule 1). The first boot without a
+# squat removes $NVSTUCK and $SAFEF.
 NVSTUCK=${PHXBOOT_NVSTUCK:-$G/phxboot-nvstuck}; SAFEF=${PHXBOOT_SAFEF:-$G/phxboot-safe}
 STUCK=0; SAFE=0; HUNG=0; [ -e "$MARK" ] && HUNG=1
 if [ -e "$NVSTUCK" ]; then
   if [ $SQUAT = 1 ]; then STUCK=1; echo stuck > "$NVSTUCK"; sync
-    echo "nvstuck: still a squat boot after a reboot meant to clear phxfb-squat: macOS cannot clear it (OpenCore DisableVariableWrite); no reboot this boot, Reset NVRAM in the OpenCore picker clears it"
+    echo "nvstuck: still a squat boot after a reboot meant to clear phxfb-squat: macOS cannot clear it (OpenCore DisableVariableWrite); no reboot this boot; the desktop runs on the squat (after a failure: rm ~/gpu/phxboot-off ~/gpu/phxboot-failed for the full one); do not Reset NVRAM, it deletes phxfb-squat"
   else rm -f "$NVSTUCK" "$SAFEF"; sync; echo "nvstuck: not a squat boot: phxfb-squat is clear"; fi
 fi
 # a squat boot's way back to IONDRV. On a stuck squat it returns 1 instead, and the caller goes on without a reboot.
 squat_reboot(){ [ $STUCK = 1 ] && return 1; echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync; echo "$1"; shutdown -r now; exit 0; }
-headless(){ echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). Reset NVRAM in the OpenCore picker for the firmware display"; release; exit 0; }
+headless(){ echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). The next boot tries the safe desktop again: restart once. Do not Reset NVRAM, it deletes phxfb-squat"; release; exit 0; }
 # a squat boot has no display until we arm, so every early exit on one must reboot (back to IONDRV) instead
 if [ -e "$OFF" ]; then
   echo "kill switch present"; release
@@ -320,6 +322,13 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
 echo "== bring-up + claim =="
 UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); echo "$UPOUT" | tail -4
+echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at every boot (is a warm restart cold?)
+# A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. No claim, no Metal on it: a desktop
+# boot reverts to GOP (m2_fail), any other boot stays on the firmware display. Only a full power-off makes it cold again.
+case "$UPOUT" in *"refused: warm GPU"*)
+  [ $DESK = 1 ] && m2_fail "warm GPU: bring-up refused; power the machine off fully, then boot macOS"
+  echo "warm GPU: bring-up refused, no Metal this boot (firmware display); power the machine off fully, then boot macOS"
+  release; exit 0;; esac
 # Idle power: clock gating and the UCLK pin right after the GPU is up, not only after `done`: without them the card sat at
 # ~110 C hotspot / 260 W for the ~2 min of the boot; the late calls below re-apply them after
 # vcn_boot.

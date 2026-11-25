@@ -1604,35 +1604,6 @@ static int phxgl_sysctl SYSCTL_HANDLER_ARGS
 SYSCTL_PROC(_debug, OID_AUTO, phxgl, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED | CTLFLAG_KERN,
             NULL, 0, phxgl_sysctl, "I",
             "1 = OpenGL over Metal (IOGLBundleName=AppleMetalOpenGLRenderer) for OpenGL processes started afterwards, 0 = off");
-// Terminate the coexisting firmware IONDRVFramebuffer so PhxAMDFB is the SOLE display. The IONDRV framebuffer poisons
-// CoreDisplay's display<->pipe topology: CoreDisplay binds its vsync clock to the IONDRV display (the recurring "Unable to
-// find display pipe for IOFB service / regID <IONDRV>" error) and so WindowServer never issues set_pipe_index/request_notify
-// on OUR accelerated pipe -> pipe+0x2a0 stays 0 -> our 144Hz signalVBLInterrupt is delivered into an unarmed pipe -> WS
-// composites frame 1 (wallpaper) then freezes. Cobalt64 avoids this by having its framebuffer OWN the display connection.
-static int phxfb_kill_iondrv_sysctl SYSCTL_HANDLER_ARGS
-{
-    int v = 0;
-    int err = sysctl_handle_int(oidp, &v, 0, req);
-    if (err || req->newptr == 0) return err;
-    if (v != 1) return 0;
-    unsigned killed = 0;
-    if (OSIterator *it = IOService::getMatchingServices(IOService::serviceMatching("IOFramebuffer"))) {
-        while (OSObject *o = it->getNextObject()) {
-            IOService *s = OSDynamicCast(IOService, o);
-            if (s && s->metaCast("IONDRVFramebuffer")) {
-                IOLog("PhxFB: kill_iondrv: terminating %s id %#llx\n", s->getName(), (unsigned long long)s->getRegistryEntryID());
-                s->terminate(kIOServiceRequired);
-                killed++;
-            }
-        }
-        it->release();
-    }
-    IOLog("PhxFB: kill_iondrv: terminated %u IONDRVFramebuffer(s)\n", killed);
-    return 0;
-}
-SYSCTL_PROC(_debug, OID_AUTO, phxfb_kill_iondrv, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED | CTLFLAG_KERN,
-            NULL, 0, phxfb_kill_iondrv_sysctl, "I",
-            "write 1 = terminate the coexisting IONDRVFramebuffer so PhxAMDFB is the sole display CoreDisplay drives");
 #endif
 #ifdef PHX_FB
 // M7 S3a: debug.phxhead2 (runtime arming only, default 0). Write 1 = publish head 1's nub (NVAccel::publishHead2);
@@ -1901,7 +1872,6 @@ static void nvaccelInstallSysctl(void)
     sysctl_register_oid(&sysctl__debug_nvaccelfb);
 #ifdef PHX_FB
     sysctl_register_oid(&sysctl__debug_phxfb_go);   // the daemon sets this once Metal is live; PhxAMDFB waits on it
-    sysctl_register_oid(&sysctl__debug_phxfb_kill_iondrv);   // terminate the coexisting IONDRV so PhxAMDFB is the sole display
     sysctl_register_oid(&sysctl__debug_phxgl);   // thread 03: OpenGL over Metal, off until written
 #endif
     sysctl_register_oid(&sysctl__debug_nvaccel_vm_alloc);       sysctl_register_oid(&sysctl__debug_nvaccel_vm_alloc_bytes);

@@ -22,6 +22,61 @@ change 12; the system volume boots the snapshot with `PhxVideoDecoder.bundle`. T
 change 23 and the system-volume change: git history of this file (`ownback/apis-video`); the rollbacks are also in
 PROJECT_KNOWLEDGE.
 
+- [ ] **Phase 2 item 1: deploy the safety fixes** (branch `ownback/safety-fixes`), after the merge. Three parts in
+  this order, each with its own boot, under the machine lock. Before each one: `bash tests/mock/run.sh`,
+  `bash tests/mock/b15test.sh` and `bash tests/mock/bringup_warm_test.sh` green on main.
+  - **(a) Daemon and bring-up scripts into `~/gpu`** (no EFI change, no system volume).
+    - First, optional, through the `linux-queue` skill: hw-safety-reviewer's read-only check. Run
+      `journalctl -k -b <n>` on a Linux boot that followed a warm reboot and look for `MODE1 reset` near amdgpu's
+      probe. If it's absent, a warm reset leaves the sOS stopped.
+    - Rollback copies: `mkdir -p ~/vermilion-rollback/safety-fixes-a` and `cp -p ~/gpu/phxboot-navi31.sh
+      ~/gpu/phxctl/navi31_up.sh ~/gpu/phxctl/bringup_navi31.sh` into it.
+    - Install: `install -m 755 tools/phxctl/navi31_up.sh tools/phxctl/bringup_navi31.sh ~/gpu/phxctl/`. Install the
+      daemon by rename: `cp tools/phxctl/phxboot-navi31.sh ~/gpu/phxboot-navi31.sh.new && mv
+      ~/gpu/phxboot-navi31.sh.new ~/gpu/phxboot-navi31.sh`, so the running daemon keeps the file it opened. Owner and
+      mode as before (`ls -l`).
+    - Check, boot 1, cold (the owner shuts down and powers on): `/var/log/phxboot.log` has
+      `sOS check: C2PMSG_81=0x00000000 (cold)`, `navi31 up:` and `SUCCESS`. A stuck squat logs the new `nvstuck:`
+      wording without "Reset NVRAM in the OpenCore picker".
+    - Check, boot 2, warm (Apple menu > Restart): the same three lines. This answers whether a warm macOS restart
+      leaves the sOS running (unverified until then).
+    - If boot 2 logs `FAIL (warm GPU: bring-up refused`: a warm macOS restart is warm for the GPU, and this refusal
+      would cost Metal after every restart. Roll back (below) and record it in a finding. The fix is then a
+      different design: Linux's own answer is a Mode1 reset, which needs its own hw-safety review. The squat path
+      after a refusal: one reboot, then a dark stuck squat that ssh still reaches.
+    - Rollback: copy the three files back from `~/vermilion-rollback/safety-fixes-a` (the daemon by rename again).
+      If the failure path ran, `rm -f ~/gpu/phxboot-off ~/gpu/phxboot-failed ~/gpu/phxboot-safe`. Then shut down
+      fully and boot.
+  - **(b) EFI change: no Reset NVRAM entry** (stage `vermilion-trust-bar1g-audio` without `ResetNvramEntry.efi`),
+    its own boot.
+    - Build on the Mac (runbooks, "Building and installing the EFI on the Mac itself") with
+      `--stage vermilion-trust-bar1g-audio`, not the default stage, using the kexts that are on the ESP now.
+    - `sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion-trust-bar1g-audio/EFI/OC` may show only
+      `Drivers/ResetNvramEntry.efi` (on the ESP only) and `config.plist`. In `config.plist` (`plutil -p`, both files)
+      only the `UEFI > Drivers` entry of `ResetNvramEntry.efi` may be gone. Anything else: stop.
+    - Install: `sudo python3 efi/build.py install --esp /private/tmp/efi --stage vermilion-trust-bar1g-audio`
+      (`EFI/OC.prev` = change 33). Delete `build/efi/` afterwards (it holds the serials).
+    - Check: the picker has no Reset NVRAM entry (the owner, by eye). `/var/log/phxboot.log`:
+      `squat boot ...: 1` and `SUCCESS`. `sysctl debug.phxtrust_stat`: `mode=enforce`, `denied_unlisted=0`.
+      `sysctl debug.phxaudio_stat`: the attach.
+    - Rollback: `sudo mv /private/tmp/efi/EFI/OC /private/tmp/efi/EFI/OC.bad && sudo mv /private/tmp/efi/EFI/OC.prev
+      /private/tmp/efi/EFI/OC` (from Linux: the same under `/boot/EFI`).
+    - Any later rebuild of this stage (item 2's trust list, for example) carries this change too, so boot (b)
+      first.
+  - **(c) VermilionAccel without `debug.phxfb_kill_iondrv`** (AuxKC, the owner's Allow click), its own boot.
+    - Build: `MKSDK=<MacKernelSDK> sh scripts/build/accel.sh`. The branch build's binary is sha256 `03c1e47d`
+      (2026-11-24, no link gate). `fork/main` at `f8432a4` rebuilds the installed `2578b185` byte for byte, so this
+      part changes only the removed sysctl.
+    - Rollback copy: `cp -Rp /Library/Extensions/VermilionAccel.kext
+      ~/vermilion-rollback/VermilionAccel.kext.pre-killiondrv`.
+    - Install: [INSTALL.md](../docs/INSTALL.md) section 4, "To update the kext" (the Allow click rebuilds the AuxKC),
+      then restart.
+    - Check: `sysctl debug.phxfb_kill_iondrv` answers "unknown oid". `sysctl -n debug.phxgl` still answers.
+      `/var/log/phxboot.log`: `NMXAccel up`, `PhxAMDFB on panel`, `SUCCESS`.
+    - Rollback: the copy back the same way (Allow, restart).
+  - Open, not in this branch: after a bring-up failure that isn't a warm refusal, `navi31_up.sh` and the daemon still
+    go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24).
+
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
   `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just

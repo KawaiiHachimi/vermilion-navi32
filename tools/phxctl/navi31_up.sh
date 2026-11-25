@@ -7,6 +7,7 @@ M(){ sudo -n /usr/local/sbin/mesboot "$@"; }
 step(){ echo "== $1"; shift; out=$("$@" 2>&1); echo "$out" | tail -3; }
 cd ~/gpu/phxctl || exit 1
 step "bring-up (PSP, SMU, RLC, RS64, doorbells, MEC)" bash bringup_navi31.sh
+echo "$out" | grep -m1 '^sOS check:'   # the cold-GPU check's value (a refusal is in the last lines above)
 echo "$out" | grep -q "watchdog cancelled" || { echo "bring-up failed"; exit 1; }
 step "gart" M gart mc
 step "mes" M mes

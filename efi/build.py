@@ -132,9 +132,10 @@ def resolve_stage(machine, stage):
             die(f"stage inheritance loop at {s}")
         chain.append(s)
         s = stages[s].get("inherits")
-    kexts, boot_args, csr, nvram, booter, accept = [], [], None, {}, {}, []
+    kexts, boot_args, csr, nvram, booter, accept, drivers_remove = [], [], None, {}, {}, [], []
     for s in reversed(chain):
         st = stages[s]
+        drivers_remove += [d for d in st.get("uefi_drivers_remove", []) if d not in drivers_remove]
         accept += [a for a in st.get("ocvalidate_accept", []) if a not in accept]
         nvram.update({k: v for k, v in st.get("nvram_add", {}).items() if not k.startswith("_")})
         booter.update({k: v for k, v in st.get("booter_quirks", {}).items() if not k.startswith("_")})
@@ -146,8 +147,12 @@ def resolve_stage(machine, stage):
         boot_args += [a for a in st.get("boot_args_add", []) if a not in boot_args]
         boot_args = [a for a in boot_args if a not in st.get("boot_args_remove", [])]
         csr = st.get("csr_active_config", csr)
+    drivers = [e for e in machine["uefi_drivers"] if e.partition(" ")[0] not in drivers_remove]
+    for d in drivers_remove:
+        if not any(e.partition(" ")[0] == d for e in machine["uefi_drivers"]):
+            die(f"stage {stage}: uefi_drivers_remove names {d}, which the machine's uefi_drivers don't have")
     return {"kexts": kexts, "boot_args": boot_args, "csr_active_config": csr or "00000000", "nvram_add": nvram,
-            "booter_quirks": booter, "ocvalidate_accept": accept}
+            "booter_quirks": booter, "ocvalidate_accept": accept, "uefi_drivers": drivers}
 
 
 # ---------------------------------------------------------------------------------------------------------- SMBIOS
@@ -287,7 +292,7 @@ def make_config(sample, machine, stage, components, patches, acpi_files, smbios)
     u = c["UEFI"]
     u["ConnectDrivers"] = True
     u["Drivers"] = []
-    for entry in machine["uefi_drivers"]:          # "Driver.efi" or "Driver.efi --its --arguments"
+    for entry in stage["uefi_drivers"]:            # "Driver.efi" or "Driver.efi --its --arguments"
         path, _, arguments = entry.partition(" ")
         u["Drivers"].append({"Arguments": arguments.strip(), "Comment": "", "Enabled": True, "HideVerbose": False,
                              "LoadEarly": False, "Path": path})
@@ -323,7 +328,7 @@ def build(args):
             (ocd / sub).mkdir(parents=True)
         shutil.copy2(oc / "EFI" / "OC" / "OpenCore.efi", ocd / "OpenCore.efi")
 
-        for drv in (entry.partition(" ")[0] for entry in machine["uefi_drivers"]):
+        for drv in (entry.partition(" ")[0] for entry in stage["uefi_drivers"]):
             src = fetch(components, "HfsPlus") if drv == "HfsPlus.efi" else oc / "EFI" / "OC" / "Drivers" / drv
             if not Path(src).is_file():
                 die(f"driver {drv} not found")
@@ -552,6 +557,7 @@ def show_stages(args):
               f"  csr-active-config: {s['csr_active_config']}")
         if s["booter_quirks"]:
             print(f"  booter quirks: {', '.join(f'{k}={v}' for k, v in s['booter_quirks'].items())}")
+        print(f"  uefi drivers: {', '.join(e.partition(' ')[0] for e in s['uefi_drivers'])}")
 
 
 def main():

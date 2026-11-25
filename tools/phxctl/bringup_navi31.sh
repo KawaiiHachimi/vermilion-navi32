@@ -53,6 +53,33 @@ bl_load(){   # <name> <offset in sos.bin> <size> <bootloader cmd>
   echo "  $1 ($3 B) cmd $4 sent"
 }
 
+# Cold-GPU check, before the watchdog and before any write. The power-up below is the cold-boot sequence: on a warm
+# GPU (the sOS already running, e.g. after a warm reboot from Linux) it would load the SMU firmware into a running SMU,
+# which Linux never does. So a running sOS, or a C2PMSG_81 that can't be read, is a refusal: nothing is written to the
+# GPU, no reboot is armed, exit 3. The refusal line is the last line printed: navi31_up.sh shows the last three and
+# reports "bring-up failed", and phxboot-navi31.sh matches "refused: warm GPU" and takes its fallback (m2_fail on a
+# desktop boot, firmware display only otherwise). A full power-off makes the GPU cold again.
+# RESUME=after_tmr continues on purpose on a GPU this script brought up earlier in the same boot; it skips the check.
+if [ "${RESUME:-}" != after_tmr ]; then
+  echo "== sOS alive? (C2PMSG_81 sign of life, C2PMSG_58 version) =="
+  P regs 0x16091 0x1607a 0x16063
+  # Only phxctl's exact answer counts ("0x16091: 0x%08x"). Anything else (a failed read prints "(error) 0x00000000",
+  # an open failure prints its own message) is unreadable: refused too, but said as such.
+  # stderr is kept: phxctl reports an open failure there ("PhxBringup service not found"), and the refusal names it.
+  SOSOUT=$(P regs 0x16091 2>&1)
+  SOSLINE=$(printf '%s\n' "$SOSOUT" | grep -Ex '0x16091: 0x[0-9a-f]{8}' | head -1)
+  if [ -z "$SOSLINE" ]; then
+    echo "refused: warm GPU check failed: C2PMSG_81 unreadable ($(printf '%s' "$SOSOUT" | head -1 | cut -c1-80)): no firmware loaded, nothing written"
+    exit 3
+  fi
+  SOS=${SOSLINE##* }
+  if [ "$SOS" != "0x00000000" ]; then
+    echo "refused: warm GPU (PSP sOS running, C2PMSG_81=$SOS): no firmware loaded, nothing written; shut the machine down fully (power off), then boot macOS"
+    exit 3
+  fi
+  echo "sOS check: C2PMSG_81=$SOS (cold)"   # navi31_up.sh passes this line on, the daemon logs it at every boot
+fi
+
 echo "== watchdog: reboot in 3 min unless cancelled =="
 ( $SUDO /sbin/shutdown -r +3 >/dev/null 2>&1 & )   # matches the navi31 sudoers rule exactly
 
@@ -62,21 +89,16 @@ L(){ P loadfw "$@" 2>&1 | grep loadfw | tee -a ~/gpu/fwaddr.log; }
 # loaded). Loading the SMU firmware a second time into a running SMU is something Linux never does.
 if [ "${RESUME:-}" != after_tmr ]; then
   : > ~/gpu/fwaddr.log
-  echo "== sOS alive? (C2PMSG_81 sign of life, C2PMSG_58 version) =="
-  P regs 0x16091 0x1607a 0x16063
-  if [ "$(reg 0x16091)" = "0x00000000" ]; then
-    echo "== PSP bootloader: KDB, SPL, SYS_DRV, SOS (offsets of the psp_v2 firmware layout) =="
-    bl_load KDB     259344   5888 0x00080000 || exit 1
-    bl_load SPL     265232    672 0x10000000 || exit 1
-    bl_load SYS_DRV    256 157584 0x00010000 || exit 1
-    bl_load SOS     157840  99200 0x00020000 || exit 1
-    for _ in $(seq 1 200); do [ "$(reg 0x16091)" != "0x00000000" ] && break; sleep 0.01; done
-    P regs 0x16091 0x1607a 0x16080
-    [ "$(reg 0x16091)" != "0x00000000" ] || { echo "sOS did not start; leaving the watchdog armed"; exit 1; }
-    echo "sOS up (Linux saw version 0x00310035)"
-  else
-    P psp destroy >/dev/null 2>&1   # a ring may survive from an earlier run
-  fi
+  # the check above found the sOS not running (C2PMSG_81 = 0): start it through the PSP bootloader
+  echo "== PSP bootloader: KDB, SPL, SYS_DRV, SOS (offsets of the psp_v2 firmware layout) =="
+  bl_load KDB     259344   5888 0x00080000 || exit 1
+  bl_load SPL     265232    672 0x10000000 || exit 1
+  bl_load SYS_DRV    256 157584 0x00010000 || exit 1
+  bl_load SOS     157840  99200 0x00020000 || exit 1
+  for _ in $(seq 1 200); do [ "$(reg 0x16091)" != "0x00000000" ] && break; sleep 0.01; done
+  P regs 0x16091 0x1607a 0x16080
+  [ "$(reg 0x16091)" != "0x00000000" ] || { echo "sOS did not start; leaving the watchdog armed"; exit 1; }
+  echo "sOS up (Linux saw version 0x00310035)"
   if [ "${STOP_AFTER:-}" = sos ]; then
     $SUDO /usr/bin/killall shutdown 2>/dev/null; echo "STOP_AFTER=sos: stopped with the sOS up, watchdog cancelled"; exit 0
   fi

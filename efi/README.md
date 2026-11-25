@@ -57,9 +57,10 @@ Resolved boot-args of `vermilion-trust`: `-v keepsyms=1 debug=0x100 pci=0x800000
 ipc_control_port_options=0 phxdebug=1` (`efi/build.py stages` prints every stage).
 
 A stage can add kexts (`kexts_add`), add or remove boot-args (`boot_args_add`, `boot_args_remove`), add Apple-GUID
-NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot), set `csr_active_config` and override the
-machine's booter quirks (`booter_quirks`). Each change is tested on its own boot; the dated
-reasons sit next to each entry in the machine file (`_comment` keys) and in [`.agents/`](../.agents/).
+NVRAM variables (`nvram_add`, hex data, written by OpenCore at every boot), set `csr_active_config`, override the
+machine's booter quirks (`booter_quirks`) and drop some of the machine's UEFI drivers (`uefi_drivers_remove`). Each
+change is tested on its own boot; the dated reasons sit next to each entry in the machine file (`_comment` keys) and
+in [`.agents/`](../.agents/).
 
 ## Install onto the EFI partition
 
@@ -145,7 +146,10 @@ from macOS). Which one is the default is open (TODO, thread 10).
 - **Debug:** verbose boot and an OpenCore log file on the EFI partition (`Target = 67`) during bring-up (still on).
   The partition collected one log per boot until 2026-11-22 23:20; none since, for reasons unknown. Delete old logs
   now and then (keep the newest few).
-- **`ResetNvramEntry.efi --preserve-boot`:** the picker's Reset NVRAM keeps the firmware boot entries.
+- **`ResetNvramEntry.efi --preserve-boot`:** the picker's Reset NVRAM keeps the firmware boot entries. The live stage
+  `vermilion-trust-bar1g-audio` drops the driver (`uefi_drivers_remove`), so its picker has no Reset NVRAM entry:
+  Reset NVRAM deletes `phxfb-squat`, which macOS can't set again (CLAUDE.md hard rule 1). OpenCore 1.0.8 has no other
+  NVRAM reset (unverified).
 - **Don't boot Linux through OpenCore.** It would get OpenCore's SMBIOS and ACPI tables, and `efibootmgr` would see
   OpenCore's private boot variables instead of the firmware's. Start Linux from the firmware (Limine is the default).
 

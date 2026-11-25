@@ -31,6 +31,7 @@ bash tests/mock/run.sh            # boot daemon (tools/phxctl/phxboot-navi31.sh)
 bash tests/mock/b15test.sh        # display power recipe and watchdog (tools/phxctl/b15_boot.sh)
 bash tests/mock/m7test.sh         # second monitor at boot (m7_boot.sh, m7_phase.sh)
 bash tests/mock/dettest.sh        # det.sh
+bash tests/mock/bringup_warm_test.sh   # bringup_navi31.sh refuses a warm GPU
 bash tests/mock/audio_match_test.sh   # audio_match.sh (one AppleGFXHDA attach per boot, no detach)
 bash tests/mock/phxctl_serve_test.sh
 ```
