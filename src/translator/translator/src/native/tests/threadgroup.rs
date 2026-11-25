@@ -3073,6 +3073,44 @@ declare void @air.simdgroup.barrier(i32, i32)
     .expect_err("undefined barrier scope");
     assert!(err.contains("memory scope 3"), "{err}");
     let _ = std::fs::remove_dir_all(&tmp);
+
+    // A read-write device-only kernel (zero addrspace(3)) calling air.wg.barrier(2, 1) (mem_threadgroup,
+    // thread_scope_threadgroup) — such as Geekbench 7 ORB Feature Matching `sort_keypoints` — must
+    // promote the barrier to Device + UniformMemory|CrossWorkgroupMemory so RADV/ACO flushes L0/vmem.
+    let device_only_rw_ll = r#"
+target triple = "spirv-unknown-vulkan1.2"
+define void @sort_rw(ptr addrspace(1) %buf, i32 %tid) {
+entry:
+  %p = getelementptr inbounds i32, ptr addrspace(1) %buf, i32 %tid
+  %v = load i32, ptr addrspace(1) %p, align 4
+  store i32 %v, ptr addrspace(1) %p, align 4
+  tail call void @air.wg.barrier(i32 2, i32 1)
+  %v2 = load i32, ptr addrspace(1) %p, align 4
+  store i32 %v2, ptr addrspace(1) %p, align 4
+  ret void
+}
+
+declare void @air.wg.barrier(i32, i32)
+
+!air.kernel = !{!0}
+!0 = !{ptr @sort_rw, !1, !2}
+!1 = !{}
+!2 = !{!3, !4}
+!3 = !{i32 0, !"air.buffer", !"air.location_index", i32 0, i32 1, !"air.read_write", !"air.address_space", i32 1, !"air.arg_type_name", !"int*", !"air.arg_name", !"buf"}
+!4 = !{i32 1, !"air.thread_position_in_threadgroup", !"air.arg_type_name", !"uint", !"air.arg_name", !"tid"}
+"#;
+    let promoted_sem = {
+        use spirv::MemorySemantics;
+        (MemorySemantics::ACQUIRE_RELEASE
+            | MemorySemantics::WORKGROUP_MEMORY
+            | MemorySemantics::UNIFORM_MEMORY
+            | MemorySemantics::CROSS_WORKGROUP_MEMORY)
+            .bits()
+    };
+    assert_eq!(
+        barrier_scopes(device_only_rw_ll, "devonly_rw"),
+        vec![(Scope::Workgroup as u32, Scope::Device as u32, promoted_sem)]
+    );
 }
 
 #[test]

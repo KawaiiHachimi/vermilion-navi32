@@ -22,9 +22,14 @@ impl Emitter {
                 // into subgroup-only barriers.
                 let execution = air_barrier_execution_scope(call);
                 let scope = self.const_uint(execution as u32)?;
-                let memory_scope =
-                    self.const_uint(air_barrier_memory_scope(call, air_barrier_operand_scope(call)?) as u32)?;
-                let semantics = self.const_uint(air_barrier_memory_semantics(call).bits())?;
+                let mut mem_scope = air_barrier_memory_scope(call, air_barrier_operand_scope(call)?);
+                let mut mem_sem = air_barrier_memory_semantics(call);
+                if self.barrier_needs_device_memory(call) {
+                    mem_scope = Scope::Device;
+                    mem_sem |= MemorySemantics::UNIFORM_MEMORY | MemorySemantics::CROSS_WORKGROUP_MEMORY;
+                }
+                let memory_scope = self.const_uint(mem_scope as u32)?;
+                let semantics = self.const_uint(mem_sem.bits())?;
                 instructions.push(Self::inst(
                     Op::ControlBarrier,
                     None,
@@ -569,6 +574,81 @@ impl Emitter {
             ],
         ));
         Ok(())
+    }
+
+    // Metal's threadgroup_barrier(mem_flags::mem_threadgroup) compiles to @air.wg.barrier(i32 2, i32 1).
+    // Some real-world Metal kernels (e.g. Geekbench 7 ORB Feature Matching `sort_keypoints`) use
+    // `mem_threadgroup` to synchronize an in-place workgroup sort over a read-write device buffer
+    // (`addrspace(1)`) while declaring zero `addrspace(3)` threadgroup memory. On Apple's native Metal
+    // compiler that still orders device accesses, whereas on RADV/ACO a WorkgroupMemory-only
+    // OpControlBarrier only syncs LDS and leaves L0/vmem writes stale across wavefronts. When a module
+    // has zero workgroup memory and both reads and writes device memory (`addrspace(1)`), promote
+    // `air.wg.barrier(mem_threadgroup, ...)` to include device storage buffer semantics.
+    fn barrier_needs_device_memory(&self, call: &LlCall) -> bool {
+        if call.callee != "air.wg.barrier" {
+            return false;
+        }
+        let flags = call
+            .args
+            .first()
+            .and_then(|arg| air_i32_literal(&arg.value))
+            .unwrap_or(0);
+        if flags & 1 != 0 || flags & 2 == 0 {
+            return false;
+        }
+        let has_workgroup_mem = self.ir.globals.iter().any(|g| g.addrspace == 3)
+            || self
+                .pointer_storage
+                .values()
+                .any(|s| *s == StorageClass::Workgroup)
+            || self.ir.functions.iter().any(|f| {
+                f.params
+                    .iter()
+                    .any(|(_, ty)| matches!(ty, LlType::Ptr(3)))
+            });
+        if has_workgroup_mem {
+            return false;
+        }
+        let mut reads_device = false;
+        let mut writes_device = false;
+        for func in &self.ir.functions {
+            for inst in func.carrier_insts() {
+                let has_as1_ptr = inst.operands.iter().any(|op| match op {
+                    crate::native::tir::TirOperand::Value { ty, .. }
+                    | crate::native::tir::TirOperand::Const { ty, .. } => {
+                        matches!(ty, LlType::Ptr(1))
+                    }
+                    _ => false,
+                });
+                if !has_as1_ptr {
+                    continue;
+                }
+                match inst.opcode {
+                    crate::native::tir::TirOpcode::Load => reads_device = true,
+                    crate::native::tir::TirOpcode::Store
+                    | crate::native::tir::TirOpcode::AtomicRmw
+                    | crate::native::tir::TirOpcode::CmpXchg => writes_device = true,
+                    crate::native::tir::TirOpcode::Call
+                    | crate::native::tir::TirOpcode::Tail
+                    | crate::native::tir::TirOpcode::MustTail
+                    | crate::native::tir::TirOpcode::NoTail => {
+                        if inst
+                            .call()
+                            .as_deref()
+                            .is_some_and(|c| c.callee.starts_with("llvm.memcpy.") || c.callee.starts_with("llvm.memmove."))
+                        {
+                            reads_device = true;
+                            writes_device = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if reads_device && writes_device {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
