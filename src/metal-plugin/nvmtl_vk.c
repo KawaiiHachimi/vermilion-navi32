@@ -1612,7 +1612,13 @@ static int nvmtl_vk_view_guard(const nvk_image *img, uint32_t vkfmt, int a8, VkI
     if (vkfmt == img->fmt) return 0;
     if (!(img->vkflags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)) {
         nvlog("%s: view format %u of a format-%u image that is not mutable (depth / buffer texture) refused", who, vkfmt, img->fmt); return -1; }
-    if (img->vpair && vkfmt != img->vpair) {
+    if (img->vfl_n) {
+        int found = 0;
+        for (uint32_t k = 0; k < img->vfl_n; k++)
+            if (img->vfl[k] == vkfmt) { found = 1; break; }
+        if (!found) {
+            nvlog("%s: view format %u of a buffer texture (format %u) refused - not in its %u-format view list", who, vkfmt, img->fmt, img->vfl_n); return -1; }
+    } else if (img->vpair && vkfmt != img->vpair) {
         nvlog("%s: view format %u of a buffer texture (format %u) refused - its image lists only its sRGB/linear pair %u", who, vkfmt, img->fmt, img->vpair); return -1; }
     uint32_t bw = 1, bh = 1, bb = 0;
     if (img->bw > 1 && !nvmtl_vk_format_block(vkfmt, &bw, &bh, &bb) && levelCount != 1) {
@@ -7760,27 +7766,84 @@ static int nvmtl_vk_image_create_buffer_alias_lifetime_body(uint32_t w, uint32_t
             | (storage ? VK_IMAGE_USAGE_STORAGE_BIT : 0) | (render ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0),
         VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_PREINITIALIZED };
     uint32_t vp = a8 ? 0 : nvmtl_vk_srgb_pair(vkfmt);
-    VkFormat vfl[2] = { (VkFormat)vkfmt, (VkFormat)vp };
-    VkImageFormatListCreateInfo fl = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO, ici.pNext, 2, vfl };
-    if (vp) {
-        VkFormatProperties pp; memset(&pp, 0, sizeof pp); if (gfp) gfp(g_pdev, (VkFormat)vp, &pp);
+    VkFormat vfl[NVMTL_VFL_MAX]; uint32_t nvfl = 0;
+    if (!a8) {
+        static const VkFormat c32[] = {
+            VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB,
+            VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB,
+            VK_FORMAT_R8G8B8A8_SNORM, VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_R8G8B8A8_SINT,
+            VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_A2R10G10B10_UNORM_PACK32,
+            VK_FORMAT_R16G16_UNORM, VK_FORMAT_R16G16_UINT, VK_FORMAT_R16G16_SINT, VK_FORMAT_R16G16_SFLOAT,
+            VK_FORMAT_R32_UINT, VK_FORMAT_R32_SINT, VK_FORMAT_R32_SFLOAT,
+        };
+        static const VkFormat c16[] = {
+            VK_FORMAT_R8G8_UNORM, VK_FORMAT_R8G8_SRGB, VK_FORMAT_R8G8_SNORM, VK_FORMAT_R8G8_UINT, VK_FORMAT_R8G8_SINT,
+            VK_FORMAT_R16_UNORM, VK_FORMAT_R16_SNORM, VK_FORMAT_R16_UINT, VK_FORMAT_R16_SINT, VK_FORMAT_R16_SFLOAT,
+        };
+        static const VkFormat c8[] = {
+            VK_FORMAT_R8_UNORM, VK_FORMAT_R8_SRGB, VK_FORMAT_R8_SNORM, VK_FORMAT_R8_UINT, VK_FORMAT_R8_SINT,
+        };
+        static const VkFormat c64[] = {
+            VK_FORMAT_R16G16B16A16_UNORM, VK_FORMAT_R16G16B16A16_SNORM, VK_FORMAT_R16G16B16A16_UINT,
+            VK_FORMAT_R16G16B16A16_SINT, VK_FORMAT_R16G16B16A16_SFLOAT,
+            VK_FORMAT_R32G32_UINT, VK_FORMAT_R32G32_SINT, VK_FORMAT_R32G32_SFLOAT,
+        };
+        static const VkFormat c128[] = {
+            VK_FORMAT_R32G32B32A32_UINT, VK_FORMAT_R32G32B32A32_SINT, VK_FORMAT_R32G32B32A32_SFLOAT,
+        };
+        const struct { const VkFormat *p; uint32_t n; } classes[] = {
+            { c32, (uint32_t)(sizeof c32 / sizeof c32[0]) },
+            { c16, (uint32_t)(sizeof c16 / sizeof c16[0]) },
+            { c8,  (uint32_t)(sizeof c8  / sizeof c8[0])  },
+            { c64, (uint32_t)(sizeof c64 / sizeof c64[0]) },
+            { c128,(uint32_t)(sizeof c128/ sizeof c128[0]) },
+        };
+        vfl[nvfl++] = (VkFormat)vkfmt;
+        if (vp) {
+            VkFormatProperties pp; memset(&pp, 0, sizeof pp); if (gfp) gfp(g_pdev, (VkFormat)vp, &pp);
+            if (pp.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) vfl[nvfl++] = (VkFormat)vp;
+        }
+        for (uint32_t ci = 0; ci < (uint32_t)(sizeof classes / sizeof classes[0]); ci++) {
+            int in_cls = 0;
+            for (uint32_t j = 0; j < classes[ci].n; j++) if ((uint32_t)classes[ci].p[j] == vkfmt) { in_cls = 1; break; }
+            if (!in_cls) continue;
+            for (uint32_t j = 0; j < classes[ci].n && nvfl < NVMTL_VFL_MAX; j++) {
+                VkFormat cf = classes[ci].p[j];
+                int dup = 0;
+                for (uint32_t k = 0; k < nvfl; k++) if (vfl[k] == cf) { dup = 1; break; }
+                if (dup) continue;
+                VkFormatProperties pp; memset(&pp, 0, sizeof pp); if (gfp) gfp(g_pdev, cf, &pp);
+                if (pp.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) vfl[nvfl++] = cf;
+            }
+            break;
+        }
+    }
+    VkImageFormatListCreateInfo fl = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO, ici.pNext, nvfl, vfl };
+    if (nvfl > 1) {
         PFN_vkGetPhysicalDeviceImageFormatProperties2 gif = (PFN_vkGetPhysicalDeviceImageFormatProperties2)
             pvkGetInstanceProcAddr(g_inst, "vkGetPhysicalDeviceImageFormatProperties2");
-        VkImageFormatListCreateInfo qfl = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO, NULL, 2, vfl };
+        VkImageFormatListCreateInfo qfl = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO, NULL, nvfl, vfl };
         VkPhysicalDeviceImageDrmFormatModifierInfoEXT qmi = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT, &qfl,
             0 , VK_SHARING_MODE_EXCLUSIVE, 0, NULL };
         VkPhysicalDeviceImageFormatInfo2 qi = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2, g_linmod ? (void *)&qmi : (void *)&qfl,
             ici.format, ici.imageType, ici.tiling, ici.usage, VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT };
         VkImageFormatProperties2 qo; memset(&qo, 0, sizeof qo); qo.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
-        VkResult qr = !(pp.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) ? VK_ERROR_FORMAT_NOT_SUPPORTED
-                    : gif ? gif(g_pdev, &qi, &qo) : VK_ERROR_EXTENSION_NOT_PRESENT;
+        VkResult qr = gif ? gif(g_pdev, &qi, &qo) : VK_ERROR_EXTENSION_NOT_PRESENT;
+        if (qr != VK_SUCCESS && nvfl > 2 && vp && vfl[1] == (VkFormat)vp) {
+            nvfl = 2; fl.viewFormatCount = 2; qfl.viewFormatCount = 2;
+            memset(&qo, 0, sizeof qo); qo.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+            qr = gif ? gif(g_pdev, &qi, &qo) : VK_ERROR_EXTENSION_NOT_PRESENT;
+        }
         if (qr == VK_SUCCESS) { ici.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT; ici.pNext = &fl; }
-        else { nvlog("buffer texture: VkFormat %u stays single-format - its sRGB/linear view format %u is refused (linear features 0x%x, VkResult %d%s)",
-                     vkfmt, vp, (unsigned)pp.linearTilingFeatures, (int)qr, gif ? "" : ", no vkGetPhysicalDeviceImageFormatProperties2"); vp = 0; }
-    }
+        else { nvlog("buffer texture: VkFormat %u stays single-format - view format list (%u) refused (VkResult %d%s)",
+                     vkfmt, nvfl, (int)qr, gif ? "" : ", no vkGetPhysicalDeviceImageFormatProperties2"); nvfl = 0; vp = 0; }
+    } else { nvfl = 0; vp = 0; }
     VKCK(nvmtl_opaque_CreateImage(g_dev, &ici, NULL, &out->img), "vkCreateImage(buffer texture)");
     out->layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-    out->vkflags = (uint32_t)ici.flags; out->usage = (uint32_t)ici.usage; out->vpair = vp;
+    out->vkflags = (uint32_t)ici.flags; out->usage = (uint32_t)ici.usage;
+    out->vpair = nvfl > 1 ? (vp ? vp : (uint32_t)vfl[1]) : 0;
+    out->vfl_n = nvfl;
+    for (uint32_t k = 0; k < nvfl; k++) out->vfl[k] = (uint32_t)vfl[k];
     if (!g_linmod) {
         PFN_vkGetImageSubresourceLayout gsl = (PFN_vkGetImageSubresourceLayout)pvkGetInstanceProcAddr(g_inst, "vkGetImageSubresourceLayout");
         VkImageSubresource sr = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 }; VkSubresourceLayout got; memset(&got, 0, sizeof got);
