@@ -107,6 +107,10 @@ cp -p tools/phxctl/navi31_up.sh ~/gpu/phxctl/navi31_up.sh.xtx        # keep the 
 cp -p tools/phxctl/navi32_daemon_up.sh ~/gpu/phxctl/navi31_up.sh      # what the daemon calls
 cp -p tools/phxctl/navi32_up.sh tools/phxctl/vcn_up.sh ~/gpu/phxctl/
 cp -p tools/phxctl/phxboot-navi31.sh ~/gpu/phxboot-navi31.sh
+# Idle-power helpers run by default from ~/gpu (sdma_idle -> gfx_cg -> idle_dpm)
+cp -p tools/phxctl/sdma_idle.sh tools/phxctl/gfx_cg.sh tools/phxctl/idle_dpm.sh \
+      tools/phxctl/uclk.sh tools/phxctl/dal.sh tools/phxctl/dalwm.sh \
+      tools/phxctl/smumetrics.py ~/gpu/
 mkdir -p ~/gpu/vcnup && cp -R tools/phxctl/vcn_up.sh tools/phxctl/vcn ~/gpu/vcnup/
 # the LaunchDaemon
 printf '%s\n' '<plist with Label local.phxboot, /bin/bash ~/gpu/phxboot-navi31.sh, PHX_USER=<user>>' \
@@ -173,3 +177,7 @@ sudo launchctl asuser $(id -u cool) sudo -u cool ~/gpu/apiprobe  # GL 4.1 / Open
 
 OpenGL and OpenCL cannot be checked over SSH: `CGLChoosePixelFormat` answers "invalid CoreGraphics connection"
 outside the console user's session, and `launchctl asuser` alone is not enough.
+
+> Updating the accel: copy the kext into `/Library/Extensions`, run the `kmutil install` above, then **reboot** - on this
+> machine the AuxKC is rebuilt during that reboot (its timestamp moves to the shutdown time) and the new UUID loads;
+> `kmutil install` alone leaves the old AuxKC in place.

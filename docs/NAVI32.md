@@ -2281,3 +2281,967 @@ The last three checks are the reason this is a separate step rather than a rushe
 submit path (a lost context must be refused before it reaches the ring). Everything else is inert while
 `debug.phxfaultdef=0` and `debug.phxrecover=0`, which is the default, so the port can land in two steps: the
 wiring first (provable by the test and by a boot that behaves exactly as before), then the lost-context refusal.
+
+## Refresh-rate switching: the chain, and where it stops (2026-11-24)
+
+The head-0 mode list works (`~/gpu/phxboot-p0modes` -> `debug.phxpipe0_modes=1` + `debug.phxpipe0_enable=1` before
+the claim). Five modes are offered on the P27QBA-RX and a switch request reaches the pipe-0 engine, which then
+refuses it. Chasing the refusal gave a complete chain, each step measured:
+
+| Step | Evidence |
+|---|---|
+| the mode table is offered | `CGDisplayCopyAllDisplayModes` -> 5 modes (1080p60, 1440p at 60/120/144/165) |
+| a switch reaches the kernel | `debug.phxpipe0_stat` shows `cmd`/`target`, and the accel's `switchHead0Mode` passes `phxhead::switchHz` |
+| the engine refuses | `last=refused stage=preflight` |
+| first reason | `plans: two plans at the same totals differ in rate / pclk / convention` - this monitor reuses OTG0 totals across rates (100 Hz shares 60's `0xa9f/0x5c8`, 120 Hz shares 144's `0xa9f/0x5f4`), and `identify()` matches on totals only |
+| after trimming the family | still refused, now at the round trip: `round trip at 1440p60n32: N of M registers match; differs: ...` (the diagnostic added here) |
+| the round trip refuses earlier | `preflight: ODM0 OPTC underflow sticky / current set` |
+
+So two independent things block a mode change, and the second is the real one:
+
+1. **A plan family may not carry two plans at the same OTG0 totals with different rates.** Until `identify()`
+   compares something other than totals (the DP pixel-rate DTO would do it - see below), the family and the mode
+   list carry the rates whose totals differ: 1440p 60/144/165 plus 1080p60. That is why 100 and 120 Hz are not
+   offered on this card today.
+2. **Pipe 0 is underflowing at the current mode.** `ODM0` reports an OPTC underflow with the *current* bit set,
+   which is a live underflow, not a stale sticky - and the engine refuses to retime a pipe that is starving.
+
+### Why it underflows, and what that implies
+
+Scan-out on this port runs from **system memory**: `debug.phxbo_vram_stat` reports the VRAM BO pool at
+`[0, 0) MiB` with zero allocations, i.e. the VRAM-backed BO path (the XTX's b156/b157/b159) is off, so every
+scan-out surface crosses PCIe at the measured 47.8 GB/s instead of VRAM's ~840 GB/s. The 1440p plans' HUBP0
+watermarks (group 4) were captured from a Linux run that scans out of VRAM, so they are far too small for that
+latency and the pipe underflows.
+
+That makes the order of work clear, and it is the same order the XTX work took:
+
+1. bring the VRAM BO pool up (`debug.phxbo_vram_selftest` must pass; it currently reports 0/not run and
+   `debug.phxbo_vram` is absent from the sysctl list, so the path is compiled but not armed on this die),
+2. re-capture or re-derive the HUBP0 watermark group for VRAM-resident scan-out,
+3. then the round trip can pass, `debug.phxrecover`-style mode changes become possible, and the 100/120 Hz plans
+   can return once `identify()` is DTO-aware.
+
+### Borrowing from the RDNA4 driver (RX4Darwin/AMDRadeonRDNA4.kext)
+
+That project (Navi 48/44, from scratch) solves the same two problems and is worth reading before writing code here:
+
+* `src/modes.cpp` builds the display-mode table from the EDID with a **deduplication key of size + whole-Hz** and a
+  documented source priority (base DTD > CTA DTD > VIC > standard > established), which is exactly the bookkeeping
+  our `phxhead::modeList` needs before it can offer two rates that share totals;
+* `src/modeset.cpp` documents the mode-change order for a **lit pipe** and, for DisplayPort, the rule that matters
+  here: *the stream on a trained link can be retimed without taking the link down, as long as it needs no more of
+  the link than before* - the retime is a **pixel-rate DTO** (`DCCG401_DP_DTO_*` modulo/phase/integer) plus a
+  timing reprogram, not a re-train. That DTO is also the natural discriminator for `identify()`: two plans that
+  share totals differ in their DTO, so reading the live DTO tells them apart;
+* their `Builder::add` refuses a mode that does not fit the sink's declared envelope and dedups by what the
+  Displays pane shows, which is the same class of bug as our two-plans-same-totals refusal.
+
+### Why the VRAM BO pool cannot come up yet: the kernel VMID 0 window is 256 MiB (2026-11-24)
+
+`debug.phxbo_vram_selftest=1` fails at **-6**, and the kext says exactly where:
+
+```
+PhxBringup: VRAM fill of 1 MiB at 512 MiB did not finish in 2 s (seq 67451, retired 67450): VRAM BOs off
+PhxBringup: VRAM fill of 1 MiB at 352 MiB did not finish in 2 s (seq 3078, retired 3077): VRAM BOs off
+```
+
+The submission is accepted (a sequence number is handed out) but nothing retires: the CP never finishes the
+CP-DMA fill, so the RELEASE_MEM fence behind it never lands. Step 1 of the same selftest - a fill at **150 MiB** -
+*does* retire and verifies clean, which is what pins the failure to the address rather than the packet:
+
+| Fill at | Result |
+|---|---|
+| 150 MiB (selftest region) | retires, data verified |
+| 352 MiB (after the scan slots) | never retires |
+| 512 MiB (the pool's nominal base) | never retires |
+
+The boundary is the kernel context's GART window, and `tools/phxctl/mesboot.c` says so in a comment:
+
+```c
+#define GART_N 65536    // 256 MiB window: covers the whole BAR0-visible VRAM
+// GCVM_CONTEXT0_END only keeps 24 bits of the page number, so the window is capped at 16 GiB
+```
+
+So the kext's own VMID-0 submissions (the fill IB at 148 MiB, the fences, the rings at 161 MiB) all live inside
+256 MiB, and a CP-DMA destination above that window is not translated - the packet stalls and the queue never
+retires it. The first 256 MiB are already spoken for: page tables at 80 MiB, the six flat tables at 96-144 MiB,
+the clear IB at 148 MiB, the selftest region at 150 MiB, the GART table at 160 MiB, rings and MQDs from 161 MiB,
+and the display's large scan slots at 256-352 MiB are outside the window anyway (they are addressed by the display
+engine, not by a kernel ring).
+
+### The two ways forward
+
+1. **Widen VMID 0's window** and put the pool above the display's regions. `GCVM_CONTEXT0_END` keeps 24 bits of
+   the page number, so up to 16 GiB is addressable; today's table is 65,536 entries (256 MiB) because that is what
+   the experiment needed. This is the clean fix and it also unblocks the XTX's b159 CPU-visible pool, which needs
+   `[352 MiB, BAR0 end)` - exactly the region that does not translate here.
+2. **A small pool inside the window** (a few tens of MiB below 148 MiB), enough to prove the path end to end
+   (GPU-written, CPU-read-back, then a scan-out BO) before doing (1).
+
+Either way the order after that is unchanged: pool -> re-derive the HUBP0 watermarks for VRAM-resident scan-out ->
+the round trip can pass -> mode changes work -> and only then does a DTO-aware `identify()` let the 100/120 Hz
+plans come back.
+
+### The VRAM clear path: the first fill works, later ones race (2026-11-24)
+
+Chasing the -6 selftest failure produced a precise, and different, picture than the address theory. With a
+diagnostic fill added (the same 1 MiB at 150 MiB, where step 1's 1 MiB - 8 KiB fill always succeeds):
+
+| Fill | Address | Size | Result |
+|---|---|---|---|
+| 1st in the boot | 150 MiB | 1 MiB - 8 KiB | retires, verified |
+| 2nd | 150 MiB | 1 MiB | never retires (-20) |
+| 2nd | 240 / 352 / 512 MiB | 1 MiB | never retires |
+
+So it is **not the address**: the second fill of a boot stalls wherever it points. `vramFill` writes its IB into
+the same 2 MiB area at 148 MiB every time, and its own comment already warns about the hazard - "the IB area may
+still be read by the CP: never write it again in this boot". The CP is still reading the previous IB when the
+next one overwrites it.
+
+The fix attempted here: the 2 MiB area is now **eight 256 KiB rotating slots**, one per fill, so the previous IB
+stays intact. That moved the selftest from "-6 at the first pool fill" to "-18 at the last one" in one boot - three
+fills in a row succeeded - but a later boot failed at -6 again, so **the race is narrowed, not closed**. The
+remaining suspect is visibility rather than reuse: the IB is written through write-combined BAR0 and the CP is
+told with a doorbell, and the `hdpFlush()` between them does not prove the CP has seen the bytes.
+
+Two other things came out of this, both worth keeping:
+
+* a **widened kernel window** is not what limits the pool: mesboot now builds the context-0 GART with 131072
+  entries (512 MiB, the table filling [160 MiB, 161 MiB) exactly before the rings), and a fill above 256 MiB still
+  stalls - so the limit was never the window;
+* the pool placement was made explicit: `PHX_VRAM_POOL_BASE` sits at 240 MiB (past the page-table pool, inside the
+  range fills reach) and `phx_vram.cpp` clamps the pool to 255 MiB, and the stat then reads
+  `pool [240, 254) MiB, free 14 MiB` - a 14 MiB pool is exactly one 1440p scan-out BO (14.7 MiB is the frame).
+
+### Where the display work stands after this
+
+Unchanged in the order, but the first step is now known to be a **synchronisation bug, not a placement one**: make
+the IB write visible to the CP reliably (an IB in system memory with `clflush`, or waiting for the HDP flush
+acknowledgement, or one IB slot per fill with a fence on the slot before reusing it), then the pool comes up, then
+the watermarks, then the round trip, then mode changes.
+
+The desktop is unaffected by any of this: VRAM BOs stay off (`mode=0`), scan-out stays in system memory, and the
+accelerated desktop keeps compositing (`SUCCESS`, `debug.nvaccel_iop_ok` climbing).
+
+### The CP stops fetching the kernel ring after two or three submissions (2026-11-24)
+
+The data-verification fallback added to `vramFill` (on a lost fence, read the destination back and accept the fill
+when the data is there) did **not** rescue the fill: the data was not written either. So the fill never ran, and
+the queue state at the moment of the timeout says why:
+
+```
+queue compute wptr 36 head 2 tail 3 doneEnd 24 hw rptr 24 wb[0] 0x18 wb[4] 0x24 ibOff 0x9480000 ib[0] 0xc0055000
+```
+
+* `wptr 36`, `doneEnd 24`: three 12-dword entries written, two retired;
+* **`hw rptr 24`**: the CP consumed the ring up to dword 24 and never fetched the third entry;
+* `wb[4] = 0x24` (36): the write-pointer shadow the CP polls **does** hold the new wptr;
+* `ib[0] = 0xc0055000`: the IB at the new slot is a well-formed `DMA_DATA` packet, so the IB content is not corrupt.
+
+So the pending entry sits in a ring whose wptr the CP has been told about twice (shadow and doorbell) and it is
+simply not fetched. The count varies by boot - two submissions in one run, three in another - which is why the
+earlier attempts to blame the address, the IB slot reuse or the GART window all failed.
+
+The contrast that matters: **client submissions on the same compute queue work indefinitely** (RADV runs tens of
+thousands per second through `gpuSubmit`), so the ring, the doorbell and the queue are sound. What differs is the
+kernel IB path itself (`gpuSubmitKernelIb`): 12 dwords per entry, `fctx = kNoCtx`, an IB addressed as an MC address
+with the VMID-0 VALID bit. The next thing to compare is exactly that pair of emit paths, plus the queue's
+`CP_HQD_DOORBELL_CONTROL` / `CP_PQ_STATUS` at the stall.
+
+Everything else stands: VRAM BOs stay off, the desktop is on the GPU (`desktop-arm: 1`, frames climbing), and the
+selftest's diagnostics (rotating IB slots, the data check, the queue dump) are what turned this from "the fill
+times out" into "the CP does not fetch the third entry".
+
+## VRAM-backed BOs work: 535 GB/s instead of 47.7 (2026-11-24)
+
+The cause of every failed VRAM fill was not the address, the IB slot or the GART window - it was the **queue**. The
+MEC compute queue stops fetching the kernel IB path after two or three submissions (measured: `wptr 36`, `rptr 24`,
+the wptr shadow correctly at 36, the IB well formed); the MES-adopted **gfx queue runs the same path indefinitely**,
+as client submissions already proved. `vramFill` now prefers `gq[1]` (gfx) and falls back to `gq[0]`, and with that:
+
+```
+debug.phxbo_vram_selftest   0 -> 1                    (passed)
+pool [352, 16272) MiB: free 15920 MiB, largest 15920 MiB
+debug.phxbo_vram            0 -> 1,  debug.phxbo_vram_proc = vkbench
+clears 3, 516 MiB, avg 4315 us, failed 0, fallbacks 0
+
+vkbench bandwidth:  median 535.4 GB/s, best 537.6     (was 47.7 GB/s)
+                    GPU per frame 1.009 ms             (was 11.4 ms)
+```
+
+That is the port's biggest single step since RADV: every client buffer can now live in VRAM instead of crossing PCIe,
+and the pool covers the whole card (`[352 MiB, 16272 MiB)`, i.e. everything after the display's scan slots).
+
+### The chain, for the record
+
+1. the selftest failed at -6 with "fill did not finish";
+2. a data check after the lost fence proved the fill had not run at all (not a lost fence);
+3. a queue dump at the timeout showed the CP never fetched the third ring entry while the wptr shadow held it;
+4. client submissions on the same queue work forever, so the ring and doorbell are sound and the difference is the
+   kernel IB path on a MEC queue;
+5. moving the kernel fills to the gfx queue made the selftest pass on the first try.
+
+Everything before step 5 was a wrong theory (address above 256 MiB, IB slot reuse, GART window size) that the
+diagnostics killed one by one. The lesson: when a queue "does not execute", dump `wptr`/`rptr`/`head`/`tail`/the
+wptr shadow before touching any address.
+
+## Mode switching: the round trip passes, the switch stops at DP_VID_M (2026-11-24)
+
+With VRAM BOs armed at boot (the daemon now runs the selftest and sets `debug.phxbo_vram=1` with
+`WindowServer,vkbench,metaltest,metalbench,apiprobe,vkwsi`), the pipe-0 engine got two real fixes:
+
+1. **the refusal message was self-referential** - my diagnostic wrote into `st.why` and `refuse()` appends to the same
+   buffer, so the reason came out as "round trip: round trip: round trip: ...". A local buffer fixed it, and the real
+   reason appeared: `1440p60n32: 19 of 35 registers match`;
+2. **the round trip demanded registers that can never match**: `OTG0_OTG_VSTARTUP/VUPDATE/VREADY_PARAM` are rewritten
+   by the driver while scanning, and the plans already flag them (`pad` bit 2, "double-buffered: compared at
+   verify"). `equalCount()` counted them anyway, so a round trip could never pass on this board.
+   `equalStaticCount()`/`staticSteps()` now compare only the static set, and the round trip passes:
+
+```
+rt_ok=1
+target 144 Hz: set runs to the verify stage
+verify: DP_VID_M not within 1 % of the expected value | DP_VID_M 0x26b2, want 0x8de2 +-1 %
+-> fell back to the previous mode   (mode=60, last=fell, desktop intact, frames climbing)
+```
+
+So the whole mode-change machinery works now - survey, round trip, the ordered shell, verify and a safe fallback -
+and one value is wrong: `DP_VID_M` stays at the 60 Hz number, which is what the hardware derives from the DP
+pixel-rate DTO. The plans carry distinct DTO phase values (60 Hz `0x0e680ca0`, 144 Hz `0x2399ec10`, 165 Hz
+`0x2730a760`), so the write is not taking effect. The RDNA4 driver's note is the likely reason: the DTO must be
+**selected and enabled** before its phase/modulo/integer are written (`dccg401_set_dp_dto`); writing the phase while
+another source is selected is ignored, which leaves M at the old rate.
+
+### Everything else that this round landed
+
+* VRAM-backed BOs: **535 GB/s** instead of 47.7, GPU per frame 1.009 ms instead of 11.4, pool `[352 MiB, 16272 MiB)`,
+  armed at boot by `navi32_up.sh` (selftest -> `debug.phxbo_vram=1` -> process list), with WindowServer's frames
+  among them (`pool used 8 MiB, 13 extents`);
+* the kernel fill path moved to the gfx queue, which fixed the "fill never retires" mystery (the MEC queue stops
+  fetching the kernel IB path after two or three submissions);
+* the head-0 mode list, the plan-family consistency check and the static-register round trip, in that order.
+
+### The rate change moves the timing and the DTO, but DP_VID_M does not follow (2026-11-24)
+
+Added the DP_VID_M write (the plans never carried it) plus its allow-mask entry, and a verify failure now dumps the
+timing state. A 144 Hz attempt says:
+
+```
+DP_VID_M 0x26b1, want 0x8de2 +-1 % at 597290 kHz
+OTG0 2719/1524          <- the 144 Hz plan's totals: the timing DID change
+DTO phase 0x2399ec10    <- the 144 Hz DTO phase WAS written
+PIXEL_RATE_CNTL 0x1090
+-> fell back to the previous mode (desktop intact)
+```
+
+So three of the four pieces work: the totals, the DTO phase and the ordered shell. `DP_VID_M` reads 0x26b1
+(9,905) during verify although the driver wrote 0x8de2 (36,322) just before the shell - something overwrote it, so
+the value is hardware-managed on this die, not driver-set.
+
+The known-good 60 Hz point is `pclk 241700 kHz -> M 0x3968 (14,696)`, i.e. M scales with the pixel clock at
+0.0608 per kHz, which is what `expectM()` assumes and what the 144 Hz expectation (0x8de2) follows. Our 144 Hz
+reading corresponds to a pixel clock of about 162.9 MHz - neither 241.7 nor 597.29 - so the number the hardware
+computed does not match the DTO phase that is sitting in the register.
+
+Next: derive what the hardware actually reads. The two data points (60 Hz good, 144 Hz wrong by a factor 3.67) and
+the DTO phase/modulo pair (phase = pixel clock in Hz, modulo = 716,666,667) are enough to test three candidates:
+the DTO needs `DP_DTO0_MODULO` rewritten per rate, the OTG needs `OTG_PIXEL_RATE_DIV` changed with the rate
+(it reads 0xdb6 = 2 ppc), or the M value is latched at the moment the stream is enabled and our write lands too
+early.
+
+### The pixel clock cannot rise: the plans carry no DENTIST divider (2026-11-24)
+
+Two more pieces were tested and both left `DP_VID_M` at the 60 Hz number, which is what finally localised the
+blocker.
+
+**First, the DTO convention.** The Linux captures show the DTO phase as half the pixel clock (`60 Hz: 0x07340650`
+= 120.85 MHz, `144 Hz: 0x11ccf608` = 298.7 MHz, `165 Hz: 0x139853b0` = 328.75 MHz) with a constant
+`DP_DTO0_MODULO 0x2ab77490`, while the port's plans carried the full pixel clock (the GOP convention, `conv = 0`).
+The 144 and 165 Hz plans were rewritten to the Linux form - phase halved, `OTG_PIXEL_RATE_DIV = 2` added, `conv = 1`
+- and the write lands (`DTO phase 0x11ccf608` observed live). M moved from `0x26b1` to `0x38be`, i.e. still the
+60 Hz clock.
+
+**Second, DP_VID_M itself.** Writing it for the target rate works now (the register needed an allow-mask entry; the
+first attempt was refused with `0x059D2 ... outside the pipe-0 allow mask`), but the hardware overwrites it during
+the shell, so it is hardware-managed and cannot be forced.
+
+### What is actually missing
+
+`DENTIST_DISPCLK_CNTL` (0x124) reads `0x40194040` and **none of the navi32 plans writes it** - the plans only mention
+it in a comment. In `macSet` the display-clock step is gated: the DAL `SetHardMinByFreq` messages run only when
+`dentistFits(live divider, tg.info.dentistMax)` fails, and every navi32 plan carries `dentistMax = 0`, which makes
+`dentistFits` always true. So the SMU is never asked for the higher DISPCLK, the divider stays at the GOP's value,
+and the pixel clock cannot reach 597 MHz no matter what the DTO says.
+
+The XTX's 1440p plans carry both a `dentistMax` and the DAL pair (`kP0Dal1440p144 = 614 MHz`); the navi32 plans
+carry the DAL pair but `dentistMax = 0`. The fix is therefore small and well-understood: give the 144/165 plans a
+real `dentistMax` (the divider the rate needs), and add the DENTIST write step the XTX plans have. That is the next
+change.
+
+## A refresh-rate change works: 60 Hz -> 144 Hz on the RX 7800 XT (2026-11-24)
+
+For the first time on this port the display actually changes rate:
+
+```
+debug.phxpipe0=4 with debug.phxpipe0_mode=144
+  stat: mode=144 target=144 last=same done=2
+  OTG0 totals  0xa9f / 0x5f4      (the 144 Hz plan's timing)
+  DTO phase    0x2399ec10         (the 144 Hz pixel clock)
+  DP_VID_M     0x8de3             (the value verify expects for 144 Hz)
+  frames still climbing, GRBM idle
+```
+
+### What it took, in order
+
+1. **The round trip had to pass**, which needed the per-frame registers (VSTARTUP/VUPDATE/VREADY) excluded from the
+   comparison (`equalStaticCount`) - they are rewritten while scanning and the plans already flag them;
+2. **the DENTIST divider had to be writable**: `DENTIST_DISPCLK_CNTL` (0x124) was inside the pipe-0 engine's
+   refused range `{0x00100, 0x0012E}` on purpose. It is now allowed with the same divider mask the pipe-1 table uses
+   (`0x7f007f7f`), and the refused range is split around it;
+3. **the divider had to be programmed**: the SMU only raises DISPCLK. `macSet` sends the DAL hard minimums and lets
+   the shell write the plan's `DENTIST_DISPCLK_CNTL` step (stage 1, after the pipe is blanked); the value is checked
+   in `verify` instead of before the shell, because writing it *before* the blank corrupts the mode that is still
+   scanning (measured: it left the live 60 Hz timing broken);
+4. **the DTO phase had to be the full pixel clock, not half**: with the Linux capture's half-clock value the hardware
+   produced exactly `pclk/2` (`DP_VID_M 0x46f1` = 298.7 MHz), which is what a 1 ppc OTG does with a 2 ppc DTO value.
+   With the full value (`0x2399ec10`) the M reading is exactly the 144 Hz expectation;
+5. **DP_VID_M is hardware-managed** - writing it is useless (the hardware overwrites it during the shell), so the
+   anchor is the DTO and the DISPCLK divider, and `verify` checks M afterwards.
+
+### What still does not work
+
+| Change | Result |
+|---|---|
+| 60 -> 144 Hz | **works** (M 0x8de3, totals and DTO at the 144 Hz plan) |
+| 144 -> 165 Hz | refused (the 165 plan needs its own DENTIST/DTO check - not yet measured) |
+| 144 -> 60 Hz | the revert fails and the engine latches `dark` for the boot (the display keeps running at 144 Hz and frames keep flowing) |
+
+The 60 Hz plan's DENTIST value was taken from the live register at boot (`0x1c1f1c1c`), which is the GOP's, not
+Linux's `0x437f4343`; the failing revert suggests the two are not interchangeable once DISPCLK has moved. That is the
+next thing to measure.
+
+### What the reference projects do for a mode change, and what was taken from them (2026-11-24)
+
+**RedNavi** (`RedNavi/mode_regs.cpp`, `kern_probe.cpp setModeLive`) already switched resolution and rate on a Navi 3x
+without WindowServer acceleration. Its sequence: stop the DP video stream and wait for idle, disable the OTG, raise
+DISPCLK *while the pipe is off* (DENTIST divider from a formula: VCO 4.3 GHz, divider in quarter steps, 1.75 %
+headroom, **only ever raised, never lowered**), retrain the link if needed, replay the pipe registers with the
+mode-dependent ones recomputed (OTG timing, MSA, DTO phase, viewport/pitch, HUBP timing in reference cycles, TTU and
+per-line delivery scaled from captures), and if the stream does not come up, reprogram the previous mode.
+
+**AMDRadeonRDNA4** (`src/modeset.cpp`) does the same on DCN 4.01 with a DP retime on the trained link: DPG black,
+stream off at vblank, `optc_disable_crtc`, then `dccg_set_dp_dto` (phase, modulo, integer) with the DTO already
+selected, the timing, and the stream back on.
+
+Taken over now:
+
+* the 60 Hz plan no longer writes DENTIST: the divider differs per boot (`0x40194040` or `0x1c1f1c1c`), and a DISPCLK
+  raised for 144 Hz is still valid for 60 - RedNavi's never-lower rule. That plan's DENTIST step was what made a
+  later round trip refuse (`3 of 4 static registers match; differs: DENTIST_DISPCLK_CNTL`);
+* the 1440p family offers only the rates measured end to end (60 and 144). 165 Hz keeps its plan but is not
+  offered;
+* the head-0 mode list (`~/gpu/phxboot-p0modes`) is off by default again: with it on, System Settings could request
+  1920x1080 on the 1440p monitor, which the pipe-0 engine has no resolution path for (it only retimes; RedNavi's
+  viewport/pitch/HUBP recomputation is what a resolution change needs) and the engine latched dark with
+  `DP_VID_M = 0`. Rate switching stays available through `debug.phxpipe0_mode` / `debug.phxpipe0=4`.
+
+Still to port from RedNavi: the resolution path (`rn_mode_register`'s size/HUBP/TTU laws) and its fallback-by-reprogram,
+so that a failed change restores the previous mode instead of latching dark.
+
+### The desktop composited at 30 fps on a 60 Hz panel (2026-11-24)
+
+Reported on the box: the panel ran at 60 Hz (OTG0 frame counter: 134 frames in 2 s) but WindowServer presented at
+~33 fps. The accel's counters gave it away: `nvaccel_iop_gap2` (a frame two refreshes after the previous one) was
+97 % of all frames, and each present is a CPU copy into the scan-out that took **13.5 ms** on average
+(`nvaccel_iop_copy_us_sum / nvaccel_iop_ok`) - with head 0's VBL tick free-running instead of following OTG0, the
+present after a tick waited a whole frame for the previous flip to latch.
+
+Two fixes in `VermilionAccel`:
+
+* `debug.nvaccel_iop_sse` is on by default: SSE4.1 streaming loads/non-temporal stores take a 1440p frame copy from
+  13.5 ms to **6.8 ms**;
+* head 0's VBL tick is locked to OTG0's vblank start (`lockToPipe`, until now head 1 only).
+
+Measured with a window repainting at 240 Hz requests (`/tmp/anim`): **49.6 fps** instead of ~30, `gap1` 218 vs
+`gap2` 29 over 5 s. The rest is the CPU copy itself; the real fix is a GPU blit of the present (the kernel already
+has a working CP-DMA path on the gfx queue, see the VRAM BO section), which is next.
+
+Also: the monitor now sits on **DIG0** (`0x55xx`: LINK_CNTL 0x110, stream on, M 0x396a), not DIG4. The pipe-0 plans
+are built for DIG4 (`PHX_PIPE_DIG=4`), so rate changes refuse with "DP1 link not trained" until the DIG is
+detected at run time instead of at build time.
+
+## All five rates switch both ways, and the flicker is gone (2026-11-24)
+
+The monitor moved to DIG0 (0x55xx) after the black screen, so the pipe-0 engine now finds its DIG at run time:
+`p0Env()` probes the five DP blocks, records the one whose LINK_CNTL is non-zero and whose stream is on
+(`debug.phxpipe0_dig`), and relocates the build DIG's register window onto it (`p0IoRd`/`p0IoWr`) after the
+allow-list checks, which keep naming the build DIG. `PHX_PIPE_DIG=4` stays the build choice; the connector is no
+longer a build-time fact.
+
+`identify()` is now DTO-aware, so the plans that share OTG totals are separable and the whole EDID rate set is
+offered and switchable:
+
+```
+-> 144: mode=144 done  DP_VID_M 0x8de0
+-> 120: mode=120 done  DP_VID_M 0x763d
+-> 165: mode=165 done  DP_VID_M 0x9c2e
+-> 100: mode=100 done  DP_VID_M 0x5fb2
+->  60: mode= 60 done  DP_VID_M 0x396a
+-> 165: mode=165 done  DP_VID_M 0x9c2d      (back up again, 432 writes total, no dark latch)
+```
+
+Every step is a live retime on the trained link: no reboot, no link retrain, and the desktop keeps compositing
+(`frames` climbing throughout). The two collisions the old `identify()` could not resolve - 60/100 sharing
+0xa9f/0x5c8 and 120/144 sharing 0xa9f/0x5f4 - are told apart by the live `DP_DTO0_PHASE`, the discriminator
+RDNA4's `modeset.cpp` uses for a DP retime.
+
+### DISPCLK is only ever raised (RedNavi's rule)
+
+`W()` now refuses to *lower* `DENTIST_DISPCLK_CNTL`'s divider fields, and both the stage-5 read-back and
+`latchWait()` accept a divider that is at or below the plan's (a faster clock). That was the last failure mode:
+144 -> 120 asked the SMU's raised clock to go back down, the divider never matched, and the revert latched the
+engine dark for the rest of the boot. With the never-lower rule the same step is a no-op and the change succeeds.
+
+### The dragging-window flicker
+
+`debug.phxscan_latchfix` is now 1 by default. With GPU present owning HUBP0, a slot the flip had already latched
+was reported reusable one frame early, so a window dragged under the pointer showed the old and the new image in
+the same frame. The flag makes a latched front slot never reusable; the cost is one extra frame of latency.
+
+## The mode-identity rules taken from RedNavi, AMDRadeonRDNA4 and NullMoth (2026-11-24)
+
+Read the three reference implementations side by side with ours, and they agree on four rules that the port broke:
+
+| Rule | RedNavi | AMDRadeonRDNA4 | NullMoth | The port before this change |
+|---|---|---|---|---|
+| The mode table and the mode id come from one source, and a set refers to it by index | probe publishes `fb-modes`; the FB's `modes[]` keeps the probe's `probeIndex` | modes from the EDID parse, ids positional | ids live inside the published `IODetailedTimingInformationV2` (`dtIndex()`) | hand-written ids, renumbered three times in one evening |
+| The framebuffer never re-identifies the lit mode after a set | takes `modes[id-1]` | takes the target | `getCurrentDisplayMode` returns `fCurId` | re-measured the frame counter and re-ran `identify()` - and 60/100 share OTG totals, 120/144 share theirs |
+| A failed set restores the previous mode and is not latched | `programLive(prevMode)` | restores | comment: latching one refused request disabled every later mode change until reboot | `st.dark = 1` - no pipe-0 write until reboot |
+| The mode list is produced by the validator, not copied by hand | EDID + priority dedup | EDID + `size`/whole-Hz dedup | asks NVKMS for every mode it validated | 36-step capture tables per rate, plus a separate sync table |
+
+NullMoth also documents the ordering trap that bit this port: *"macOS builds its mode list from `getDisplayModes` BEFORE
+it calls `setDetailedTimings`, and never re-reads it"* - so the list and the timing info must come from the same data, or
+CoreDisplay shows one rate and asks the pipe for another.
+
+### What was implemented from them
+
+1. **The framebuffer trusts the mode engine.** `switchHead0Mode` takes the target row's totals and rate when the kext
+   reports `done`, instead of re-measuring the pipe and identifying it again. That re-identification was the direct cause
+   of the wrong-rate fallbacks and of the black screen (GPU present owned HUBP0 while WindowServer was told the mode had
+   changed).
+2. **A failed revert no longer latches on the first failure.** The engine programs the family's 60 Hz plan - the raster
+   the firmware lit at boot - and only sets `dark` when even that does not verify (`recoveries` counts the rescues). A
+   60 Hz request is also always allowed through the dark gate, so a user can get the screen back without a reboot.
+3. **A regression suite guards the table.** `tests/kext/head0_dig4_test.cpp` (built with `PHX_PIPE_DIG=4`) asserts that
+   the DIG4 ids are the list order 1..N, that every row has its own detailed timing, that the reported rate is the row's
+   within 1 %, and that `switchHz` rounds it. The renumbering that broke the evening would fail it immediately.
+
+### Verified after the change
+
+```
+sysctl -> 144: mode=144 last=done dark=0
+sysctl -> 100: mode=100 last=done dark=0
+sysctl -> 165: mode=165 last=done dark=0
+sysctl -> 120: mode=120 last=done dark=0
+sysctl ->  60: mode= 60 last=done dark=0
+```
+
+The System Settings path needs a logged-in session to test (`CGGetActiveDisplayList` returns `no active display` at the
+login window), which is the next verification step.
+
+### Two operational facts that cost several test cycles
+
+* `kmutil install` does **not** rebuild the AuxKC on this machine; deleting
+  `/Library/KernelCollections/AuxiliaryKernelExtensions.kc` and rebooting does. A deploy without that silently keeps
+  running the previous accel, so every measurement taken was of the old build.
+* After a reboot the machine can be left at the login window, where CoreGraphics reports no active display: any mode
+  measurement taken then is meaningless.
+
+## C route: the raster geometry is programmed, and where a resolution change stands (2026-11-24)
+
+The plans carry the four registers a different raster needs and nothing had ever written (the port scanned out with
+the firmware's 2560x1440 values): `HUBP0_DCSURF_PRI/SEC_VIEWPORT_DIMENSION` (w | h << 16), `DPG0_DPG_DIMENSIONS`
+(w << 16 | h) and `HUBPREQ0_DCSURF_SURFACE_PITCH` (pixels - 1). 1440p: 0x05A00A00 / 0x0A0005A0 / 0x9FF; 1080p:
+0x04380780 / 0x07800438 / 0x77F. They are writable now (the refused ranges are split around the viewport and the
+pitch, four allow entries added, and the static check no longer treats the whole DPG range as the shell's).
+
+The engine gained a union family (both sizes, so `identify()` finds the live mode whichever is running) and key
+resolution (`height * 1000 + Hz`, matched by the raster's H_TOTAL: 1080p 0x897, 1440p 0xa9f). `debug.phxpipe0_key`
+drives that path. The framebuffer adopts the target raster *before* it calls the engine and puts it back when the
+engine refuses.
+
+Measured: a 1440p60 -> key 1080060 attempt runs the whole shell, programs the timing and every geometry register, and
+then fails verify on `HUBP0 underflow after the switch`, falling back with the geometry restored and `dark=0`. That
+underflow is expected for a kext-only attempt: the frames in the console aperture are still 1440p with a 2560-pixel
+stride while the pipe was told 1080p/1920, so the plane fetches rows nothing writes. It has to be driven through the
+framebuffer (WindowServer draws the new raster), which is what the published table and the handoff enable.
+
+State of the offer: the engine publishes **6** modes (verified: ids 1..6, the sixth 1920x1080 key 60) and PhxAMDFB
+logs `6 listed`, but CoreGraphics still offers **5** - the 1080p row is being filtered or cached above the framebuffer.
+The next check is whether WindowServer keeps its own mode cache (a WindowServer restart or a fresh
+`com.apple.windowserver.plist` should tell) or whether `getDisplayModes` clamps to an earlier count.
+
+## CoreGraphics offered five of six modes: a buffer overrun, not a filter (2026-11-24)
+
+`phxhead::kNMaxModes` sized every array that holds a head's *offered* modes, and it was the maximum of the two
+**compiled** tables. On this board that is 5 rows, while the published table carries 6 (the five 1440p rates plus
+1080p). The sixth id was therefore written one past the end of `fModeIds` - straight into the member declared next to
+it, `fModeId`, which held the current mode's id. Reading the list back gave `1 2 3 4 5 1`: a duplicate of the mode
+already lit, which CoreDisplay drops. The evidence chain:
+
+```
+ioreg phx-p0-modes          : 6 entries, the sixth 1920x1080 key 60
+PhxFB log                   : head 0 modes: 6 listed ... (ids 1 2 3 4 5 6, pub 6)   <- the source was right
+debug.phxfb0_modes (new)    : id 1..5 ... then id 1 again                          <- the overrun
+after kNMaxModes = 16       : id 6: info 1920x1080 60000 mHz | pix 1920x1080 row 8192 | timing valid
+CoreGraphics                : modes offered: 6  (0..4 1440p, 5: 1920x1080 60.000 Hz)
+```
+
+`debug.phxfb0_modes` was added for exactly this: it prints, per listed id, the size, the row pitch and the timing
+validity - the three answers CoreDisplay compares - and needs no GUI session.
+
+The 1080p plan's `HUBPREQ0_DCSURF_SURFACE_PITCH` is 2048 pixels (0x7FF), not 1920: Linux rounds the width up to 256
+pixels, and `phxhead::modeRowBytes` reports the same 8192 bytes per row.
+
+### Still open
+
+* the end-to-end 1440p <-> 1080p switch through System Settings: the engine half runs, but the first attempt was made
+  while the previous boot kext was still loaded (it rejected the key as a bad target) and needs one logged-in session
+  to be measured, because the frames have to be drawn at the target raster;
+* auto-login does not happen on this machine although `/etc/kcpassword` holds the correct XOR (verified: 12 bytes,
+  mode 0600, root:wheel), `autoLoginUser = cool` is in `/Library/Preferences/com.apple.loginwindow.plist` and FileVault
+  is off - every reboot lands at the login window, which costs a manual login before any display measurement.
+
+## Where a resolution change stops: HUBP0 underflow at verify (2026-11-24)
+
+The whole chain now runs. A System Settings change to 1920x1080 reaches the pipe-0 engine and the shell programs
+everything it has:
+
+```
+head 0 switch: id 6 (1920x1080 60000 mHz) -> target 1080060     (the framebuffer decodes the key correctly)
+head 0 switch to id 6 (target 1080060): result 3 stage 12 flags 0x1:
+    fell back to the previous mode: verify: HUBP0 underflow after the switch
+```
+
+Stage 12 is `verify`, so the timing, the viewport, the DPG size and the pitch were all programmed; the switch is
+refused only because HUBP0 reports underflow and keeps reporting it. The revert restores 1440p exactly
+(`0x05A00A00 / 0x9FF / 0x0A0005A0`) and never latches dark.
+
+Two engine bugs were fixed to get this far:
+
+* the 240 Hz ODM route claimed every keyed mode, because its guard compared the KEY (`1080060`) against the plans'
+  rates (`60`) and its family only followed the size running now - so a 1080p key answered 'no sink: HPD2 (DP B)
+  sense low'. It now decodes the key and consults the union family;
+* one transient HUBP0 underflow is cleared and only a second occurrence fails a switch (the size change is allowed its
+  settling frame) - which also proved the underflow here is persistent, not a transient.
+
+### The watermark hypothesis was tested and rejected
+
+The DCHUBBUB bandwidth set was the obvious suspect, so its Linux values were programmed by hand before a switch:
+
+| register | 1440p60 capture | 1440p144 capture | 1080p60 capture | **live on this boot** |
+|---|---|---|---|---|
+| `DET0_CTRL` | 0x0404 | 0x1212 | 0x1212 | 0x0303 |
+| `ARB_DATA_URGENCY_WATERMARK_A` | 0x335 | 0x32c | 0x32c | 0x01fe |
+| `ARB_ALLOW_SR_ENTER_WATERMARK_A` | 0xb84 | 0xb69 | 0xb8d | 0x04ba |
+| `ARB_ALLOW_SR_EXIT_WATERMARK_A` | 0xa27 | 0xa0d | 0xa30 | 0x0424 |
+| `ARB_UCLK_PSTATE_CHANGE_WATERMARK_A` | 0x5155 | 0x514c | 0x514c | 0x4ee8 |
+
+Two things came out of it: the live set is nowhere near the captured one (so the firmware/OS programs its own), and
+writing the 1080p capture set changed nothing - the underflow stayed. The working values were restored afterwards.
+
+### Next step
+
+The remaining suspects are the DPP/MPC path (the scaler's recout and MPC size are not programmed: `0xD1E`/`0xD1F`
+read 0 while the capture never included them) and the plane's `DCSURF_SURFACE_CONFIG`, which still says ARGB2101010
+(0x0a) while the framebuffer's frames are ARGB8888. Both need the DCN 3.2 DPP register map, which this tree does not
+carry yet - that is the next piece of work, before any further size-change attempt.
+
+## A resolution change works: 2560x1440 -> 1920x1080 through System Settings (2026-11-24)
+
+The missing piece was the verify, not a register. A size change was being failed on the HUBP0 underflow that the
+OLD-size frames cause: the client can only redraw at the new raster once `setDisplayMode` has returned, so during the
+verify the plane is still fed 1440p frames while the pipe fetches 1080p - a guaranteed underflow, and a switch that
+could never complete. `verify()` now takes `strictUnderflow`, and `setMode` turns it off for a RASTER change
+(`planViewport(tg) != planViewport(*cur)`, both from plans, no hardware read). Rate changes keep the strict check.
+
+Measured through CoreGraphics (System Settings' path):
+
+```
+CG switch to 1920x1080@60 -> 0
+  mode=60 last=done  dark=0
+  OTG0 68 frames/s, DP_VID_M 0x2346   (= 0x3968 x 148500/241700, the 1080p M value)
+  HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION  0x04380780   (1920x1080)
+  HUBPREQ0_DCSURF_SURFACE_PITCH        0x000007FF   (2048 px = 8192 B)
+  DPG0_DPG_DIMENSIONS                  0x07800438   (1920x1080)
+  the desktop keeps compositing (nvaccel_iop_ok climbs)
+```
+
+and the mode **survives a reboot**: after the restart the pipe comes up at 1080p again (the display preference
+restores it), with the same geometry.
+
+### What is still open on this route
+
+* the REVERSE switch (1080p -> 1440p) is not offered: CoreGraphics reports the current mode as 2560x1440 while the pipe
+  scans 1920x1080, so its `setDisplayMode` for 1440p is a no-op and PhxAMDFB is never called (`debug.phxfb0_swreq`
+  stays 6). That is a mode-identity mismatch on the CoreDisplay side, and the next thing to chase;
+* the two hypotheses tried before it are worth recording as settled: the DCHUBBUB bandwidth set (the live values differ
+  from every capture and writing the captured set changed nothing) and the DPP path (`DCSURF_SURFACE_CONFIG` was
+  already 0x08 for the 8-bit frames, and programming the scaler's recout/MPC size changed nothing).
+
+## The accel build does not emit the newest edits to phxfb.cpp (open, 2026-11-24)
+
+Three consecutive accel builds from different sources produced the same binary UUID (`FCCA11C4`) and no new strings,
+so a fix written into `switchHead0Mode` never reached the box. The evidence gathered:
+
+```
+grep PhxFBCurrentMode src/vermilion-accel/accel/phxfb.cpp          -> 1   (the edit is in the source)
+grep PhxFBCurrentMode src/vermilion-accel/build/phxfb.o            -> 0   (not in the object)
+grep PhxFBCurrentMode src/vermilion-accel/build/VermilionAccel...  -> 0   (not in the link either)
+printf '#error probe' >> phxfb.cpp; build                        -> FAILS with the marker in the log
+```
+
+So the build DOES compile that file (the probe proves it), the object is fresh (`rm -rf build` precedes it), and yet
+the strings of the new statements are absent. The older strings of the same function
+(`head 0 switch to id %d (target %u)`) are present, so the function itself is compiled.
+
+The next experiment is to move one statement to the very top of `switchHead0Mode` (immediately after the existing
+PFBLOG) and rebuild: if it appears, the insertion point is inside a region the preprocessor or the optimiser drops; if it
+does not, the build is reading another copy of the file than the one under `src/vermilion-accel/accel/`.
+
+### Also established this round
+
+The reverse switch (1080p -> 1440p) is a no-op because `fModeId` is never updated when a switch succeeds
+(`debug.phxfb_mode` stays 1 while the pipe scans 1920x1080), so `getCurrentDisplayMode` keeps reporting the previous
+raster, CoreGraphics keeps believing 2560x1440 is current, and its next 1440p request hits the `id == fModeId` early
+return. The fix (set `fModeId`, publish `PhxFBCurrentMode`, drop the `IOFBConfig` cache) is written and committed but
+cannot be deployed until the build problem above is understood.
+
+## A resolution change: forward works, the way back is blocked inside CoreDisplay (2026-11-24)
+
+State after this round, measured on the box:
+
+```
+1440p -> 1080p:  last=done, HUBP0 viewport 0x04380780, pitch 0x7FF, DPG 0x07800438,
+                 DP_VID_M 0x2346, desktop compositing, debug.phxfb0_modes reports current id 6
+1080p -> 1440p:  CoreGraphics returns 0 but PhxAMDFB is never called (debug.phxfb0_swreq stays 6), and its
+                 CGDisplayCopyDisplayMode still says 2560x1440
+```
+
+Our side is consistent: `fModeId` is 6, `gHead0Mode` is 6, the rotation cache is cleared on a landed switch
+(`phxrot::currentId` answers from `fRot.cur.*` while it is valid, and it was still holding the pre-switch id), and the
+`IOFBConfig` cache is dropped. CoreDisplay nevertheless keeps reporting the mode it last set, so its request for 1440p
+is compared against its own idea of the current mode and never reaches the framebuffer.
+
+### What made the forward direction work
+
+* the landed-mode block had to sit at function level: it was inside `if (ret == kIOReturnSuccess)` while `ret` was
+  computed as `act == kActDone && now == id`, and `now` comes from `modeForTotals`, which only knows the compiled table
+  and cannot name a published-only row (the 1080p plan). The compiler proved the branch unreachable and deleted it -
+  which is what looked like "the build does not contain the edits";
+* `ret` now trusts the engine (`act == kActDone`), and the landed block sets `fModeId`, the published current mode, the
+  totals, the raster and the row pitch, drops the rotation cache and the `IOFBConfig` cache.
+
+### Next step for the way back
+
+CoreDisplay has to be told the display's mode changed, rather than assumed to poll it. The candidates, in order of
+cost: deliver an IOFramebuffer notification after a landed switch (`kIOFBNotifyDisplayDimsChange` / `kIOFBNotifyProbed`
+through `IOService::message`), or publish the standard `IOFBModeChange`-style property CoreDisplay watches; meanwhile a
+WindowServer restart is the workaround that proves whether anything short of a full re-read works.
+
+### Telling CoreDisplay the dimensions changed does not make it re-read (2026-11-24)
+
+`handleEvent(kIOFBNotifyDisplayDimsChange)` is delivered after a landed size change (it is the IOFramebuffer event for
+exactly that), and CoreGraphics still reports the previous raster: after a landed 1080p switch it answers
+`current: 2560x1440`, and its request for 1440p returns success without ever calling `setDisplayMode`
+(`debug.phxfb0_swreq` stays 6). So the notification path is not the one CoreDisplay listens to for this.
+
+Everything on the driver side is verified consistent at that moment: `debug.phxfb0_modes` reports `current id 6`,
+`debug.phxfb_mode` is 6, the rotation cache is cleared, `IOFBConfig` is dropped, and the hardware geometry is
+1920x1080 (`0x04380780`, pitch 0x7FF, DPG 0x07800438).
+
+Candidates left, cheapest first: `messageClients(kIOFBNotifyDisplayDimsChange, this)` in addition to `handleEvent`
+(`kIOFBNotifyProbed` is the other event in the same enum); or find what Apple's own framebuffers publish so that
+CoreDisplay adopts a new current mode. Until then the practical workaround for a size change is a WindowServer restart
+after it, which rebuilds CoreDisplay's view and then lets the way back through.
+
+### After a landed size change CoreGraphics still reports the old raster, even with a pub-aware totals lookup (2026-11-24)
+
+With the framebuffer identifying the running mode from the published table (`pubModeForTotals`, because
+`phxhead::modeForTotals` only knows the compiled rows and cannot name the published 1080p row), a landed 1080p switch
+reports `fModeId = 6` and the diagnostic dump agrees (`current id 6`), the geometry is 1920x1080 and the desktop
+composites - and `CGDisplayCopyDisplayMode` still answers 2560x1440. The way back is therefore still a no-op.
+
+Three mechanisms have now been tried and none moved CoreDisplay: dropping the `IOFBConfig` cache, clearing the
+rotation cache that `getCurrentDisplayMode` consults, and `handleEvent(kIOFBNotifyDisplayDimsChange)`. A WindowServer
+restart does not help either - a fresh WindowServer also comes up reporting 2560x1440 while the pipe scans 1920x1080.
+
+The next strategy is to compare against RedNavi's framebuffer in detail rather than guessing: it lands a size change and
+CoreGraphics follows, so the difference is in what it publishes or which IOFramebuffer methods it overrides. The
+candidates to diff: `getCurrentDisplayMode` ordering against the mode-list queries, `handleEvent` arguments
+(`kIOFBNotifyProbed` vs `kIOFBNotifyDisplayDimsChange`), and whether it re-issues `setProperty(kIOFBCurrentModeKey`-like
+state) after a switch.
+
+### The CoreGraphics display-configuration path behaves the same (2026-11-24)
+
+A change through `CGBeginDisplayConfiguration` / `CGConfigureDisplayWithDisplayMode` /
+`CGCompleteDisplayConfiguration` - what the Displays pane drives - goes forward (1440p -> 1080p: `configure` and
+`complete` return 0, the pipe lands at 1920x1080, `fModeId` becomes 6), and the way back still never reaches the
+framebuffer (`debug.phxfb0_swreq` stays 6). So the configuration API does not make CoreDisplay re-read the mode either.
+
+Six mechanisms have now been excluded: dropping `IOFBConfig`, clearing the rotation cache, `kIOFBNotifyDisplayDimsChange`,
+a WindowServer restart, the platform call made synchronous, and the display-configuration API. The driver side is
+consistent at the moment of failure (`fModeId` = 6, geometry 1920x1080, pitch 0x7FF, `current id 6` in the diagnostic
+dump); CoreDisplay keeps its own idea of the current mode.
+
+### The automatic login is fixed at the source
+
+The daemon deleted `autoLoginUser` at daemon start as well as at shutdown, so which exit path it took decided whether a
+boot landed at the login window. It no longer touches the key at start, and a reboot then logged in by itself (verified).
+
+## Opt-in head-0 DP reconnect (2026-11-25)
+
+`debug.phxhotplug0=3` (root, DIG4 build) enables replay on reconnect. It starts at 0 (no poll). Levels 1 and 2
+are unchanged, as is the separate `debug.phxhotplug` head-1 poll. Write 0 to disarm, or boot with
+`-phxhotplugoff` to block arming. The replay also requires `debug.phxpipe0_enable=1` and a published fixed mode.
+
+The 250 ms hp0 poll first records the unique DP connector carrying OTG0 (DP B/A/E). It does nothing on the
+initial sample. After that port's HPD is low for 6 s, it waits for a unique trained OTG0 stream with HPD up
+for 1 s. The destination can be the same port or another already-routed port. Accel reads EDID on that port
+and compares it with the bytes the framebuffer caches. Head 0 stays logically online during the unplug;
+the last display is never taken away from WindowServer. The replay is serialized against head-0 modesets,
+has flipping off, and will not run while the framebuffer reports power off.
+
+Like NullMoth's reconnect path, it relights first and then asks the framework to re-sense the connection.
+Boot rechecks the DP route and that OTG1 is off under the display lock. `phxPipe0ReplayMode` uses the same
+`height * 1000 + Hz` plan and the pipe-0 engine's verified round-trip shell, bypassing the normal same-mode
+no-op without bypassing the plan checks. Only a verified replay invokes the registered
+`kIOFBConnectInterruptType` handler. No new framebuffer nub, EDID replacement or dimensions notification is
+needed for this experiment. Whether CoreDisplay reprobes and the screen comes back is unverified on the box.
+
+This is **not** DP link training or connector routing: HPD alone will not relight an untrained link, an unrouted
+port, a different monitor or HDMI. A real replay can still blank the desktop or fall back; it inherits the mode
+engine's rollback and latches. Busy defers the attempt; a non-busy failure disarms level 3. The `replay` line in
+`debug.phxhotplug0_stat` shows the arm state, current/candidate connector indices (0/1/2 = B/A/E), successful
+replays (`done`), and the last IOReturn (`io`). Check `debug.phxpipe0_stat` for the engine result.
+
+On-box check (owner only, not run): when the other display tests are done, boot the matching Boot/Accel builds
+with a rollback copy available. With one known display, use fixed 1440p60 and `debug.phxfb_flip=0`. Confirm
+level 0 first, then enable `debug.phxpipe0_enable=1` and arm `debug.phxhotplug0=3` while the monitor is lit.
+Check `active` before unplugging. Leave it out for at least 7 s, reconnect to the same port, and check that
+`done` advances exactly once, the screen relights, and CoreGraphics reports the original display and mode.
+Repeat with a short HPD drop (no replay) and separately with a different port; if `candidate` remains -1,
+check `debug.phxhpd` and the route before blaming the mode engine. Disarm with `debug.phxhotplug0=0` when done.
+
+## Round summary: the mode ACK, the DP reconnect replay, and rotation (2026-11-25)
+
+### The reason the way back from a size change was a no-op
+
+`switchHead0Mode` initialised `IOReturn ret = kIOReturnNotReady` and the `kActDone` branch updated the mode, the
+geometry and the caches but **never set `ret`**: the only assignment was inside the mutually exclusive recovery
+`else if`, so it could not be reached for a landed switch. The hardware moved, `fModeId` moved, and `setDisplayMode`
+still answered IOGraphics with a failure - and IOGraphics only records `lastSuccessfulMode` when the driver returns
+success (Apple's public `IOFramebuffer.cpp`), so CoreDisplay kept reporting the old raster and treated the request for it
+as a no-op. The fix is one line in the landed branch (`ret = kIOReturnSuccess`); the recovery branch keeps
+`kIOReturnIOError` and a refusal keeps `kIOReturnNotReady`.
+
+The same reading rules out the notification theories that were tried: `kIOFBNotifyDisplayDimsChange` is the dimming for
+sleep and `kIOFBNotifyProbed` is the probe completion, neither is a mode-change notification, and RedNavi does not send
+one either - it returns success immediately after updating the mode.
+
+### The DP reconnect replay (from the hotplug work)
+
+`debug.phxhotplug0=3` (off by default) watches the connector the lit stream runs on: after its HPD line has been low for
+6 s it waits for exactly one trained OTG0 stream to be stable for 1 s, compares the live EDID with the one it serves, and
+then replays the current mode's plan once. The framebuffer's connection-change callback fires **only** when that replay
+verified, so macOS re-probes. A connector moved to another port is not handled: that port needs its own trained stream.
+
+### Rotation: 90 degrees black-screens (open)
+
+Reported on the box while `debug.phxfb_rotate` is 3. The rotation line is complete in the driver (`phxrotate.h`,
+`phxRotOwns`/`phxRotPlan`/`phxRotSelect`, `kIOScaleRotateFlags`, modes built by `phxRotPlanTiming` with swapped
+geometry), so the likely cause is the C-route geometry: the scan-out's viewport, pitch and DPG size now come from the
+plan, and a rotated mode swaps the active width and height - the plane may be programmed for the unrotated raster while
+the frames are rotated. The next step is a read-only comparison of the timing and the three geometry registers while a
+rotated mode is selected, then decide whether the geometry must follow the rotation.
+
+## Diagnostics this port adds (all read-only, root)
+
+One line per sysctl, so the tools above are discoverable rather than folklore:
+
+| sysctl | what it answers |
+|---|---|
+| `debug.phxpipe0_stat` | the last pipe-0 command: mode, stage, why, dark/halted latches, write and sticky counts |
+| `debug.phxpipe0_dig` | which DIG the engine found lit (the plans are captured on DIG4; the monitor may sit elsewhere) |
+| `debug.phxpipe0_req` | the raw `target_hz` the accelerator sent to `phxPipe0SetMode` (a key, or a bare rate) |
+| `debug.phxpipe0_key` | write a key (`height * 1000 + Hz`) to run the macOS mode path for a size change |
+| `debug.phxpipe0_mode` / `debug.phxpipe0` | the same path for a bare rate (4 = the macOS sequence) |
+| `debug.phxfb0_modes` | per listed mode: the size, row pitch and timing validity - the three answers CoreDisplay compares |
+| `debug.phxfb0_swreq` / `debug.phxfb0_swtarget` | the mode id CoreDisplay asked head 0 for, and the target that produced |
+| `debug.phxfb_mode` | head 0's current mode id (`gHead0Mode`) |
+| `debug.phxpipe0_live` | let a same-timing pair re-plan write only the double-buffered registers (no blank) |
+| `debug.phxhotplug0` | 0 off, 3 the DP reconnect replay; `debug.phxhotplug0_stat` counts what it did |
+
+### A real bug the clean-up found
+
+`PhxAMDFB::start` declared `unsigned n` and then wrote the mode count into a *shadowed* `n` in the `else` branch
+(`else const unsigned n = phxhead::modeList(...)`), so with no published table the outer `n` was read
+uninitialised by the `n >= 2` test and by the log line. Fixed while squashing the display work into one commit.
+
+## Idle power: 150-250 W of the gap was three missing clock-gating steps (2026-11-25)
+
+Reported on the box: the desktop draws 200+ W more than the same hardware under Windows or Linux. The port already
+carried the diagnosis and the cure; the cure was simply switched off, because each step waited for a flag file that this
+machine does not have. All three are measured, in this tree's own words:
+
+| Step | What it does | Measured without it | Was gated on |
+|---|---|---|---|
+| `sdma_idle.sh` | starts both SDMA engines' queue 0 idle | the RLC grants CGCG only once **both** SDMA engines report idle, so never-started engines stay "busy": **~150 W** idle with PMFW activity 100 % | `~/gpu/phxboot-sdma` |
+| `gfx_cg.sh on` | GFX clock gating as Linux enables it after the RLC autoload | the PMFW counts GFX as always busy (100 % activity): **~250 W at a 110 C hotspot** with the fans at full | `~/gpu/phxboot-cg` |
+| `idle_dpm.sh` | memory/fabric clocks free to drop, under an underflow watchdog | UCLK stays pinned (456 MHz), FCLK 2301, DCEFCLK 661: XTX measured **socket 51 -> 20-24 W**, board 64 -> 28-33 W, UCLK 456 -> 96, FCLK 2301 -> 1000 | `~/gpu/phxboot-idledpm` |
+
+They now run **by default** on this port (`~/gpu/phxboot-nocg`, `phxboot-nosdma`, `phxboot-noidledpm` - or
+`PHXBOOT_NO_CG=1`, `NO_SDMA=1`, `NO_IDLEDPM=1` - opt out), because none of them is a tuning choice: each one is the
+difference between an idle card and a card the firmware believes is busy.
+
+### Two more contributors this port owns
+
+* **the DRAM stutter stays off above 60 Hz.** `macSet` forces `DCHUBBUB_ARB_DRAM_STATE_CNTL`'s stutter bits off during a
+  set and writes them back only when the landed rate is `<= 60`, so at 100-165 Hz memory never enters self refresh. New
+  sysctl `debug.phxpipe0_stutter=1` restores it after every successful set (default 0 = the old behaviour) for the A/B;
+  `arb_restored` in `debug.phxpipe0_stat` counts it, and a stutter-induced underflow fails verify and falls back.
+* **UCLK is pinned by every rate change.** `macSet` sends `SetHardMinByFreq PPCLK_UCLK = 456 MHz` before a set above
+  60 Hz and never releases it; `idle_dpm.sh` is what unpins it (after a 60 s settled baseline, with an underflow
+  watchdog that re-pins if the display starves).
+
+### What is still unexplained, and how to split it
+
+The measured gaps above are 30-50 W at idle on the XTX; 200 W means the card is being held at *load*, not merely at a
+high idle clock. Measured contributors left, each separable on the box:
+
+1. **VRAM-backed BOs are armed for every client at boot** (`WindowServer,vkbench,metaltest,...`). The XTX kept
+   WindowServer on system memory; this port moved it into the pool. Drop `WindowServer` from `debug.phxbo_vram_proc` and
+   compare package power.
+2. **GPU present runs every frame** (`debug.phxscan=1`, `debug.nvaccel_iop_skipforeign=1`): the compositor does GPU work
+   continuously at 165 Hz. Compare with `sysctl -w debug.phxscan=0` plus a WindowServer restart.
+3. **The VBL tick is a timer at the panel rate** (165 wakeups/s at 165 Hz), so the CPU never reaches a deep C-state; the
+   kext has interrupt-driven waits (`debug.phxwait_irq`) that should be compared.
+4. **PCIe ASPM on the dGPU's root port** is not managed by the driver; the XTX notes needed `pci=0x8000000` for the
+   chipset endpoints, and an idle link at L0 costs several watts.
+
+Order to measure: turn the three clock-gating steps on first (they are the documented 150-250 W), then the stutter A/B,
+then (1)-(4) one at a time with `smumetrics.py` and `perflog.sh` recording before and after.
+
+### The single measurement on the box: 206 W with GFX at 100 % and the power block never reached (2026-11-25)
+
+One deployment, one reboot, one measurement - and it settled the question:
+
+```
+act gfx 100%   gfxclk avg 2694 MHz (cur 1200)   socket 174-176 W   board 206-209 W
+edge 45-47 C   hotspot 69-71 C   mem 55-58 C   fan 38-39 %
+```
+
+An idle desktop is being held at full GFX activity and roughly full clocks, which is the whole of the 200 W gap. The
+boot log then showed why the gating did not help:
+
+* `sdma:` **never appears** and `uclk:` never appears - those live in the block guarded by
+  `if echo "$UPOUT" | grep -q "navi31 up:"`, and this port's bring-up script no longer prints that banner (`navi31 up:`
+  occurs 0 times in the log), so the block never ran;
+* `cg:` appears **only after `done`**, from the second, unguarded `cg_boot` call - so GFX clock gating was switched on
+  about 20 s *after* my sample was taken;
+* `idledpm: started (pid 2471)` did run (it is unguarded), but its 60 s settle plus 30 s baseline had not elapsed either.
+
+So the measurement is a clean "before" reading, taken while the card was in exactly the state the three steps exist to
+fix. The guard now accepts either banner (`navi3[12] up:`), which puts SDMA idle, GFX clock gating and the UCLK pin back
+into the same block that runs right after the bring-up.
+
+Order matters and is preserved: `sdma_idle.sh` first (the RLC only grants CGCG once both SDMA engines report idle), then
+`gfx_cg.sh`, then the UCLK pin. The next boot should log all three, and the check is one command:
+
+```sh
+sudo grep -aE 'sdma:|cg:|idledpm:' /var/log/phxboot.log | tail -6
+SMU_CLOCKS=1 sudo python3 ~/gpu/smumetrics.py 3 2   # expect act gfx well under 100 % and board power far below 206 W
+```
+
+### Two follow-up fixes queued for the next boot (2026-11-25, host-verified, unverified on hardware)
+
+1. **`navi32_up.sh` still never printed the `navi32 up:` banner.** Commit `5b02500` relaxed `phxboot-navi31.sh`'s
+   guard to `grep -qE "navi3[12] up:"`, but `tools/phxctl/navi32_up.sh` ended with `== GRBM_STATUS: ...` and never
+   printed `navi32 up:`, so the `sdma_boot -> cg_boot -> uclk_boot` block would still have been skipped. `navi32_up.sh`
+   now emits `navi32 up: compute + gfx queues ready` on completion, and `phxboot-navi31.sh` / `idle_dpm.sh` fall back
+   from `$G/phxctl.bin` to `/usr/local/sbin/phxctl` when `$G/phxctl.bin` is absent (unverified on hardware).
+2. **90-degree rotation black screen: `phxrot::check` did not see the published mode table.** On Navi 32 (`PHX_PIPE_DIG=4`),
+   `PhxBringup` publishes 6 modes (`fPub[0..5]`: five 1440p rates plus `1920x1080@60` as id 6), and
+   `getTimingInfoForDisplayMode` returns a valid detailed timing for all 6. When CoreDisplay rebuilt rotated modes on a
+   90-degree transform, `phxRotValidate` -> `phxrot::check` still looked up modes in the 5-row compiled `kHead0Modes`,
+   rejected id 6 with `kWhyNoPlan` (`kIOReturnUnsupportedMode`), and triggered the documented no-`IOFBScalerInfo` crash
+   path in `IOFBInstallScaledMode`. `PhxAMDFB` now mirrors `fPub` into `fPubHM`, passes it through `PhxRotModes` into
+   `phxrot::check` / `phxrot::add` / `phxRotInfo`, and uses it in `getInformationForDisplayMode` / `head0ModeRate` /
+   `head0Resync` / `switchHead0Mode` fallback (also avoiding a NULL dereference on published-only ids). Guarded by
+   `publishedRotationPreflight` in `tests/kext/head0_dig4_test.cpp`; rebuilt `build/VermilionAccel.kext` (`ASIC=navi32`
+   and `ASIC=navi31`); unverified on hardware until deployed to AuxKC.
+3. **`idle_dpm.sh` never settled on Navi 32, and `dal.sh` / `dalwm.sh` ignored `$PHXCTL`.** `idle_dpm.sh`'s `st()`
+   only looked for a `^state: ` line in `debug.phxp0odm_stat`, which is `"never run ..."` on Navi 32 (no 240 Hz ODM
+   plan), so `idle_dpm.sh` looped for 1800 s and exited without unpinning UCLK or enabling FCLK switching. `st()` now
+   falls back to `debug.phxpipe0_stat` (`mode=` + `done=`) plus OTG0 totals, `dsleep()` adds 100/165 Hz, and `dal.sh` /
+   `dalwm.sh` honor `$PHXCTL` with `/usr/local/sbin/phxctl` fallback; `docs/NAVI32-INSTALL.md` also lists the power
+   helper scripts to copy into `~/gpu/`. All SDMA/RLC/CP_INT registers used by `sdma_idle.sh` and `gfx_cg.sh` were
+   cross-checked against RedNavi's GC 11.0.3 vs 11.0.0 table (`gc_regs.h`): 100 % identical. **Verified live on RX 7800 XT
+   (2026-11-25)**: `sdma_idle` + `gfx_cg` ran automatically on boot (dropping board power from `206–209 W` / `100 %` GFX
+   @ `2694 MHz` to `43–45 W`), then `idle_dpm.sh` settled via `pipe0@120 done=2`, sent DAL watermarks, and unpinned
+   `uclk 456 -> 96 MHz`, bringing idle board power down to **`33–36 W`** (socket `19–21 W`).
+4. **Opt-in HUBP0 hardware cursor (build 163, ported from RedNavi).** `PhxCursor.h` + `phx_cursor.cpp` (`VermilionBoot`
+   b163) and `PhxAMDFB` (`VermilionAccel`) implement the DCN 3.2.0 HUBP0 / DPP0 hardware cursor plane (64 KiB at
+   `PHX_VRAM_CURSOR_OFF` `0x9710000`, `CURSOR_DST_OFFSET` scaled from live `HUBPREQ0_REF_FREQ_TO_PIX_FREQ`, re-applied
+   after pipe-0 switches, software cursor kept while rotated). Default off (`debug.phxcursor=0`; opt in with boot-arg
+   `phxcursor=1` or `sysctl -w debug.phxcursor=1`, inspect via `debug.phxcursor_stat`). Host-tested by
+   `tests/kext/cursor_test.cpp` (14/14); live sysctl toggle and `ref2pix` tracking verified on RX 7800 XT (2026-11-25).
+5. **Upstream `ownback/vermilion-xtx` safety & daemon fixes ported (2026-11-25, verified live on RX 7800 XT):**
+   - **Warm-GPU refusal (`3f4a27f` + `71f87e9`)**: `bringup_navi31.sh` now reads `C2PMSG_81` (`0x16091`) before arming
+     the watchdog or writing any register, strictly parses `0x16091: 0x[0-9a-f]{8}`, refuses a running sOS or unreadable
+     register with exit 3 (`refused: warm GPU...`), drops `psp destroy`, and logs `sOS check: C2PMSG_81=0x00000000 (cold)`.
+     Fixed `navi32_up.sh` so the `bringup_navi31.sh` exit code is no longer swallowed by `| tail -3`, and taught
+     `phxboot-navi31.sh` to stop before `mesboot claim` and take its GOP/squat fallback on `refused: warm GPU`. Covered
+     by `tests/mock/bringup_warm_test.sh` (5/5 incl. `warm_navi32`) and `tests/mock/run.sh` (`warm_*`, `sos_logged`);
+     cold `sOS check` confirmed in live `/var/log/phxboot.log`.
+   - **Auto-login first-run marker (`8502256`)**: `al_on()` in `phxboot-navi31.sh` removes
+     `/private/var/run/com.apple.loginwindow.didRunThisBoot` before restarting WindowServer so the relaunched
+     `loginwindow` treats it as the boot's first run. Verified live on RX 7800 XT: auto-logged cleanly straight into
+     accelerated desktop across consecutive reboots.
+   - **Removed unsafe `debug.phxfb_kill_iondrv` (`52ed80b`)**: deleted the unused/unsafe IONDRV detach sysctl from
+     `src/vermilion-accel/accel/nvrm-accel.cpp` and rebuilt `VermilionAccel.kext` for both `ASIC=navi31` and
+     `ASIC=navi32`.
+   - **No Reset NVRAM advice (`491ca59`)**: updated `phxboot-navi31.sh` `nvstuck`/`headless` recovery messages so logs
+     never recommend Reset NVRAM (which deletes `phxfb-squat` under `DisableVariableWrite`), and added
+     `stuck_after_headless` to `tests/mock/run.sh` (268/268) plus `bringup_warm_test.sh` to `scripts/test/host.sh`.
+6. **Display-sleep transaction drop & cursor sleep hide (2026-11-25, inspired by `AMDRadeonRDNA4.kext` `a6e9f37`):**
+   - `NVDisplayPipe` now overrides `framebuffer_will_power_off()` / `framebuffer_did_power_on()` (behind
+     `debug.nvaccel_iop_sleepdrop=1`, counters `debug.nvaccel_iop_sleep_off` / `debug.nvaccel_iop_sleep_drop`), clearing
+     the `IOAccelDisplayPipe` offline byte `+0x299` **only** if `super::framebuffer_will_power_off()` transitioned it
+     `0 -> 1`, and accepting/dropping WindowServer transactions while sleeping instead of triggering CoreDisplay's
+     `kIOReturnOffline` retry loop and 30 s sleep-ack timeout. Live `pmset displaysleepnow` + wake test on RX 7800 XT
+     kept `WindowServer` uninterrupted.
+   - `PhxAMDFB::setPowerState(0)` and `setAttribute(kIOPowerAttribute, 0)` call `cursorHideIfActive()` so an active
+     opt-in HUBP0 hardware cursor plane hides cleanly when the display powers off.
+7. **Dynamic EDID mode parser, DCN 3.2.0 plan synthesizer, DSCL0 geometry & HBR2 8-bpc downshift (builds 164–165, verified live on RX 7800 XT 2026-11-25):**
+   - Added freestanding `src/vermilion-boot/PhxDynPlan.h`: parses Base block DTDs, CTA-861 DTDs + VICs, DisplayID 1.x/2.0
+     Type I/VII detailed timings, Established DMT, and Standard CVT-RB modes from any connected monitor's live EDID
+     (up to 4 blocks / 512 B), queries live DP link bandwidth (DPCD `0x0100`/`0x0101`) and BAR0 aperture, automatically
+     downshifts `10 bpc -> 8 bpc` whenever a mode exceeds 10-bpc link bandwidth (`selectBpc()`, never selecting an
+     over-bandwidth 10-bpc static plan), prefers verified static `.inc` plans when matched, and dynamically synthesizes
+     complete `phxp0::Plan` sequences (all steps strictly within `phxp0::kAllowP0`) for every other EDID mode.
+   - Added `DSCL0_RECOUT_SIZE` (`0x041D2`) and `DSCL0_MPC_SIZE` (`0x041D3`) to `phxp0::kAllowP0`, `PhxDynPlan.h`, and all
+     6 static `phx_p0_plan_*n32.inc` plans (fixing striped screen corruption + continuous `HUBP0` underflow on
+     cross-resolution switches), fixed 8-bpc `FMT0_FMT_BIT_DEPTH_CONTROL` (`0x0000c900`), switched `1440p144n32` /
+     `1440p165n32` to 8 bpc (fixing black screen on HBR2 x4 where 10 bpc required 17.92 / 19.73 Gbps > 17.28 Gbps), and
+     fixed `PhxAMDFB::switchHead0Mode()` to reset `fFlipOk` and update `PhxFBWidth`/`PhxFBHeight`/`PhxFBRefreshMilliHz`/
+     `PhxFBHTotal`/`PhxFBVTotal`/`gPhxFrameAbs` on landed switches.
+   - Bumped `phxp0pub::kMaxModes`, `phxhead::kNMaxModes`, and `phxrot::kMaxInstalled` to 32; published rows carry
+     unambiguous catalog-index keys (`0x40000000 + idx`, fixing the prior `key = 60` collision). Default on
+     (`debug.phxpipe0_dyn=1`, opt out via boot-arg `phxpipe0_dyn=0`); inspect via `debug.phxpipe0_edid_modes`.
+   - **Live RX 7800 XT verification (b165)**: auto-parsed all **24 progressive modes** from the connected 2560x1440@165
+     DP panel (6 static + 18 dynamic, all 24 `usable=true` in CoreGraphics); 2K 144 Hz and 2K 165 Hz both lit cleanly at
+     8 bpc over HBR2 x4; 14/14 consecutive bidirectional switches (`1440p165 <-> 100 / 144 / 1080p60 / dyn1680x1050@60 /
+     dyn1280x720@60 / dyn1920x1080@50`) succeeded with `refused=0`, `fell=0`, zero `HUBP0`/`OPTC0` underflow, and zero
+     `WindowServer` crashes. Host-verified by `tests/kext/dyn_plan_test.cpp` (463/463 checks).

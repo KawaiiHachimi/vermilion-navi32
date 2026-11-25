@@ -13,11 +13,13 @@ VermilionTrust), a Metal driver plugin running on Mesa RADV, and the boot-time b
 WindowServer opens the displays.
 
 > [!NOTE]
-> **The `navi32` branch of this fork adds RX 7800 XT support** (Navi 32, PCI `1002:747e`, 16 GiB): GC 11.0.3,
-> MP0/MP1 13.0.10, SDMA 6.0.3, `GB_ADDR_CONFIG` 0x444, and the board's monitor on OTG0 + DIG4 + DP4 (HPD 4).
+> **The `navi32-port` branch of this fork adds RX 7800 XT support** (Navi 32, PCI `1002:747e`, 16 GiB): GC 11.0.3,
+> MP0/MP1 13.0.10, SDMA 6.0.3, `GB_ADDR_CONFIG` 0x444, dynamic EDID/DisplayID modeset (`b165`) across any DisplayPort
+> connector, and idle power gating (**206 W -> 33 W**).
 > `ASIC=navi32 scripts/build/kext.sh` builds it; the reference driver is unchanged under the default `ASIC=navi31`.
-> What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**, the feature-by-feature state in **[docs/NAVI32-STATUS.md](docs/NAVI32-STATUS.md)**, and a clean-install runbook in **[docs/NAVI32-INSTALL.md](docs/NAVI32-INSTALL.md)**. The 7900 XT/XTX
-> path below is untouched by this branch.
+> What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**, the feature-by-feature
+> state in **[docs/NAVI32-STATUS.md](docs/NAVI32-STATUS.md)**, and a clean-install runbook in
+> **[docs/NAVI32-INSTALL.md](docs/NAVI32-INSTALL.md)**. The 7900 XT/XTX path below is untouched by this branch.
 >
 > **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,
 > one 2560x1440 DisplayPort monitor). **The RX 7900 XT keeps working:** XTX values are added next to the XT's and
@@ -63,11 +65,13 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 
 | | |
 |---|---|
-| **Verified on hardware** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM page tables (four-level, MMHUB instance) · display (EDID, DP4 link, six timing plans for 1080p and 1440p) · **PM4 execution** on the KIQ and on a MEC compute queue · indirect buffers (VRAM and system memory) · `RELEASE_MEM` fences · **client submission through the accelerator's own ABI** (`submit_test` reaches `target = 0x5eed0001`) · **the MES** (all API frames complete) · **a gfx queue created by the MES** that executes and is adopted by the accelerator · **RADV**: 270k compute dispatches in 4 s with 0 GPU errors, 47.8 GB/s buffer bandwidth, 162 us per waited submit |
-| **In progress** | **Nothing in the capability list is missing.** Verified on this port: firmware chain, MES, gfx + compute queues, RADV (compute, bandwidth, submit), Metal 3 with Core Image on it, WindowServer compositing on the GPU, OpenGL 4.1 and OpenCL on the GPU, the VCN engine, the Vulkan window surface (`WSI OK`, 300/300 frames into a CAMetalLayer through a `-Dplatforms=macos` RADV), and hardware HEVC decode through VideoToolbox with frame md5s identical to Apple software decode. Two follow-ups: port upstream main b126/b127 (fault page + recovery; their build numbers collide with the fork and they need a boot test), and the console auto-login on the lab machine, which stopped working after a power cycle and blocks *re-running* the OpenGL/OpenCL probes (they were verified with a session on 2026-11-24) |
-| **Not started** | Metal plugin (`NVMTLDriver`), WindowServer, OpenGL / OpenCL, Vulkan window surface, VCN decode. All of these are the Navi 31 tree's existing work, waiting for the bottom of the stack |
+| **Verified on hardware (RX 7800 XT)** | PSP firmware chain (24 binaries, TMR from `LOAD_TOC`, `SETUP_TMR status=0`) · SMU features (`EnableAllSmuFeatures` OK) · RLC (`0xc000001f`) · GCVM four-level page tables (MMHUB instance) · MES + gfx & compute queues adopted by `VermilionAccel` · **RADV** (270k compute dispatches/4 s, 47.8 GB/s bandwidth, 162 us submit) · **Metal 3 & Core Image** · **WindowServer GPU compositing** + clean auto-login (`loginwindow.didRunThisBoot` cleared) · **OpenGL 4.1 & OpenCL** · **Vulkan window surface** (`WSI OK`, 300/300 frames) · **VCN hardware HEVC decode** (md5-identical to Apple software decode) · **Dynamic EDID/CTA-861/DisplayID modeset (`b165`)**: auto-parses up to 32 modes from any connected DP monitor, auto-downshifts `10 bpc -> 8 bpc` on HBR2 links (all 24 modes including 2560x1440 @ 60/100/120/144/165 Hz and cross-resolution 1080p/1680x1050/720p switches verified with 0 underflows) · **Display-sleep transaction drop** (`debug.nvaccel_iop_sleepdrop=1`, `WindowServer` uninterrupted across display sleep/wake) · **Idle power gating**: `sdma_idle` + `gfx_cg` + `idle_dpm.sh` (`UCLK 456 -> 96 MHz`) drop idle board power from **206–209 W down to 33–36 W** · **Warm-GPU refusal** before register writes |
+| **Ported / opt-in** | Upstream b126/b127 shader fault page & queue recovery (`debug.phxfaultdef=0`, `debug.phxrecover=0`, default off) · Opt-in HUBP0/DPP0 hardware cursor plane (`b163`, `debug.phxcursor=0`, default off) · Opt-in DP reconnect replay (`debug.phxhotplug0=3`) · 90-degree rotation preflight on published modes |
+| **Remaining** | VideoToolbox system plug-in bundle install (`/System/Library/Video/Plug-Ins`, needs `sysvol_install.sh` + VermilionTrust cdhash) · Full S3 system sleep/wake · GPU DisplayPort/HDMI audio · Second monitor bring-up |
 
-### The fixes that took the port from "no signal" to executing commands
+Host regression tests (no card required): `sh scripts/test/host.sh` — **17/17 suites passing** (`tests/mock/run.sh` 268 checks, `tests/mock/bringup_warm_test.sh` 5 checks, and 15 C++ kext suites including `dyn_plan_test` 463 checks).
+
+### The fixes that took the port from "no signal" to accelerated desktop
 
 1. **TMR** - taken from the `LOAD_TOC` response (size `0xa700000`) and placed in this board's reserved window; a
    constant made `SETUP_TMR` fail and every later step depend on it.
@@ -82,16 +86,14 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 6. **The MMHUB instance** - the CP fetches through the MMHUB instance of the VM block (0x1A080), not the
    GC-segment one (0x28E8) the port was programming. Four-level tables translate there; they never did at the
    other instance, which is what made the whole depth-3 question look unsolvable.
-
-### What is left
-
-| Step | Blocks |
-|---|---|
-| GFX queue (`CP_GFX_HQD_*`, ring base in the MQD) | RADV's submissions - it emits graphics-level packets even for a compute workload |
-| ~~Metal plugin + translator on top of RADV~~ | **done**: Metal 3 device, compute correct, Core Image on it |
-| ~~WindowServer on the GPU~~ | **done**: squat boot, PhxAMDFB on panel, one WindowServer restart, SUCCESS with frames flowing |
-| Vulkan window surface (`RADV_PLATFORMS=macos`) | apps that present through Vulkan |
-| VCN decode | HEVC / AV1 in VideoToolbox |
+7. **Dynamic EDID modeset, DSCL0 geometry & HBR2 8-bpc downshift (`b164–b165`)** - parses any connected monitor's
+   EDID/CTA-861/DisplayID into DCN 3.2.0 plans, programs `DSCL0_RECOUT_SIZE` (`0x041D2`) and `DSCL0_MPC_SIZE`
+   (`0x041D3`) alongside `HUBP0` viewports (fixing cross-resolution striped corruption & HUBP0 underflow), and
+   automatically downshifts `10 bpc -> 8 bpc` (`FMT0 = 0xc900`) when a high-refresh mode (e.g. 1440p @ 144/165 Hz)
+   exceeds HBR2 x4 bandwidth at 10 bpc.
+8. **Idle power gating** - emits the bring-up completion banner so `sdma_idle` + `gfx_cg` run before `claim`, and
+   lets `idle_dpm.sh` settle via `debug.phxpipe0_stat` to unpin `UCLK` (`456 -> 96 MHz`), cutting idle board power
+   from **206 W to 33 W**.
 
 ### Reproducing the current state
 
