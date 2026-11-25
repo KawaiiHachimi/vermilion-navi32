@@ -80,6 +80,33 @@ static void publishedRotationPreflight() {
         ck(phxrot::add(tb, t90, 0, ids, 6, nullptr, pub, 6) == phxrot::kOk, "90-degree timing installs into rotation table");
     }
     ck(tb.n == 6 && tb.skipped == 0, "all 6 published modes installed as rotated modes");
+
+    // Scaled HiDPI timings (unrotated, hScaled/vScaled != hActive/vActive) validate and carry HiRes flags.
+    phxrot::Timing hi{};
+    hi.id = 0x80002000u;
+    hi.pixelClock = (uint64_t)pub[4].pclk10kHz * 10000ull;
+    hi.hActive = 2560; hi.hBlank = pub[4].hTotal - 2560;
+    hi.vActive = 1440; hi.vBlank = pub[4].vTotal - 1440;
+    hi.hScaled = 3840; hi.vScaled = 2160;
+    hi.scalerFlags = phxrot::kScaleStretchToFit;
+    uint32_t hiPlan = 0;
+    ck(phxrot::isScaledMode(hi), "3840x2160 backing on 2560x1440 raster is classified as scaled mode");
+    ck(phxrot::check(hi, 0, ids, 6, &hiPlan, nullptr, pub, 6) == phxrot::kOk && hiPlan == 5,
+       "scaled HiDPI 3840x2160@165 maps to published 2560x1440@165 mode id 5");
+    uint32_t dw = 0, dh = 0;
+    phxrot::desktopOf(hi, &dw, &dh);
+    ck(dw == 3840 && dh == 2160, "desktopOf reports scaled pixel dimensions");
+    ck((phxrot::validatedFlags(0, phxrot::kOptAccelBacked, true) & (phxrot::kAccelBackedFlag | phxrot::kNotPresetFlag | phxrot::kValidForHiResFlag))
+           == (phxrot::kAccelBackedFlag | phxrot::kNotPresetFlag | phxrot::kValidForHiResFlag),
+       "validatedFlags sets AccelBacked + NotPreset + ValidForHiRes for scaled modes");
+    ck((phxrot::infoFlags(true) & phxrot::kAccelBackedFlag) == 0
+           && (phxrot::infoFlags(true) & phxrot::kValidForHiResFlag) != 0,
+       "infoFlags sets ValidForHiRes without AcceleratorBacked");
+    ck(phxrot::add(tb, hi, 0, ids, 6, nullptr, pub, 6) == phxrot::kOk && tb.n == 7,
+       "scaled HiDPI timing installs cleanly into table");
+    hi.hScaled = 3841;   // odd width rejected
+    ck(phxrot::check(hi, 0, ids, 6, &hiPlan, nullptr, pub, 6) == phxrot::kWhyScaled,
+       "odd scaled dimensions are rejected");
 }
 
 int main() {

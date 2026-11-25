@@ -1454,7 +1454,8 @@ IOReturn NVDisplayPipe::performTransaction(IOAccelDisplayPipeTransaction2 *txn)
     if (ret != kIOReturnSuccess || !q.kva || q.pitch < 4 || !q.height) NVIOP_FAIL(kIOReturnNotReady, "framebuffer would not describe its scanout (0x%x kva %p pitch %u)", (unsigned)ret, q.kva, q.pitch);
     // rotation S1: a head turned to portrait (PhxAMDFB names the angle in q.flags) takes the portrait frame, rotated below
     const int rotA = phxrot::replyAngle(q.flags), rotK = phxrot::copyKind(rotA, w, h, q.width, q.height, phxRotOpt180());
-    if (rotK < 0) {
+    const bool swScale = (rotA == 0 && rotK < 0 && w > 0 && h > 0 && q.width > 0 && q.height > 0);
+    if (rotK < 0 && !swScale) {
         if (rotA) phxRotRefused();
         NVIOP_FAIL(kIOReturnBadArgument, "source %ux%u is not the scanout's %ux%u (angle %d)", w, h, q.width, q.height, rotA);
     }
@@ -1498,6 +1499,36 @@ IOReturn NVDisplayPipe::performTransaction(IOAccelDisplayPipeTransaction2 *txn)
     const bool wide = !widen && ((((uintptr_t)src | (uintptr_t)d) & 7) == 0) && !(spr & 1) && !(dpr & 1);
     const bool sse = !widen && gIopSse && ((((uintptr_t)src | (uintptr_t)d) & 15) == 0) && !(spr & 3) && !(dpr & 3);
     if (rotK == 1) phxRotCopy((const void *)src, pitch, w, h, (void *)(uintptr_t)d, q.pitch, rotA, l10r, gIopSse != 0);
+    else if (swScale) {
+        const uint32_t dstW = q.width, dstH = q.height;
+        const uint64_t stepX = ((uint64_t)w << 16) / dstW;
+        const uint64_t stepY = ((uint64_t)h << 16) / dstH;
+        for (uint32_t dy = 0; dy < dstH; dy++) {
+            const uint64_t syfp = (uint64_t)dy * stepY;
+            const uint32_t sy0 = (uint32_t)(syfp >> 16);
+            const uint32_t sy1 = (sy0 + 1 < h) ? sy0 + 1 : h - 1;
+            const uint32_t fy = (uint32_t)((syfp >> 8) & 0xffu);
+            const uint32_t iy = 256u - fy;
+            const volatile unsigned int *r0 = src + (unsigned long)sy0 * spr;
+            const volatile unsigned int *r1 = src + (unsigned long)sy1 * spr;
+            volatile unsigned int *dp = d + (unsigned long)dy * dpr;
+            for (uint32_t dx = 0; dx < dstW; dx++) {
+                const uint64_t sxfp = (uint64_t)dx * stepX;
+                const uint32_t sx0 = (uint32_t)(sxfp >> 16);
+                const uint32_t sx1 = (sx0 + 1 < w) ? sx0 + 1 : w - 1;
+                const uint32_t fx = (uint32_t)((sxfp >> 8) & 0xffu);
+                const uint32_t ix = 256u - fx;
+                const uint32_t p00 = r0[sx0], p10 = r0[sx1], p01 = r1[sx0], p11 = r1[sx1];
+                const uint32_t w00 = ix * iy, w10 = fx * iy, w01 = ix * fy, w11 = fx * fy;
+                const uint32_t b = (((p00 & 0xffu) * w00 + (p10 & 0xffu) * w10 + (p01 & 0xffu) * w01 + (p11 & 0xffu) * w11) >> 16) & 0xffu;
+                const uint32_t g = ((((p00 >> 8) & 0xffu) * w00 + ((p10 >> 8) & 0xffu) * w10 + ((p01 >> 8) & 0xffu) * w01 + ((p11 >> 8) & 0xffu) * w11) >> 16) & 0xffu;
+                const uint32_t r = ((((p00 >> 16) & 0xffu) * w00 + ((p10 >> 16) & 0xffu) * w10 + ((p01 >> 16) & 0xffu) * w01 + ((p11 >> 16) & 0xffu) * w11) >> 16) & 0xffu;
+                const uint32_t px = 0xff000000u | (r << 16) | (g << 8) | b;
+                __asm__ __volatile__("movnti %1, %0" : "=m"(dp[dx]) : "r"(px));
+            }
+        }
+        __asm__ __volatile__("sfence" ::: "memory");
+    }
     else for (unsigned y = 0; y < h; y++) {
         const volatile unsigned int *sp = src + (unsigned long)y * spr;
         volatile unsigned int *dp = d + (unsigned long)y * dpr;

@@ -954,14 +954,31 @@ public:
     }
     void head0OfferOpen(const char *why);
     // mode switch: each listed mode reports its plan's nominal rate; only the mode lit at start is the default (R0 D3)
+    // Mark listed modes matching the panel's largest (native) active raster with kDisplayModeNativeFlag so CoreDisplay
+    // pairs HiDPI scaled timings against the panel's native raster across all refresh rates.
+    bool isNativeRaster(IODisplayModeID mode) const {
+        const uint32_t mw = modeW(mode), mh = modeH(mode);
+        if (!mw || !mh) return false;
+        if (!fNModes) return true;
+        uint64_t maxArea = 0;
+        for (unsigned i = 0; i < fNModes; i++) {
+            const IODisplayModeID id = (IODisplayModeID)fModeIds[i];
+            const uint64_t area = (uint64_t)modeW(id) * (uint64_t)modeH(id);
+            if (area > maxArea) maxArea = area;
+        }
+        return maxArea > 0 && (uint64_t)mw * (uint64_t)mh == maxArea;
+    }
     IOOptionBits modeFlags(IODisplayModeID mode) const {
         return kDisplayModeValidFlag | kDisplayModeSafeFlag |
+               (isNativeRaster(mode) ? kDisplayModeNativeFlag : 0) |
                (!fNModes || (uint32_t)mode == phxRotDefaultId(fHead, fBootModeId, fModeId) ? kDisplayModeDefaultFlag : 0);   // rotation rot2
     }
     IOReturn getInformationForDisplayMode(IODisplayModeID mode, IODisplayModeInformation *info) override {
         if (phxRotOwns(fRot, fHead, mode)) {
             const PhxRotModes rm = rotModes();
-            return phxRotInfo(fRot, fHead, mode, info, rm.single, rm.modes, rm.nModes);
+            const IOReturn r = phxRotInfo(fRot, fHead, mode, info, rm.single, rm.modes, rm.nModes);
+            if (r == kIOReturnSuccess && info) { info->imageWidth = fImgWmm; info->imageHeight = fImgHmm; }
+            return r;
         }
         if (!listed(mode) || !info) return kIOReturnBadArgument;
         bzero(info, sizeof(*info));
@@ -1284,7 +1301,11 @@ public:
         }
     }
     IOReturn connectFlags(IOIndex, IODisplayModeID mode, IOOptionBits *flags) override {
-        if (flags && phxRotOwns(fRot, fHead, mode)) { *flags = kDisplayModeValidFlag | kDisplayModeSafeFlag; return kIOReturnSuccess; }
+        if (flags && phxRotOwns(fRot, fHead, mode)) {
+            *flags = kDisplayModeValidFlag | kDisplayModeSafeFlag |
+                     (phxRotIsScaled(fRot, mode) ? (kDisplayModeNotPresetFlag | kDisplayModeValidForHiResFlag) : 0);
+            return kIOReturnSuccess;
+        }
         if (flags) *flags = fNModes ? (listed(mode) && (!offerClosed() || phxoffer::isOffered(fModeIds, fNModes, fModeId, true, (uint32_t)mode))
                                        ? modeFlags(mode) : 0) : kDisplayModeValidFlag | kDisplayModeSafeFlag | kDisplayModeDefaultFlag;
         return kIOReturnSuccess;

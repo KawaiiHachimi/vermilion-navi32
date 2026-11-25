@@ -26,6 +26,7 @@ IOReturn phxRotValidate(const PhxRotModes &m, void *desc, IOByteCount size);
 IOReturn phxRotSetTimings(PhxRotHead &r, const PhxRotModes &m, OSArray *array);
 void phxRotClear(PhxRotHead &r);                                   // the installed list only (the current mode stays)
 bool phxRotOwns(const PhxRotHead &r, unsigned head, IODisplayModeID id);
+bool phxRotIsScaled(const PhxRotHead &r, IODisplayModeID id);
 uint32_t phxRotPlan(const PhxRotHead &r, IODisplayModeID id);      // the head mode id whose raster a rotated id uses
 // CoreDisplay's rotated ids are never listed in getDisplayModes (it drops driver ids with bit 31 set: REA); they are
 // only accepted and described.

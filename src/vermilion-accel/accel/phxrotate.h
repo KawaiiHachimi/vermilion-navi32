@@ -191,12 +191,20 @@ constexpr uint32_t kOverrideDesire = 255u << 16;
 // The marks apply now: always without bit 6, else only while some head is rotated (IOFBTransform & kRotateBits).
 constexpr bool marksNow(uint32_t opts, bool rotated) { return !(opts & kOptMarkOnlyRotated) || rotated; }
 constexpr uint32_t kAccelBackedFlag = 0x00400000u;   // kDisplayModeAcceleratorBackedFlag (IOGraphicsTypes.h)
-// The flags a validated rotated description returns: the caller's, plus AcceleratorBacked with opts bit 4.
-constexpr uint32_t validatedFlags(uint32_t in, uint32_t opts) { return opts & kOptAccelBacked ? in | kAccelBackedFlag : in; }
-// The flags getInformationForDisplayMode reports for a rotated id: Valid | Safe and NEVER AcceleratorBacked, because the
+constexpr uint32_t kNotPresetFlag = 0x00000200u;     // kDisplayModeNotPresetFlag
+constexpr uint32_t kValidForHiResFlag = 0x00800000u; // kDisplayModeValidForHiResFlag
+// The flags a validated rotated/scaled description returns: the caller's, plus AcceleratorBacked with opts bit 4.
+constexpr uint32_t validatedFlags(uint32_t in, uint32_t opts, bool scaled = false) {
+    uint32_t f = opts & kOptAccelBacked ? (in | kAccelBackedFlag) : in;
+    if (scaled) f |= kNotPresetFlag | kValidForHiResFlag;
+    return f;
+}
+// The flags getInformationForDisplayMode reports for a rotated/scaled id: Valid | Safe and NEVER AcceleratorBacked, because the
 // kernel's IOAccelLegacyDisplayPipe::is_current_mode_accelerator_backed reads this answer and would switch
 // displayModeDidChange to its scanout-resource path (rotation-pixels report 1f).
-constexpr uint32_t infoFlags() { return 0x1u | 0x2u; }
+constexpr uint32_t infoFlags(bool scaled = false) {
+    return 0x1u | 0x2u | (scaled ? (kNotPresetFlag | kValidForHiResFlag) : 0u);
+}
 // The verticalBlankingExtension head 0 reports for mode `id` (0 = none, as before): non-zero only for a mode other than the
 // current one, on head 0, while a head is gated and opts bit 3 is set.
 constexpr uint32_t kH0ExcludeVbe = 1;
@@ -254,18 +262,28 @@ inline const phxhead::HeadMode *modeOf(unsigned head, uint32_t id, const phxhead
     }
     return phxhead::headMode(head, id);
 }
+inline bool isScaledMode(const Timing &t) {
+    return angleOf(t.scalerFlags) == kRot0 && t.hScaled && t.vScaled && (t.hScaled != t.hActive || t.vScaled != t.vActive);
+}
 // head modes: the ids the head lists (modeOf gives each one's raster). *plan = the matching id.
 inline int check(const Timing &t, unsigned head, const uint32_t *ids, unsigned n, uint32_t *plan,
                  const phxhead::HeadMode *single = nullptr,
                  const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0) {
     const int a = angleOf(t.scalerFlags);
     if (a == kRotBad) return kWhyMirror;
-    if (a == kRot0) return kWhyNotRotated;
+    const bool scaledOnly = (a == kRot0) && t.hScaled && t.vScaled && (t.hScaled != t.hActive || t.vScaled != t.vActive);
+    if (a == kRot0 && !scaledOnly) return kWhyNotRotated;
     if (t.scalerFlags & ~(kScaleRotateFlags | kScaleStretchToFit)) return kWhyFlags;
     if (t.hInset || t.vInset || t.borders) return kWhyInset;
     if (t.signalConfig & kInterlaced) return kWhyInterlaced;
-    if (swaps(a)) { if (t.hScaled != t.vActive || t.vScaled != t.hActive) return kWhyScaled; }
-    else if (!((!t.hScaled && !t.vScaled) || (t.hScaled == t.hActive && t.vScaled == t.vActive))) return kWhyScaled;
+    if (scaledOnly) {
+        if (t.hScaled < 640 || t.vScaled < 480 || t.hScaled > 5120 || t.vScaled > 5120 || (t.hScaled & 1) || (t.vScaled & 1))
+            return kWhyScaled;
+    } else if (swaps(a)) {
+        if (t.hScaled != t.vActive || t.vScaled != t.hActive) return kWhyScaled;
+    } else if (!((!t.hScaled && !t.vScaled) || (t.hScaled == t.hActive && t.vScaled == t.vActive))) {
+        return kWhyScaled;
+    }
     for (unsigned i = 0; i < n; i++) {
         const phxhead::HeadMode *m = modeOf(head, ids[i], single, modes, nModes);
         if (!m || m->w != t.hActive || m->h != t.vActive) continue;
@@ -277,16 +295,16 @@ inline int check(const Timing &t, unsigned head, const uint32_t *ids, unsigned n
     }
     return kWhyNoPlan;
 }
-// The desktop of an accepted timing (portrait at 90 / 270) and its row bytes: exactly 4 bytes a pixel, so a portrait
-// frame takes the landscape surface's bytes (1080 x 4 x 1920 = 1920 x 4 x 1080) and never more.
+// The desktop of an accepted timing (portrait at 90 / 270, or scaled HiDPI desktop).
 inline void desktopOf(const Timing &t, uint32_t *w, uint32_t *h) {
+    if (t.hScaled && t.vScaled) { *w = t.hScaled; *h = t.vScaled; return; }
     const bool s = swaps(angleOf(t.scalerFlags));
     *w = s ? t.vActive : t.hActive; *h = s ? t.hActive : t.vActive;
 }
 constexpr uint32_t rowBytes(uint32_t w) { return w * 4; }
 
 // The modes CoreDisplay installed (setDetailedTimings), as accepted; ids are CoreDisplay's.
-constexpr unsigned kMaxInstalled = 32;
+constexpr unsigned kMaxInstalled = 128;
 struct Installed { uint32_t id, plan; int angle; Timing t; };
 struct Table { Installed e[kMaxInstalled]; unsigned n; uint32_t skipped; };
 inline const Installed *find(const Table &tb, uint32_t id) {

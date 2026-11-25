@@ -77,9 +77,10 @@ IOReturn phxRotValidate(const PhxRotModes &m, void *desc, IOByteCount size)
         phxrot::desktopOf(t, &w, &h);
         info->maxDepthIndex = 0; info->nominalWidth = w; info->nominalHeight = h;
         if (hm) info->refreshRate = (IOFixed1616)(((uint64_t)hm->milliHz << 16) / 1000);
-        // rot7: AcceleratorBacked, so CoreDisplay turns the desktop itself (phxrot::validatedFlags, opts bit 4)
+        // rot7: AcceleratorBacked, so CoreDisplay turns/scales the desktop itself (phxrot::validatedFlags, opts bit 4)
         const uint32_t opts = (uint32_t)__atomic_load_n(&gRotOpts, __ATOMIC_ACQUIRE);
-        info->flags = phxrot::validatedFlags(info->flags, opts);
+        const bool scaled = phxrot::isScaledMode(t);
+        info->flags = phxrot::validatedFlags(info->flags, opts, scaled);
         if (opts & phxrot::kOptAccelBacked) OSAddAtomic64(1, &gRotAccel);
     }
     return kIOReturnSuccess;
@@ -120,6 +121,11 @@ bool phxRotOwns(const PhxRotHead &r, unsigned head, IODisplayModeID id)
     if (r.curValid && r.cur.id == (uint32_t)id) return true;
     return phxRotGate(head) && entry(r, id, nullptr) != nullptr;
 }
+bool phxRotIsScaled(const PhxRotHead &r, IODisplayModeID id)
+{
+    const phxrot::Installed *e = entry(r, id, nullptr);
+    return e && phxrot::isScaledMode(e->t);
+}
 uint32_t phxRotPlan(const PhxRotHead &r, IODisplayModeID id) { const phxrot::Installed *e = entry(r, id, nullptr); return e ? e->plan : 0; }
 
 IOReturn phxRotInfo(const PhxRotHead &r, unsigned head, IODisplayModeID id, IODisplayModeInformation *info,
@@ -133,7 +139,7 @@ IOReturn phxRotInfo(const PhxRotHead &r, unsigned head, IODisplayModeID id, IODi
     bzero(info, sizeof(*info));
     info->maxDepthIndex = 0; info->nominalWidth = w; info->nominalHeight = h;
     info->refreshRate = (IOFixed1616)(((uint64_t)(hm ? hm->milliHz : 60000u) << 16) / 1000);
-    info->flags = phxrot::infoFlags();   // never AcceleratorBacked here (the kernel display pipe reads it)
+    info->flags = phxrot::infoFlags(phxrot::isScaledMode(e->t));   // never AcceleratorBacked here (the kernel display pipe reads it)
     return kIOReturnSuccess;
 }
 
@@ -199,8 +205,19 @@ void phxRotPublish(IOService *fb, unsigned head)
     if (on) {
         if (!gRotPublished[head]) { gRotHadOpt[head] = n != nullptr; gRotOrigOpt[head] = cur; }
         fb->setProperty(kIOFBProbeOptionsKey, (unsigned long long)phxrot::probeOptions(cur, true), 32);
-    } else if (gRotHadOpt[head]) fb->setProperty(kIOFBProbeOptionsKey, (unsigned long long)gRotOrigOpt[head], 32);
-    else fb->removeProperty(kIOFBProbeOptionsKey);   // exactly what the head had before the gate
+        IODisplayScalerInformation si{};
+        si.scalerFeatures = kIOScaleCanUpSamplePixels | kIOScaleCanDownSamplePixels | kIOScaleCanRotate;
+        si.maxHorizontalPixels = 5120;
+        si.maxVerticalPixels = 5120;
+        if (OSData *sd = OSData::withBytes(&si, sizeof si)) {
+            fb->setProperty(kIOFBScalerInfoKey, sd);
+            sd->release();
+        }
+    } else {
+        if (gRotHadOpt[head]) fb->setProperty(kIOFBProbeOptionsKey, (unsigned long long)gRotOrigOpt[head], 32);
+        else fb->removeProperty(kIOFBProbeOptionsKey);
+        fb->removeProperty(kIOFBScalerInfoKey);
+    }
     gRotPublished[head] = on;
 }
 
