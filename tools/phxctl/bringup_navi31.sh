@@ -65,9 +65,11 @@ if [ "${RESUME:-}" != after_tmr ]; then
   P regs 0x16091 0x1607a 0x16063
   # Only phxctl's exact answer counts ("0x16091: 0x%08x"). Anything else (a failed read prints "(error) 0x00000000",
   # an open failure prints its own message) is unreadable: refused too, but said as such.
-  SOSLINE=$(P regs 0x16091 2>/dev/null)
-  if ! printf '%s\n' "$SOSLINE" | grep -Eqx '0x16091: 0x[0-9a-f]{8}'; then
-    echo "refused: warm GPU check failed: C2PMSG_81 unreadable ($(printf '%s' "$SOSLINE" | head -1 | cut -c1-80)): no firmware loaded, nothing written"
+  # stderr is kept: phxctl reports an open failure there ("PhxBringup service not found"), and the refusal names it.
+  SOSOUT=$(P regs 0x16091 2>&1)
+  SOSLINE=$(printf '%s\n' "$SOSOUT" | grep -Ex '0x16091: 0x[0-9a-f]{8}' | head -1)
+  if [ -z "$SOSLINE" ]; then
+    echo "refused: warm GPU check failed: C2PMSG_81 unreadable ($(printf '%s' "$SOSOUT" | head -1 | cut -c1-80)): no firmware loaded, nothing written"
     exit 3
   fi
   SOS=${SOSLINE##* }

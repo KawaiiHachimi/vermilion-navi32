@@ -28,7 +28,7 @@ mk() {   # mk <C2PMSG_81 value> [error|openfail]: a fresh fake home with ~/gpu/p
 #!/bin/bash
 R=$R; echo "\$*" >> "$W/phxctl.log"
 case "\$1" in
-  regs) [ -e "\$R/openfail" ] && { echo "PhxBringup service not found"; exit 1; }
+  regs) [ -e "\$R/openfail" ] && { echo "PhxBringup service not found" >&2; exit 1; }
         shift; for a in "\$@"; do a=\$(printf 0x%05x \$((a))); v=\$(cat "\$R/\$a" 2>/dev/null || echo 0x00000000)
           if [ -e "\$R/error" ]; then echo "\$a: (error) 0x00000000"; else echo "\$a: \$v"; fi; done ;;
   wreg) [ "\$2" = 0x16063 ] && [ "\$((\$3))" = \$((0x20000)) ] && echo 0x00310035 > "\$R/0x16091" ;;   # the SOS command starts the sOS
