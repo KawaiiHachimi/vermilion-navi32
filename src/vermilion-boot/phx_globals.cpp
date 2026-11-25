@@ -104,8 +104,10 @@ static constexpr uint64_t kVisTotal = 256ull << 20;
 // b47: 6 GiB / 2 GiB (were 1536 / 512 MiB): WindowServer's images reached 1690 MB after ~50 min and every later colour
 // image failed (cursor trails on an empty desktop, 2026-10-25 22:47); the machine has 32 GB
 static constexpr uint64_t kHiTotal = 6144ull << 20;
-static constexpr uint64_t kGttCap = 2048ull << 20;
-static constexpr uint64_t kGttMaxBo = 256ull << 20;
+// b166: raise per-client GTT budget/max BO to match kHostCap/kHostMaxBo (4 GiB / 1 GiB; was 2 GiB / 256 MiB):
+// Geekbench 7 Feature Matching allocates a 547 MiB managed/GTT buffer that kGttMaxBo=256 MiB refused (cause 2 -> GPU hang).
+static constexpr uint64_t kGttCap = 4096ull << 20;
+static constexpr uint64_t kGttMaxBo = 1024ull << 20;
 static constexpr uint64_t kHostCap = 4096ull << 20, kHostMaxBo = 1024ull << 20;   // host imports, per client
 static constexpr uint64_t kVaMask = (1ull << 48) - 1;
 static constexpr IOByteCount kFbAperMapMax = 1024ull << 20;   // navi31: BAR0 window mapped into the kernel (b159: was 512 MiB)

@@ -15,7 +15,7 @@ WindowServer opens the displays.
 > [!NOTE]
 > **The `navi32-port` branch of this fork adds RX 7800 XT support** (Navi 32, PCI `1002:747e`, 16 GiB): GC 11.0.3,
 > MP0/MP1 13.0.10, SDMA 6.0.3, `GB_ADDR_CONFIG` 0x444, dynamic EDID/DisplayID modeset (`b165`) across any DisplayPort
-> connector, and idle power gating (**206 W -> 33 W**).
+> connector, `1 GiB` per-BO GTT budget (`b166`, Geekbench 7 Metal end-to-end), and idle power gating (**206 W -> 33 W**).
 > `ASIC=navi32 scripts/build/kext.sh` builds it; the reference driver is unchanged under the default `ASIC=navi31`.
 > What is done, what is still missing and how to boot it: **[docs/NAVI32.md](docs/NAVI32.md)**, the feature-by-feature
 > state in **[docs/NAVI32-STATUS.md](docs/NAVI32-STATUS.md)**, and a clean-install runbook in
@@ -69,7 +69,7 @@ OpenGL / OpenCL, and VCN decode - reached step by step, keeping this section cur
 | **Ported / opt-in** | Upstream b126/b127 shader fault page & queue recovery (`debug.phxfaultdef=0`, `debug.phxrecover=0`, default off) · Opt-in HUBP0/DPP0 hardware cursor plane (`b163`, `debug.phxcursor=0`, default off) · Opt-in DP reconnect replay (`debug.phxhotplug0=3`) · 90-degree rotation preflight on published modes |
 | **Remaining** | VideoToolbox system plug-in bundle install (`/System/Library/Video/Plug-Ins`, needs `sysvol_install.sh` + VermilionTrust cdhash) · Full S3 system sleep/wake · GPU DisplayPort/HDMI audio · Second monitor bring-up |
 
-Host regression tests (no card required): `sh scripts/test/host.sh` — **17/17 suites passing** (`tests/mock/run.sh` 268 checks, `tests/mock/bringup_warm_test.sh` 5 checks, and 15 C++ kext suites including `dyn_plan_test` 463 checks).
+Host regression tests (no card required): `sh scripts/test/host.sh` — **17/17 suites passing** (`tests/mock/run.sh` 274 checks, `tests/mock/bringup_warm_test.sh` 5 checks, and 15 C++ kext suites including `dyn_plan_test` 463 checks).
 
 ### The fixes that took the port from "no signal" to accelerated desktop
 

@@ -3245,3 +3245,12 @@ SMU_CLOCKS=1 sudo python3 ~/gpu/smumetrics.py 3 2   # expect act gfx well under 
      8 bpc over HBR2 x4; 14/14 consecutive bidirectional switches (`1440p165 <-> 100 / 144 / 1080p60 / dyn1680x1050@60 /
      dyn1280x720@60 / dyn1920x1080@50`) succeeded with `refused=0`, `fell=0`, zero `HUBP0`/`OPTC0` underflow, and zero
      `WindowServer` crashes. Host-verified by `tests/kext/dyn_plan_test.cpp` (463/463 checks).
+8. **Large Managed/GTT buffer cap fix for heavy Metal compute workloads (build 166, verified live on RX 7800 XT 2026-11-25):**
+   - Raised `kGttMaxBo` (`256 MiB -> 1024 MiB`) and `kGttCap` (`2048 MiB -> 4096 MiB`) in `src/vermilion-boot/phx_globals.cpp`
+     to match `kHostMaxBo` / `kHostCap`.
+   - Previously, Geekbench 7 Metal's `Feature Matching` workload allocated a `560280 KiB` (~547 MiB) managed/GTT buffer
+     which exceeded `kGttMaxBo = 256 MiB`, failing twice with `BO create refused ... cause 2` (`VK_ERROR_OUT_OF_DEVICE_MEMORY`)
+     and wedging the compute queue (`GRBM_STATUS = 0xa840302c`, `CP_STAT = 0x8003a600`), stalling `WindowServer`.
+   - **Live verification (b166)**: full Geekbench 7.1.0 Metal suite (all 11 workloads including `Feature Matching`, `Path Tracer`,
+     `Particle Physics`, `Fluid Simulation`) completed cleanly (`exit 0`, `BO create refused = 0`, `seq emitted 27509 retired 27509`,
+     `WindowServer` uninterrupted).
