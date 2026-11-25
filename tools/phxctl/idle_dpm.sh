@@ -17,18 +17,33 @@
 # Rollback: rm ~/gpu/phxboot-idledpm (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin 456` + kill this.
 # Exit codes: 1 nothing freed (a helper missing, no settled desktop, dalwm.sh failed) or the unpin / FCLK switch was
 # refused and UCLK pinned again; 2 an underflow in the baseline, nothing sent; 3 the watchdog pinned UCLK again.
-G=${PHXBOOT_G:-$HOME/gpu}; P=${PHXCTL:-$G/phxctl.bin}; export PHXCTL=$P
+G=${PHXBOOT_G:-$HOME/gpu}
+if [ -n "${PHXCTL:-}" ]; then P=$PHXCTL
+elif [ -x "$G/phxctl.bin" ]; then P=$G/phxctl.bin
+elif [ -x /usr/local/sbin/phxctl ]; then P=/usr/local/sbin/phxctl
+else P=$G/phxctl.bin; fi
+export PHXCTL=$P
 SETTLE=${IDPM_SETTLE:-60}; BASE=${IDPM_BASE:-30}; POLL=${IDPM_POLL:-2}; WAITMAX=${IDPM_WAITMAX:-1800}
 r() { "$P" regs "$1" | awk '{print $NF}'; }
 w() { "$P" wreg "$1" "$2" >/dev/null; }
 say() { echo "idledpm: $(date '+%T') $*"; }
-st() { x=$(sysctl -n debug.phxp0odm_stat 2>/dev/null | sed -n 's/^state: //p'); [ -n "$x" ] && echo "$x otg0_htotal=$(r 0x4FEA)"; }
+st() {
+  x=$(sysctl -n debug.phxp0odm_stat 2>/dev/null | sed -n 's/^state: //p')
+  if [ -n "$x" ]; then
+    echo "$x otg0_htotal=$(r 0x4FEA)"
+  else
+    # Navi 32 (and any single-pipe monitor without 240 Hz ODM): phxp0odm never runs so phxp0odm_stat has no "state:" line.
+    # Fall back to debug.phxpipe0_stat (mode + done) plus OTG0 totals so settle and mode-switch detection both work.
+    p=$(sysctl -n debug.phxpipe0_stat 2>/dev/null | sed -n 's/.*mode=\([^ ]*\).*done=\([^ ]*\).*/now=pipe0@\1 done=\2/p')
+    [ -n "$p" ] && echo "$p otg0_htotal=$(r 0x4FEA) otg0_vtotal=$(r 0x4FEF)"
+  fi
+}
 clr() { w 0x4F8A 0x1000; h=$(r 0x3AB3); w 0x3AB3 $(printf 0x%X $(( (h & 0x0FFFFFFF) | 0x80000000 ))); w 0x3AB3 $(printf 0x%X $(( h & 0x0FFFFFFF ))); }
 hit() { v=$(r 0x4F8A); h=$(r 0x3AB3); k=""
   [ $(( v & 0x400 )) -ne 0 ] && k=optc0; [ $(( (h >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp0"; [ -n "$k" ]; }
 pin() { say "$1: $(sh "$G/uclk.sh" pin 456 2>&1 | tail -1 | cut -c1-90); $(sh "$G/dal.sh" SetFclkSwitchAllow 0 2>&1 | tail -1 | cut -c1-90)"; }
 dal() { out=$(sh "$G/dal.sh" "$@" 2>&1); echo "$out" | grep -q '(OK)' || { say "dal $*: $(echo "$out" | tail -1 | cut -c1-100)"; return 1; }; }
-dsleep() { case "${1##*@}" in 60\ *) echo 0x12;; 120\ *) echo 0x24;; 144\ *) echo 0x2B;; 240\ *) echo 0x48;; *) echo "";; esac; }
+dsleep() { case "${1##*@}" in 60\ *) echo 0x12;; 100\ *) echo 0x1E;; 120\ *) echo 0x24;; 144\ *) echo 0x2B;; 165\ *) echo 0x32;; 240\ *) echo 0x48;; *) echo "";; esac; }
 dcf() { [ -e "$G/phxboot-idledpm-dcf" ] || return 0; m=$(echo "$1" | sed -n 's/.*now=\([^ ]*\).*/\1/p'); d=$(dsleep "$m ")
   [ -n "$d" ] || { say "dcf: no deep-sleep value for '$m': DCFCLK messages skipped"; return 0; }
   dal SetHardMinByFreq $(( (11 << 16) | 199 )) && dal SetMinDeepSleepDcfclk $d && dal NumOfDisplays 1 && say "dcf: DCFCLK hard min 199, deep sleep $(( d )) MHz ($m), 1 display"; }

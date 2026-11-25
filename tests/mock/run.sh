@@ -497,11 +497,11 @@ sc_b15_missing() {      world; touch "$FR/gpu/phxboot-b15"; expect_log 'SUCCESS'
 sc_b15_nodesk() {       world; DESK=0; b15_stub; touch "$FR/gpu/phxboot-b15"; expect_log 'b15: not a desktop boot'; expect_nolog 'b15: stub ran'; expect_no_reboot; go b15_nodesk; }
 # 11-23 idledpm: ~/gpu/phxboot-idledpm starts idle_dpm.sh in the background on a one-display desktop boot, never next to b15
 idpm_stub(){ printf '#!/bin/sh\necho "idledpm: stub ran G=$PHXBOOT_G"\n' > "$FR/gpu/idle_dpm.sh"; }
-sc_idledpm_off() {      world; idpm_stub; expect_log 'SUCCESS'; expect_nolog 'idledpm'; expect_no_reboot; go idledpm_off; }
-sc_idledpm_on() {       world; idpm_stub; touch "$FR/gpu/phxboot-idledpm"; expect_log 'SUCCESS'; expect_log 'idledpm: started'; expect_log 'idledpm: stub ran G=.'; expect_no_reboot; go idledpm_on; }
-sc_idledpm_missing() {  world; touch "$FR/gpu/phxboot-idledpm"; expect_log 'SUCCESS'; expect_log 'idledpm: .*idle_dpm.sh missing'; expect_no_reboot; go idledpm_missing; }
-sc_idledpm_b15() {      world; idpm_stub; b15_stub; touch "$FR/gpu/phxboot-idledpm" "$FR/gpu/phxboot-b15"; expect_log 'idledpm: phxboot-b15 present'; expect_nolog 'idledpm: stub ran'; expect_log 'b15: stub ran'; expect_no_reboot; go idledpm_b15; }
-sc_idledpm_nodesk() {   world; DESK=0; idpm_stub; touch "$FR/gpu/phxboot-idledpm"; expect_log 'idledpm: not a desktop boot'; expect_nolog 'idledpm: stub ran'; expect_no_reboot; go idledpm_nodesk; }
+sc_idledpm_off() {      world; idpm_stub; touch "$FR/gpu/phxboot-noidledpm"; expect_log 'SUCCESS'; expect_log 'idledpm: off'; expect_nolog 'idledpm: stub ran'; expect_no_reboot; go idledpm_off; }
+sc_idledpm_on() {       world; idpm_stub; expect_log 'SUCCESS'; expect_log 'idledpm: started'; expect_log 'idledpm: stub ran G=.'; expect_no_reboot; go idledpm_on; }
+sc_idledpm_missing() {  world; expect_log 'SUCCESS'; expect_log 'idledpm: .*idle_dpm.sh missing'; expect_no_reboot; go idledpm_missing; }
+sc_idledpm_b15() {      world; idpm_stub; b15_stub; touch "$FR/gpu/phxboot-b15"; expect_log 'idledpm: phxboot-b15 present'; expect_nolog 'idledpm: stub ran'; expect_log 'b15: stub ran'; expect_no_reboot; go idledpm_b15; }
+sc_idledpm_nodesk() {   world; DESK=0; idpm_stub; expect_log 'idledpm: not a desktop boot'; expect_nolog 'idledpm: stub ran'; expect_no_reboot; go idledpm_nodesk; }
 # 11-23 bovram: ~/gpu/phxboot-bovram -> the self-test, then debug.phxbo_vram_proc and debug.phxbo_vram=1
 bv_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-bovram"; }
 sc_bovram_off() {       world; expect_nolog 'bovram'; expect_writes 'phxbo_vram' 0; expect_log 'SUCCESS'; go bovram_off; }

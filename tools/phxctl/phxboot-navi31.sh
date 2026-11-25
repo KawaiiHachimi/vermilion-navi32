@@ -510,23 +510,34 @@ aoc_boot(){ [ -e "$AOCRATE" ] || return 0
   if [ "$id" = 2 ]; then echo "aocboot: $(date '+%T') head 0 resynced: id 2, VBL $(sysctl -n debug.phxfb_refresh 2>/dev/null) mHz"; return 0; fi
   echo "aocboot: head 0 resync answered '$id', not id 2: the AOC back to 60"
   sh "$G/b15_boot.sh" aocback 2>&1; return 0; }
+# 2026-11-25: GFX clock gating runs by DEFAULT on this port. Measured: without it the PMFW counts GFX as
+# always busy (100 % activity) and the idle card draws ~250 W at a 110 C hotspot with the fans at full, which is
+# the whole of the "200 W more than Linux" gap. ~/gpu/phxboot-nocg (or PHXBOOT_NO_CG=1) opts out; the old
+# ~/gpu/phxboot-cg file is still accepted and now changes nothing.
+phxctl_bin(){ [ -x "$G/phxctl.bin" ] && echo "$G/phxctl.bin" || echo "$PHXCTL"; }
 cg_boot(){
-  [ -e "$G/phxboot-cg" ] || return 0
+  [ -e "$G/phxboot-nocg" ] && { echo "cg: off (~/gpu/phxboot-nocg)"; return 0; }
   [ -e "$G/gfx_cg.sh" ] || { echo "cg: $G/gfx_cg.sh missing"; return 0; }
-  echo "cg: $(PHXCTL=$G/phxctl.bin sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
+  echo "cg: $(PHXCTL=$(phxctl_bin) sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
 # Memory clock hard minimum (MHz in $G/phxboot-uclk, e.g. 456): without the DAL hand-off a UCLK switch under GPU load
 # underflows the display (glitches under video decode); needs kext >= b71
 uclk_boot(){
   [ -e "$G/phxboot-uclk" ] || return 0
   [ -e "$G/uclk.sh" ] || { echo "uclk: $G/uclk.sh missing"; return 0; }
-  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin "$(cat "$G/phxboot-uclk")" 2>&1 | tail -1 | cut -c1-120)"; }
+  echo "uclk: $(PHXCTL=$(phxctl_bin) sh "$G/uclk.sh" pin "$(cat "$G/phxboot-uclk")" 2>&1 | tail -1 | cut -c1-120)"; }
 # Idle power root cause: the RLC grants CGCG only once both SDMA engines report idle; never-started engines stay "busy" and
 # the card idles at ~150 W with PMFW activity 100 %. Start their queue 0 idle, before cg_boot.
+# 2026-11-25: SDMA idle runs by DEFAULT (before cg_boot): the RLC only grants CGCG once both SDMA engines
+# report idle, so never-started engines keep the card at ~150 W with the PMFW at 100 %. ~/gpu/phxboot-nosdma
+# (or PHXBOOT_NO_SDMA=1) opts out.
 sdma_boot(){
-  [ -e "$G/phxboot-sdma" ] || return 0
+  [ -e "$G/phxboot-nosdma" ] && { echo "sdma: off (~/gpu/phxboot-nosdma)"; return 0; }
   [ -e "$G/sdma_idle.sh" ] || { echo "sdma: $G/sdma_idle.sh missing"; return 0; }
-  echo "sdma: $(PHXCTL=$G/phxctl.bin sh "$G/sdma_idle.sh" 2>&1 | tail -1 | cut -c1-100)"; }
-if echo "$UPOUT" | grep -q "navi31 up:"; then   # only on a GPU that came up (gfx_cg.sh polls the RLC)
+  echo "sdma: $(PHXCTL=$(phxctl_bin) sh "$G/sdma_idle.sh" 2>&1 | tail -1 | cut -c1-100)"; }
+# navi32 (2026-11-25): the guard keyed on the bring-up banner "navi31 up:", which this port script no longer prints,
+# so the whole block (SDMA idle -> GFX clock gating -> UCLK) was skipped and the idle card sat at 206 W with GFX 100 %
+# busy at 2.7 GHz. Accept either banner: reaching this line already proves the bring-up ran.
+if echo "$UPOUT" | grep -qE "navi3[12] up:"; then   # only on a GPU that came up (gfx_cg.sh polls the RLC)
   [ "${PHXBOOT_NO_SDMA:-0}" = 1 ] || sdma_boot
   [ "${PHXBOOT_NO_CG:-0}" = 1 ] || cg_boot
   [ "${PHXBOOT_NO_UCLK:-0}" = 1 ] || uclk_boot
@@ -673,6 +684,16 @@ if [ $DESK = 1 ]; then
   echo "restarting WindowServer once (Metal ready, AGDC up) at $(date '+%T')"
   killall -9 WindowServer 2>/dev/null
   nap 6
+  # Automatic login (2026-11-25): loginwindow reads autoLoginUser ONCE, when it starts, and it started long before al_on
+  # wrote the key - so the login never happened and the box sat at the login window (which also means CoreGraphics has no
+  # active display, so no mode can be tested or changed). Killing WindowServer does not make loginwindow re-read it; only
+  # a loginwindow restart does. Guarded: only while the flag asks for it and nobody is logged in yet.
+  if [ -e "$G/phxboot-autologin" ] && [ "$(stat -f %Su /dev/console 2>/dev/null)" = "root" ]; then
+    echo "autologin: loginwindow still at the login window at $(date '+%T'), restarting it so it reads autoLoginUser"
+    launchctl kickstart -k system/com.apple.loginwindow >/dev/null 2>&1
+    nap 8
+    echo "autologin: console is now '$(stat -f %Su /dev/console 2>/dev/null)'"
+  fi
   # 5b) the DCN A/B flip (validated 2026-10-24: 0 timeouts in >20k flips) inside the crash watch below;
   #     $G/phxboot-noflip keeps the copy into the scanned surface; GPU present replaces it
   #     with GPU present the display pipe's copy into A is skipped while HUBP0 scans a slot (PhxAccel with
@@ -764,7 +785,7 @@ b15_boot(){
 # free to drop at idle under an underflow watchdog for the whole boot (idle_dpm.sh; b15's step 6 for one display). Not
 # with b15 (its own recipe) and not after a pipe-1 boot (an SMU message then stalls the PMFW, above).
 idledpm_boot(){
-  [ -e "$G/phxboot-idledpm" ] || return 0
+  [ -e "$G/phxboot-noidledpm" ] && { echo "idledpm: off (~/gpu/phxboot-noidledpm)"; return 0; }   # 2026-11-25: on by default
   [ $DESK = 1 ] || { echo "idledpm: not a desktop boot: skip"; return 0; }
   [ -e "$G/phxboot-b15" ] && { echo "idledpm: phxboot-b15 present (its own recipe): skip"; return 0; }
   [ "$M7LIT" = 1 ] && [ "$M7PHASE" != 1 ] && { echo "idledpm: pipe 1 lit at boot: skip (UCLK stays pinned)"; return 0; }

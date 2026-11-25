@@ -1,26 +1,31 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # bringup_warm_test.sh: MOCK test of the cold-GPU check in tools/phxctl/bringup_navi31.sh, run through the real
-# tools/phxctl/navi31_up.sh. NO hardware: a fake phxctl keeps the registers in files and logs every command; a fake
-# `sudo` first on PATH runs only that fake phxctl and logs everything else (the watchdog's reboot timer and its cancel),
-# so nothing reaches the machine. Refuses to run as root (the script then calls the reboot timer without sudo).
+# tools/phxctl/navi31_up.sh and tools/phxctl/navi32_up.sh. NO hardware: a fake phxctl keeps the registers in files and
+# logs every command; a fake `sudo` first on PATH runs only that fake phxctl and logs everything else (the watchdog's
+# reboot timer and its cancel), so nothing reaches the machine. Refuses to run as root (the script then calls the
+# reboot timer without sudo).
 # Scenarios:
-#   warm       C2PMSG_81 != 0: "refused: warm GPU" as the last line, exit 3, no write to the GPU, no watchdog;
-#              navi31_up.sh reports "bring-up failed" (exit 1) and shows the refusal line (the daemon matches it)
-#   readerr    C2PMSG_81 read fails ("(error) 0x00000000"): refused as unreadable, nothing written
-#   openfail   phxctl cannot open PhxBringup (its own message, no register line): refused as unreadable
-#   cold       C2PMSG_81 = 0 with STOP_AFTER=sos: the check passes, the watchdog is armed, the PSP bootloader runs
-#              and the sOS comes up (the cold path is unchanged up to there); "sOS check: ... (cold)" is printed
+#   warm        C2PMSG_81 != 0: "refused: warm GPU" as the last line, exit 3, no write to the GPU, no watchdog;
+#               navi31_up.sh reports "bring-up failed" (exit 1) and shows the refusal line (the daemon matches it)
+#   readerr     C2PMSG_81 read fails ("(error) 0x00000000"): refused as unreadable, nothing written
+#   openfail    phxctl cannot open PhxBringup (its own message, no register line): refused as unreadable
+#   cold        C2PMSG_81 = 0 with STOP_AFTER=sos: the check passes, the watchdog is armed, the PSP bootloader runs
+#               and the sOS comes up (the cold path is unchanged up to there); "sOS check: ... (cold)" is printed
+#   warm_navi32 C2PMSG_81 != 0 through navi32_up.sh (ASIC=navi32): pipeline does not swallow exit 3, reports
+#               "refused: warm GPU" + "bring-up failed" (exit 1), no GPU write and no mesboot call
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); TOOLS=$HERE/../../tools/phxctl
 . "$HERE/lib/portable.sh"
 [ "$(id -u)" = 0 ] && { echo "bringup_warm_test.sh: do not run as root (the script would call the real reboot timer)"; exit 2; }
 PASSN=0; FAILN=0
 mk() {   # mk <C2PMSG_81 value> [error|openfail]: a fresh fake home with ~/gpu/phxctl, the firmware names and the fakes
-  W=$(mktemp -d "$MOCKTMP/bringupwarm.XXXXXX"); R=$W/regs; mkdir -p "$R" "$W/home/gpu/phxctl" "$W/home/gpu/fw/navi31" "$W/bin"
-  cp "$TOOLS/bringup_navi31.sh" "$TOOLS/navi31_up.sh" "$W/home/gpu/phxctl/"
+  W=$(mktemp -d "$MOCKTMP/bringupwarm.XXXXXX"); R=$W/regs; mkdir -p "$R" "$W/home/gpu/phxctl" "$W/home/gpu/fw/navi31" "$W/home/gpu/fw/navi32" "$W/bin"
+  cp "$TOOLS/bringup_navi31.sh" "$TOOLS/navi31_up.sh" "$TOOLS/navi32_up.sh" "$W/home/gpu/phxctl/"
   for f in psp_13_0_0_sos.bin smu_13_0_0.bin sdma_6_0_0.bin gc_11_0_0_pfp.bin gc_11_0_0_me.bin gc_11_0_0_mec.bin \
            gc_11_0_0_mes_2.bin gc_11_0_0_mes1.bin gc_11_0_0_imu.bin gc_11_0_0_rlc.bin; do : > "$W/home/gpu/fw/navi31/$f"; done
+  for f in psp_13_0_10_sos.bin smu_13_0_10.bin sdma_6_0_3.bin gc_11_0_3_pfp.bin gc_11_0_3_me.bin gc_11_0_3_mec.bin \
+           gc_11_0_3_mes_2.bin gc_11_0_3_mes1.bin gc_11_0_3_imu.bin gc_11_0_3_rlc.bin; do : > "$W/home/gpu/fw/navi32/$f"; done
   echo "$1" > "$R/0x16091"; echo 0x80000000 > "$R/0x16063"; echo 0x00000000 > "$R/0x1607a"
   [ "${2:-}" = error ] && : > "$R/error"
   [ "${2:-}" = openfail ] && : > "$R/openfail"
@@ -35,16 +40,23 @@ case "\$1" in
 esac
 exit 0
 EOS
+  cat > "$W/bin/mesboot" <<EOS
+#!/bin/bash
+echo "\$*" >> "$W/mesboot.log"; exit 0
+EOS
   cat > "$W/bin/sudo" <<EOS
 #!/bin/bash
 [ "\${1:-}" = -n ] && shift
 if [ "\${1:-}" = "$W/bin/phxctl" ]; then exec "\$@"; fi
 echo "\$*" >> "$W/sudo.log"; exit 0
 EOS
-  chmod +x "$W/bin/phxctl" "$W/bin/sudo"
+  chmod +x "$W/bin/phxctl" "$W/bin/mesboot" "$W/bin/sudo"
 }
 run_up() {   # run navi31_up.sh the way the daemon does, in the fake home
   OUT=$(cd "$W/home/gpu/phxctl" && HOME=$W/home PATH="$W/bin:$PATH" PHXCTL=$W/bin/phxctl bash "$W/home/gpu/phxctl/navi31_up.sh" 2>&1); RC=$?
+}
+run_up32() { # run navi32_up.sh the way the daemon does, in the fake home
+  OUT=$(cd "$W/home/gpu/phxctl" && HOME=$W/home PATH="$W/bin:$PATH" PHXCTL=$W/bin/phxctl MESBOOT=$W/bin/mesboot ASIC=navi32 bash "$W/home/gpu/phxctl/navi32_up.sh" --no-test 2>&1); RC=$?
 }
 run_bringup() {   # run bringup_navi31.sh alone
   OUT=$(cd "$W/home/gpu/phxctl" && HOME=$W/home PATH="$W/bin:$PATH" PHXCTL=$W/bin/phxctl "$@" bash "$W/home/gpu/phxctl/bringup_navi31.sh" 2>&1); RC=$?
@@ -54,7 +66,7 @@ res() {   # res <name> <ok> <why>
   else FAILN=$((FAILN+1)); echo "FAIL  $1:$3"; echo "      kept $W"; fi
 }
 nowrite() {   # nothing but register reads reached the GPU, and sudo ran nothing else (no reboot timer)
-  ! grep -qv '^regs ' "$W/phxctl.log" 2>/dev/null && [ ! -s "$W/sudo.log" ]
+  ! grep -qv '^regs ' "$W/phxctl.log" 2>/dev/null && [ ! -s "$W/sudo.log" ] && [ ! -s "$W/mesboot.log" ]
 }
 
 sc_warm() {
@@ -94,6 +106,15 @@ sc_cold() {
   echo "$OUT" | grep -qx 'sOS check: C2PMSG_81=0x00000000 (cold)' || { ok=0; why="$why no sOS check line;"; }
   res cold $ok "$why"
 }
-sc_warm; sc_readerr; sc_openfail; sc_cold
+sc_warm_navi32() {
+  mk 0x02166e00; run_up32; ok=1; why=""
+  [ "$RC" = 1 ] || { ok=0; why="$why navi32_up rc $RC!=1;"; }
+  echo "$OUT" | grep -q 'refused: warm GPU (PSP sOS running, C2PMSG_81=0x02166e00)' || { ok=0; why="$why navi32_up does not show the refusal;"; }
+  echo "$OUT" | grep -q '^bring-up failed$' || { ok=0; why="$why navi32_up did not report bring-up failed;"; }
+  echo "$OUT" | grep -q 'navi32 up:\|^sOS check:' && { ok=0; why="$why navi32_up claims the GPU is up or cold;"; }
+  nowrite || { ok=0; why="$why navi32_up wrote to the GPU or called mesboot;"; }
+  res warm_navi32 $ok "$why"
+}
+sc_warm; sc_readerr; sc_openfail; sc_cold; sc_warm_navi32
 echo "RESULT: $PASSN passed, $FAILN failed"
 [ $FAILN = 0 ]

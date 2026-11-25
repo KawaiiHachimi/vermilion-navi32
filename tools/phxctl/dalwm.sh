@@ -8,7 +8,11 @@
 #   row 0 set A WATERMARKS_CLOCK_RANGE (0), row 1 set B CLOCK_RANGE (0), row 2 set C DUMMY_PSTATE (1), row 3 set D MALL (2).
 # Then SetDalDramAddrHigh/Low (0x05/0x06, kext b76 accepts only the PHX_VRAM_DALWM_OFF slot) and
 # TransferTableDram2Smu (0x08) with TABLE_WATERMARKS (2), the Linux order (a Linux register trace, at 2331.9755 s).
-P=$HOME/gpu/phxctl.bin
+if [ -n "${PHXCTL:-}" ]; then P=$PHXCTL
+elif [ -x "$HOME/gpu/phxctl.bin" ]; then P=$HOME/gpu/phxctl.bin
+elif [ -x /usr/local/sbin/phxctl ]; then P=/usr/local/sbin/phxctl
+else P=$HOME/gpu/phxctl.bin; fi
+export PHXCTL=$P
 OFF=$((0x9000000 + 0xFF000))   # PHX_VRAM_DALWM_OFF (PhxNativeABI.h, kext b76+); VRAM byte offset
 MC=$(ioreg -l | sed -n 's/.*"phx-fb-mc-base" = \([0-9]*\).*/\1/p' | head -1)
 [ -n "$MC" ] || { echo "phx-fb-mc-base not found" >&2; exit 2; }

@@ -22,6 +22,14 @@ bad=0; ran=0
 what=${1:-all}
 
 if [ "$what" = all ] || [ "$what" = --mock ]; then
+  printf '== tests/mock/bringup_warm_test.sh\n'
+  if out=$(bash "$ROOT/tests/mock/bringup_warm_test.sh" 2>&1); then
+    echo "$out" | tail -1 | sed 's/^/   /'
+    ran=$((ran + 1))
+  else
+    echo "$out" | tail -12 | sed 's/^/   /'
+    echo '   FAILED'; bad=$((bad + 1)); ran=$((ran + 1))
+  fi
   printf '== tests/mock/run.sh\n'
   if out=$(sh "$ROOT/tests/mock/run.sh" 2>&1); then
     echo "$out" | tail -2 | sed 's/^/   /'
