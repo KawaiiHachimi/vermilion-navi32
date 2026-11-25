@@ -27,11 +27,15 @@ IOReturn PhxBringup::readRegs(uint32_t first, uint32_t count, uint32_t *out) {
 // b81 (M7 S3a): *param4 is also read first, as the requested source (phxddc::resolveSource): 0 / ~0u = the b80 rule,
 // ~1u = the other monitor (a second head), a valid source = that one. Marked by the property phx-edid-req.
 struct phx_pipe2_setmode;
+extern struct sysctl_oid sysctl__debug_phxpipe0_req, sysctl__debug_phxpipe0_dig, sysctl__debug_phxpipe0_key, sysctl__debug_phxpipe0_stutter;   // navi32 instrumentation
 static IOReturn phxPipe2SetModeFn(phx_pipe2_setmode *m);   // b93, phx_pipe2.cpp (PhxSwitchABI.h)
 struct phx_pipe2_gamma;
 static IOReturn phxPipe2SetGammaFn(phx_pipe2_gamma *g);    // b98, phx_gamma.cpp (PhxGamma.h)
 struct phx_pipe0_setmode;
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m);   // b101, phx_pipe0.cpp (PhxSwitchABI.h)
+#if PHX_PIPE_DIG == 4
+static IOReturn phxPipe0ReplayModeFn(phx_pipe0_setmode *m, const uint32_t *dig);
+#endif
 // phx_p0odm.cpp, for PhxAccel head 0 after a landed switch; param1 = uint32_t *io for both
 static IOReturn phxScanFmtFn(uint32_t *io);   // b149: out HUBP0's scan-out format now (8 ARGB8888, 10 ARGB2101010 in HDR)
 static IOReturn phxVrrSetFn(uint32_t *io);    // b144: in bit 0 Variable / fixed, bits 8-15 the floor in Hz; out 1 = range on
@@ -43,10 +47,18 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         return phxPipe2SetGammaFn(static_cast<phx_pipe2_gamma *>(param1));
     if (functionName && functionName->isEqualTo("phxPipe0SetMode"))
         return phxPipe0SetModeFn(static_cast<phx_pipe0_setmode *>(param1));
+#if PHX_PIPE_DIG == 4
+    if (functionName && functionName->isEqualTo("phxPipe0ReplayMode"))
+        return phxPipe0ReplayModeFn(static_cast<phx_pipe0_setmode *>(param1), static_cast<const uint32_t *>(param2));
+#endif
     if (functionName && functionName->isEqualTo("phxScanFmt"))
         return phxScanFmtFn(static_cast<uint32_t *>(param1));
     if (functionName && functionName->isEqualTo("phxVrrSet"))
         return phxVrrSetFn(static_cast<uint32_t *>(param1));
+    if (functionName && functionName->isEqualTo("phxCursorImage"))
+        return cursorImage(static_cast<const phx_cursor_image *>(param1));
+    if (functionName && functionName->isEqualTo("phxCursorState"))
+        return cursorState(static_cast<const phx_cursor_state *>(param1));
     if (functionName && functionName->isEqualTo("phxEdidRead")) {
         const uint32_t req = param4 ? *static_cast<uint32_t *>(param4) : 0u;
         // b80: the source follows the connector the GOP lit on pipe 0 (phxddc::scanoutSource) unless debug.phxedid_auto=0
@@ -172,6 +184,12 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxgamma_test);
         sysctl_register_oid(&sysctl__debug_phxgamma_stat);
         sysctl_register_oid(&sysctl__debug_phxpipe0); sysctl_register_oid(&sysctl__debug_phxpipe0_enable);   // b99
+        sysctl_register_oid(&sysctl__debug_phxpipe0_req); sysctl_register_oid(&sysctl__debug_phxpipe0_dig);
+        sysctl_register_oid(&sysctl__debug_phxpipe0_key);   // navi32: resolution-change test hook
+        sysctl_register_oid(&sysctl__debug_phxpipe0_stutter);   // navi32: the DRAM stutter power A/B
+        sysctl_register_oid(&sysctl__debug_phxcursor_stat);   // b163: opt-in HUBP0 hardware cursor state
+        sysctl_register_oid(&sysctl__debug_phxpipe0_dyn); sysctl_register_oid(&sysctl__debug_phxpipe0_edid_modes);   // b164: dynamic EDID plans
+        // (defined in phx_pipe0.cpp, later in this translation unit)
         sysctl_register_oid(&sysctl__debug_phxpipe0_mode); sysctl_register_oid(&sysctl__debug_phxpipe0_stat);
         sysctl_register_oid(&sysctl__debug_phxpipe0_plan); sysctl_register_oid(&sysctl__debug_phxpipe0_dead);
         sysctl_register_oid(&sysctl__debug_phxpipe0_modes); sysctl_register_oid(&sysctl__debug_phxpipe0_uclk);   // b101
@@ -1090,4 +1108,3 @@ IOReturn IOAccelPhxNativeClient::doSubmit(IOExternalMethodArguments *a) {
     a->scalarOutput[0] = seq;
     return kIOReturnSuccess;
 }
-

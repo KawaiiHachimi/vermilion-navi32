@@ -162,23 +162,21 @@ constexpr unsigned kNHead1Modes = sizeof kHead1Modes / sizeof kHead1Modes[0];
 // b101 has compiled (PhxPipe0.h phx_p0_plan_1080p60.inc / _1080p144.inc, switched by "phxPipe0SetMode"), offered behind the
 // kext's debug.phxpipe0_modes=1 (property phx-pipe0-modes, read when head 0 starts) and only for the DTDs the EDID has.
 static const HeadMode kHead0Modes[] = {
-    {1, 1920, 1080, 60000, 14850, 2200, 1125, 1}, // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464;
-                                                  // b138: the LG's standard timing 1920x1080@60, PhxBringup b138's 1080060)
 #if PHX_PIPE_DIG == 4
-    // ---- Navi 32 (PHX_PIPE_DIG=4): the RX 7800 XT board's own monitor --------------------------------------------
-    // P27QBA-RX (EDID base DTD 2560x1440, 2720x1481, 241.7 MHz). Every mode here has a plan built from a live
-    // Linux register read of that same mode on this same monitor, so list and plans agree bit for bit:
-    //   phx_p0_plan_1080p60n32 / _1440p60n32 / _1440p100n32 / _1440p120n32 / _1440p144n32 / _1440p165n32
-    // Everything below this point in the reference table is the LG ULTRAGEAR+ (1440p 240, HDR, VRR, DisplayID)
-    // or the AOC (1080p144): this board has no plan for those, and an offered mode without a plan would scan out
-    // with the wrong timings.
-    {2, 2560, 1440, 100000, 40284, 2720, 1481, 0},   // 100 Hz (plan 1440p100n32, OTG0 0xa9f/0x5c8)
-    {3, 2560, 1440, 60000, 24170, 2720, 1481, 0},    // base DTD (plan 1440p60n32, OTG0 0xa9f/0x5c8)
-    {4, 2560, 1440, 120000, 49776, 2720, 1525, 0},   // 120 Hz (plan 1440p120n32, OTG0 0xa9f/0x5f4)
-    {5, 2560, 1440, 144000, 59729, 2720, 1525, 0},   // 144 Hz (plan 1440p144n32, OTG0 0xa9f/0x5f4)
-    {6, 2560, 1440, 165000, 65750, 2720, 1465, 0},   // 165 Hz (plan 1440p165n32, OTG0 0xa9f/0x5b8)
+    // ---- Navi 32 (PHX_PIPE_DIG=4): the RX 7800 XT board's own monitor (P27QBA-RX) --------------------------------
+    // The ids are the list order (60, 100, 120, 144, 165) on purpose: CoreDisplay and WindowServer map a chosen
+    // mode back to the framebuffer by position in some paths, so a gap or a different order lands on the wrong
+    // plan (measured 2026-11-24: a 144 Hz request reached PhxBringup as 120, and 100/120 both as 120).
+    // kHead0Sync below carries this panel own blanking and sync for the same ids, in its own #if.
+    {1, 2560, 1440,  60000, 24170, 2720, 1481, 0},  // 60 Hz  (plan 1440p60n32,  OTG0 0xa9f/0x5c8, 241.70 MHz)
+    {2, 2560, 1440, 100000, 40284, 2720, 1481, 0},  // 100 Hz (plan 1440p100n32, OTG0 0xa9f/0x5c8, 402.84 MHz)
+    {3, 2560, 1440, 120000, 49776, 2720, 1525, 0},  // 120 Hz (plan 1440p120n32, OTG0 0xa9f/0x5f4, 497.76 MHz)
+    {4, 2560, 1440, 144000, 59729, 2720, 1525, 0},  // 144 Hz (plan 1440p144n32, OTG0 0xa9f/0x5f4, 597.29 MHz)
+    {5, 2560, 1440, 165000, 65750, 2720, 1465, 0},  // 165 Hz (plan 1440p165n32, OTG0 0xa9f/0x5b8, 657.50 MHz)
 };
 #else
+    {1, 1920, 1080, 60000, 14850, 2200, 1125, 1}, // CEA 1080p60 (the mode the GOP lights; the 60 plan, OTG0 0x897/0x464;
+                                                  // b138: the LG's standard timing 1920x1080@60, PhxBringup b138's 1080060)
     {2, 1920, 1080, 144000, 32567, 2056, 1100, 0},   // the AOC 24G2W1G4 CTA DTD at 0xa7 (the 144 plan, OTG0 0x807/0x44b)
     // b128 (the XTX machine's LG ULTRAGEAR+, DP B): PhxBringup b128's 1440p plan family; offered only for a 2560x1440 surface
     // and only for the DTDs the EDID has (the LG's base DTD and its two CTA DTDs; capture 2026-11-20)
@@ -211,7 +209,12 @@ static const HeadMode kHead0Modes[] = {
 };
 #endif
 constexpr unsigned kNHead0Modes = sizeof kHead0Modes / sizeof kHead0Modes[0];
-constexpr unsigned kNMaxModes = kNHead0Modes > kNHead1Modes ? kNHead0Modes : kNHead1Modes;
+// navi32: an array sized by this constant holds the modes a head OFFERS, and the published table can carry more than
+// either compiled table has rows (both sizes: 6 on this board against the DIG4 table's 5). It was the compiled maximum,
+// so the sixth id was written past the end of fModeIds - into the member declared next to it, fModeId - and reading it
+// back gave the current mode again: CoreDisplay saw a duplicate and offered five of the six. 16 is phxp0pub::kMaxModes
+// with room to spare.
+constexpr unsigned kNMaxModes = 32;
 struct ModeTable { const HeadMode *m; unsigned n; };
 inline ModeTable headModes(unsigned head) { return head == 0 ? ModeTable{kHead0Modes, kNHead0Modes} : ModeTable{kHead1Modes, kNHead1Modes}; }
 // One 18-byte detailed timing descriptor = m (pixel clock within 0.2 %, active and total sizes exact).
@@ -410,8 +413,13 @@ constexpr uint32_t switchKey(const HeadMode &m, uint32_t bootW, uint32_t bootH) 
 }
 // b138: the bytes per row of m's scan-out: the boot surface's own for its size, else Linux's pitch (the width rounded up to
 // 256 pixels, capture v3: 1920 -> 2048, 800 -> 1024, 640 -> 768), which PhxBringup b138's plans write into HUBP0.
+// navi32 (C route): the scan-out is the firmware's console aperture, which cannot be reallocated, so a smaller mode is a
+// WINDOW inside it. The stride stays the boot surface's - and the plans keep HUBPREQ0_DCSURF_SURFACE_PITCH at the boot
+// value too - so the plane fetches exactly the rows the accelerator writes. Returning Linux's tight pitch for a smaller
+// mode made the plane fetch a stride nothing wrote, and the 1440p -> 1080p switch failed on 'HUBP0 underflow'.
 constexpr uint32_t modeRowBytes(const HeadMode &m, uint32_t bootW, uint32_t bootH, uint32_t bootRowBytes) {
-    return m.w == bootW && m.h == bootH ? bootRowBytes : ((m.w + 255u) & ~255u) * 4u;
+    if (m.w == bootW && m.h == bootH) return bootRowBytes;
+    return ((m.w + 255u) & ~255u) * 4u;
 }
 inline const HeadMode *headMode(unsigned head, uint32_t id) {
     const ModeTable t = headModes(head);
@@ -459,6 +467,20 @@ constexpr uint64_t modeFrameNs(const HeadMode &m) {
 // IOFBInstallMode hides a driver mode (kDisplayModeNeverShowFlag) that has an EDID DTD's clock and blanking but another sync.
 // The sync of each mode, by id (clock, active and totals are kHead0Modes'):
 struct HeadSync { uint32_t id, hSyncOffset, hSyncWidth, vSyncOffset, vSyncWidth; bool hSyncPos, vSyncPos; };
+#if PHX_PIPE_DIG == 4
+// navi32 (P27QBA-RX): ids 1..5 = 60/100/120/144/165 Hz, read from the plans own OTG registers (2026-11-24). All
+// five share hTotal 2720 / hActive 2560 with H_SYNC_A width 32 and H_BLANK_START 2672, i.e. hFrontPorch 112; the
+// vertical front porch is V_BLANK_END - V_SYNC_A width: 33 (60/100, vBlank 41), 77 (120/144, vBlank 85) and 17
+// (165, vBlank 25), each leaving a 3-line back porch. V_SYNC_A_CNTL bit 0 is set (negative V sync) on 60/100/120/144
+// and clear on 165.
+static const HeadSync kHead0Sync[] = {
+    {1, 112, 32, 33, 5, true, false},
+    {2, 112, 32, 33, 5, true, false},
+    {3, 112, 32, 77, 5, true, false},
+    {4, 112, 32, 77, 5, true, false},
+    {5, 112, 32, 17, 5, true, true},
+};
+#else
 static const HeadSync kHead0Sync[] = {
     {1, 88, 44, 4, 5, true, true},   // base DTD @0x36, flags 0x1e; the 60 plan's OTG0 H_SYNC_A 0x2c, V_SYNC_A 5
     {2, 24, 32, 3, 5, true, true},   // CTA DTD @0xa7, flags 0x1e; the 144 plans' OTG0 H_SYNC_A 0x20, V_SYNC_A 5
@@ -479,7 +501,18 @@ static const HeadSync kHead0Sync[] = {
     {16, 48, 32, 3, 5, true, false},
     {17, 48, 32, 3, 5, true, false},
     {18, 48, 32, 3, 5, true, false},  // Variable with HDR: id 6's
+    // navi32 (P27QBA-RX): the DIG4 rows 19..23, read from the plans' own OTG registers (2026-11-24). All five share
+    // hTotal 2720 / hActive 2560 with H_SYNC_A width 32 and H_BLANK_START 2672, i.e. hFrontPorch 112; the vertical
+    // side is vFrontPorch = V_BLANK_END - V_SYNC_A width, which gives 33 (60/100, vBlank 41), 77 (120/144, vBlank 85)
+    // and 17 (165, vBlank 25), and every one leaves a 3-line back porch. V_SYNC_A_CNTL bit 0 is set (negative V sync)
+    // on 60/100/120/144 and clear on 165.
+    {19, 112, 32, 33, 5, true, false},
+    {20, 112, 32, 33, 5, true, false},
+    {21, 112, 32, 77, 5, true, false},
+    {22, 112, 32, 77, 5, true, false},
+    {23, 112, 32, 17, 5, true, true},
 };
+#endif
 // b128: the refresh rate PhxBringup's phxPipe0SetMode takes (60 / 120 / 144) for a listed mode: milliHz rounded, so the
 // LG's 59.951 Hz asks for 60 (milliHz / 1000 gave 59, which phxPipe0SetMode refuses); the AOC's 60000 / 144000 unchanged.
 constexpr uint32_t switchHz(const HeadMode &m) { return (m.milliHz + 500) / 1000; }

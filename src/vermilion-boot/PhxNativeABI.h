@@ -193,7 +193,15 @@ enum {
  * in the same free gap */
 #define PHX_GPUTIME_OFF        0x9700000ull
 #define PHX_GPUTIME_SIZE       0x10000ull
-#define PHX_VRAM_POOL_BASE     0x20000000ull
+/* b163: opt-in HUBP0 hardware cursor 64x64 ARGB8888 surface (PhxCursor.h), 64 KiB right after PHX_GPUTIME_OFF */
+#define PHX_VRAM_CURSOR_OFF    0x9710000ull
+#define PHX_VRAM_CURSOR_SIZE   0x10000ull
+/* navi32: the VRAM BO pool may only live inside the kernel VMID 0 window (see below). The CP DMA fill retires at
+   150 MiB (the selftest region) but not at 352 MiB or 512 MiB: VMID 0's flat GART covers 256 MiB (mesboot GART_N
+   65536), so a fill above it never lands and the fence never arrives (measured 2026-11-24). Widening that window
+   (GCVM_CONTEXT0_END keeps 24 bits of the page number, so up to 16 GiB) is the prerequisite for a VRAM BO pool
+   above 256 MiB; until then this constant only matters as the pool's nominal base. */
+#define PHX_VRAM_POOL_BASE     0x16000000ull   /* navi32: 352 MiB, right after the display scan slots [256 MiB, 352 MiB). The pool is the whole rest of VRAM now that the clear IB runs on the gfx queue (the earlier failures at 352/512 MiB were the MEC queue not fetching, not the address - measured 2026-11-24). */
 
 /* n48n_info.flags */
 #define PHXN_INFO_HUNG         (1u << 0)

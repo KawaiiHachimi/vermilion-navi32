@@ -147,11 +147,14 @@ public:
     IOReturn validateTransaction(IOAccelDisplayPipeTransaction2 *txn) APPLE_KEXT_OVERRIDE;
     IOReturn performTransaction(IOAccelDisplayPipeTransaction2 *txn) APPLE_KEXT_OVERRIDE;
     bool     isTransactionComplete(IOAccelDisplayPipeTransaction2 *txn) APPLE_KEXT_OVERRIDE;
+    void     framebuffer_will_power_off() APPLE_KEXT_OVERRIDE;
+    void     framebuffer_did_power_on() APPLE_KEXT_OVERRIDE;
     void     free() APPLE_KEXT_OVERRIDE;
     enum { kIopSrcSlots = 4 };
     struct NVIopSrc { unsigned id; IOMemoryDescriptor *md; IOMemoryMap *map; } fIopSrc[kIopSrcSlots];
     unsigned fIopNext;
     uint64_t fIopVblSeq;   // PhxFB's VBL tick count when the last frame was copied (debug.nvaccel_iop_vsync)
+    bool     fDisplayOff = false;   // display sleeping: accept and drop transactions until framebuffer_did_power_on
     const void *iopMapSurface(unsigned id, IOMemoryDescriptor *md, unsigned long long need);
     void        iopDropSources();
 };

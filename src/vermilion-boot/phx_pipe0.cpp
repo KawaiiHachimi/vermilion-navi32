@@ -39,7 +39,11 @@
 // Their macSet adds the DET step (4/0/0/0) and the two DAL hard minimums Linux sends (DISPCLK + DPPCLK 505 / 614 MHz).
 // Part of the PhxBringup.cpp translation unit (included there after phx_gamma.cpp); not compiled on its own.
 
+#include "PhxP0Modes.h"
 #include "PhxPipe0.h"
+#if PHX_PIPE_DIG == 4
+#include "PhxDynPlan.h"
+#endif
 /* Navi 32 (PHX_PIPE_DIG=4): the board's monitor hangs off DIG4/DP4 and the plan is built from a Linux capture of
  * that card (tools/capture/navi32_dump_to_regs.py + p0plan_from_regs.py --dig-shift 0x300); its HUBP0 watermarks are
  * still the reference machine's, flagged TODO-CAPTURE in the plan and counted in its info.todo. */
@@ -111,13 +115,49 @@ static const phxp0::Plan kP0Plan1440p144 = {kPhxP0_1440p144, sizeof kPhxP0_1440p
                                             4, kP0Dal1440p144, phxp0::kOptStickyClear};
 #endif
 #if PHX_PIPE_DIG == 4
-// All five rates of this monitor: identify() can then recognise OTG0 whatever rate it was left at.
-static const phxp0::Plan *const kP0Plans1440[] = {&kP0Plan1440p60, &kP0Plan1440p100, &kP0Plan1440p120,
-                                                    &kP0Plan1440p144, &kP0Plan1440p165};
+// 60 / 144 / 165 Hz only: identify() matches OTG0 totals, so two plans that share totals cannot both be in
+// the family - sameTimingConsistent() refuses them all. On this monitor (P27QBA-RX) that rules out 100 Hz
+// (same totals as 60: 0xa9f/0x5c8) and 120 Hz (same as 144: 0xa9f/0x5f4); measured 2026-11-24. The proper fix
+// is a pixel-clock-aware identify(); until then the rates that differ in totals are the ones offered.
+static const phxp0::Plan *const kP0Plans1440[] = {&kP0Plan1440p60, &kP0Plan1440p100, &kP0Plan1440p120, &kP0Plan1440p144, &kP0Plan1440p165};
 #else
 static const phxp0::Plan *const kP0Plans1440[] = {&kP0Plan1440p60, &kP0Plan1440p120, &kP0Plan1440p144};
 #endif
 static constexpr unsigned kP0NPlans1440 = sizeof kP0Plans1440 / sizeof kP0Plans1440[0];
+
+#if PHX_PIPE_DIG == 4
+// navi32 (C route): both sizes in one family. identify() then finds the live mode in either size, and a key names the
+// other, so a resolution change is planned against the mode that is actually running instead of being refused.
+static const phxp0::Plan *const kP0PlansAll[] = {&kP0Plan1440p60, &kP0Plan1440p100, &kP0Plan1440p120,
+                                                 &kP0Plan1440p144, &kP0Plan1440p165, &kP0Plan60};
+static constexpr unsigned kP0NPlansAll = sizeof kP0PlansAll / sizeof kP0PlansAll[0];
+// b164: hybrid dynamic EDID catalog (static plans preferred when matched; arbitrary monitor EDID modes synthesized).
+static int gP0Dyn = 1;                  // debug.phxpipe0_dyn (default 1 on Navi 32; boot-arg phxpipe0_dyn=0 disables)
+static phxdyn::Catalog gP0Cat{};
+static uint32_t gP0BootHeight = 1440;   // active height read from OTG0 at boot (preferred for bare-Hz lookups)
+static uint8_t  gP0LinkLanes = 0, gP0LinkRate = 0, gP0LinkBpc = 10;
+void p0SetDynBoot(int on) { gP0Dyn = on ? 1 : 0; }
+// A key is height * 1000 + Hz (PhxAccel b138), or phxdyn::kKeyIdxBase + idx (b164 catalog index).
+static const phxp0::Plan *p0PickKeyed(uint32_t key) {
+    if (gP0Cat.n) {
+        if (const phxp0::Plan *p = phxdyn::pickFromCatalog(gP0Cat, key, gP0BootHeight)) return p;
+    }
+    uint32_t h = key >= 1000u ? (key / 1000u) : 0u;
+    uint32_t hz = key >= 1000u ? (key % 1000u) : key;
+    const uint32_t ht = h == 1080u ? 0x897u : h == 1440u ? 0xa9fu : 0u;
+    const phxp0::Plan *first = nullptr;
+    for (unsigned i = 0; i < kP0NPlansAll; i++) {
+        const phxp0::Plan &pl = *kP0PlansAll[i];
+        if (pl.info.hz != hz) continue;
+        if (ht && pl.info.hTotal != ht) continue;
+        if (!first) first = &pl;
+        if (!ht || pl.info.hTotal == ht) return &pl;
+    }
+    return first;
+}
+#else
+void p0SetDynBoot(int) {}
+#endif
 
 static uint64_t p0NowUs(void *) {
     uint64_t t, ns;
@@ -132,9 +172,35 @@ static uint32_t p0Smu(void *c, uint32_t msg, uint32_t arg) {
     return static_cast<PhxBringup *>(c)->smuMessage(msg, arg, &resp, &after) == kIOReturnSuccess ? resp : 0;
 }
 
+// navi32 (2026-11-24): the plans are captured on one DIG (PHX_PIPE_DIG), but the monitor can be moved to another
+// connector - it now runs on DIG0 (0x55xx) instead of DIG4. Every command finds the DIG whose DP stream is on and
+// relocates the build DIG's register window to it at the I/O layer, after the allow-list checks (which keep naming
+// the build DIG). DIG n's DP/DIG registers: 0x5628..0x570F + (n - 1) * 0x100, n = 0..4.
+static volatile int gP0LastReq;   // navi32: the raw target_hz the accelerator asked for (debug.phxpipe0_req)
+static int gP0DigLive = PHX_PIPE_DIG;   // debug.phxpipe0_dig: the DIG the last command found lit (-1 none)
+static int gP0DigDelta = 0;            // registers to add to a build-DIG address
+SYSCTL_INT(_debug, OID_AUTO, phxpipe0_req, CTLFLAG_RD | CTLFLAG_LOCKED, (int *)&gP0LastReq, 0, "the raw target the accelerator sent to phxPipe0SetMode");
+SYSCTL_INT(_debug, OID_AUTO, phxpipe0_dig, CTLFLAG_RD | CTLFLAG_LOCKED, &gP0DigLive, 0, "the DIG whose DP stream pipe 0 drives (found per command; -1 none)");
+static constexpr uint32_t kP0DigLo = 0x05628 + (PHX_PIPE_DIG - 1) * 0x100, kP0DigHi = 0x05710 + (PHX_PIPE_DIG - 1) * 0x100;
+static inline uint32_t p0DigMap(uint32_t r) { return (gP0DigDelta && r >= kP0DigLo && r < kP0DigHi) ? static_cast<uint32_t>(static_cast<int>(r) + gP0DigDelta) : r; }
+static uint32_t p0IoRd(void *c, uint32_t r) { return p2IoRd(c, p0DigMap(r)); }
+static void p0IoWr(void *c, uint32_t r, uint32_t v) { p2IoWr(c, p0DigMap(r), v); }
+static void p0DetectDig() {
+    if (!gPhx) return;
+    int found = -1;
+    for (int k = 0; k <= 4 && found < 0; k++) {
+        const uint32_t b = static_cast<uint32_t>(0x056C8 + (k - 1) * 0x100);
+        const uint32_t link = p2IoRd(gPhx, b), stream = p2IoRd(gPhx, b + 4);
+        if (link != 0 && link != 0xffffffffu && (stream & 1)) found = k;
+    }
+    gP0DigLive = found;
+    gP0DigDelta = found >= 0 ? (found - PHX_PIPE_DIG) * 0x100 : 0;
+}
+
 static phxp0::Env p0Env() {
     phxp0::Env e{};
-    e.io = {gPhx, p2IoRd, p2IoWr, p2IoMmRd, p2IoMmWr, p2IoDelay};
+    p0DetectDig();
+    e.io = {gPhx, p0IoRd, p0IoWr, p2IoMmRd, p2IoMmWr, p2IoDelay};
     e.enable = gP0Enable;
     e.solo = gP0Solo;
     e.live = gP0Live;
@@ -170,22 +236,45 @@ static const phxp0::Plan &p0Pick(const phxp0::Env &e, const P0Fam &f, uint32_t t
     return p ? *p : f.q1440 ? kP0Plan1440p60 : kP0Plan60;
 }
 // macSet for target_hz with the plan for OTG1's mode, the caller holds gP2Busy.
-static int p0MacRun(uint32_t targetHz, phxp0::MacOut *out, const char *who) {
+static int p0MacRun(uint32_t targetHz, phxp0::MacOut *out, const char *who, int replayDig = -1) {
     const phxp0::Env e = p0Env();
+#if PHX_PIPE_DIG == 4
+    // navi32 (b164): use the hybrid EDID catalog (static plans + dynamically synthesized EDID plans) when populated,
+    // falling back to the compiled static union family if the catalog has not been built yet.
+    const P0Fam f = gP0Cat.n ? P0Fam{gP0Cat.ptrs, gP0Cat.n, true} : P0Fam{kP0PlansAll, kP0NPlansAll, true};
+    const phxp0::Plan *keyed = p0PickKeyed(targetHz);
+    const phxp0::Plan &tg = keyed ? *keyed : (gP0Cat.n ? *gP0Cat.ptrs[0] : kP0Plan1440p60);
+#else
     const P0Fam f = p0Family(e);
     const phxp0::Plan &tg = p0Pick(e, f, targetHz);
-    const int r = phxp0::macSet(e, gP0, f.pl, f.n, tg, static_cast<uint32_t>(gP0UclkMhz), out);
+#endif
+    if (replayDig >= 0) {
+        const unsigned dig = static_cast<unsigned>(replayDig);
+        const unsigned hpd = dig == 0 ? 3 : dig == 1 ? 2 : 4;
+        const uint32_t sense = p2IoRd(gPhx, phxhpd::hpdReg(hpd, phxhpd::kOffIntStatus));
+        const uint32_t source = p2IoRd(gPhx, 0x0554Bu + dig * 0x100);
+        const uint32_t link = p2IoRd(gPhx, 0x055C8u + dig * 0x100);
+        const uint32_t stream = p2IoRd(gPhx, 0x055CCu + dig * 0x100);
+        if (!e.enable || gP0DigLive != replayDig || sense == 0xffffffffu || !(sense & phxhpd::kStSenseDelayed) ||
+            (source & 7u) || link == 0xffffffffu || (link & 0x110u) != 0x110u ||
+            stream == 0xffffffffu || (stream & 0x10001u) != 0x10001u || (phxp0::rd(e, phxp0::kOtg1Control) & phxp0::kMasterEnState)) {
+            strlcpy(gP0.why, "reconnect: expected trained OTG0 route not available or second head running", sizeof gP0.why);
+            return phxp0::kRefused;
+        }
+    }
+    const int r = phxp0::macSet(e, gP0, f.pl, f.n, tg, static_cast<uint32_t>(gP0UclkMhz), out, replayDig >= 0);
     if (out->rebase) p0Rebase();
+    if (r == phxp0::kDone && gPhx) gPhx->cursorReprogram();   // b163: re-apply HUBP0 cursor plane if active on the new mode
     IOLog("PhxBringup: pipe-0 %s to %u (%s): %s stage %d flags 0x%x (round trip %d) now %u Hz: %s\n", who, targetHz, tg.info.name, p0ResName(r), out->stage,
           out->flags, out->rtRes, out->curHz, gP0.why);
     return r;
 }
 // b101: macSet for target_hz under gP2Busy (taken here). Returns the result (-1 = not run: busy / not ready) and fills out.
-static int p0MacLocked(uint32_t targetHz, phxp0::MacOut *out, int *err) {
+static int p0MacLocked(uint32_t targetHz, phxp0::MacOut *out, int *err, int replayDig = -1) {
     *err = 0;
     if (!p2Up()) { *err = ENXIO; return -1; }
     if (!OSCompareAndSwap(0, 1, &gP2Busy)) { *err = EBUSY; return -1; }
-    const int r = p0MacRun(targetHz, out, "macOS path");
+    const int r = p0MacRun(targetHz, out, replayDig >= 0 ? "reconnect" : "macOS path", replayDig);
     OSCompareAndSwap(1, 0, &gP2Busy);
     return r;
 }
@@ -220,14 +309,82 @@ static int p0PairSwitch(int from1Hz, int to1Hz, int (*sw)(void *, uint32_t), cha
 static void p0PairCounts(uint32_t *postFails, uint32_t *rollbacks) { *postFails = gP0.pairPostFails; *rollbacks = gP0.pairRollbacks; }
 
 // b101: PhxAMDFB head 0 setDisplayMode (PhxSwitchABI.h; dispatched in phx_client.cpp).
+#if PHX_PIPE_DIG == 4
+// b164: build the hybrid pipe-0 mode catalog from the live monitor's full EDID + DP link bandwidth + live OTG0 timing,
+// preferring verified static plans when matched and synthesizing dynamic plans for all other EDID modes that fit.
+void p0PublishModes() {
+    if (!gPhx) return;
+    p0DetectDig();
+    // Reconstruct current live OTG0 timing & color depth (read-only)
+    phxdyn::Timing liveBoot{};
+    bool hasLive = false;
+    uint8_t bpc = 10;
+    {
+        const uint32_t fmt = p2IoRd(gPhx, 0x04D01u);
+        if (fmt != 0xffffffffu) bpc = ((fmt & 0x30u) == 0x20u) ? 10 : 8;
+        const uint32_t ht = p2IoRd(gPhx, 0x04FEAu), hb = p2IoRd(gPhx, 0x04FEBu);
+        const uint32_t hs = p2IoRd(gPhx, 0x04FECu), hsc = p2IoRd(gPhx, 0x04FEDu);
+        const uint32_t vt = p2IoRd(gPhx, 0x04FEFu), vb = p2IoRd(gPhx, 0x04FF6u);
+        const uint32_t vs = p2IoRd(gPhx, 0x04FF7u), vsc = p2IoRd(gPhx, 0x04FF8u);
+        const uint32_t dto = p2IoRd(gPhx, 0x00141u);
+        if (ht != 0xffffffffu && vt != 0xffffffffu && dto != 0xffffffffu &&
+            phxdyn::timingFromLiveRegs(ht, hb, hs, hsc, vt, vb, vs, vsc, dto, &liveBoot)) {
+            hasLive = true;
+            gP0BootHeight = liveBoot.vActive;
+        }
+    }
+    uint8_t lanes = 0, rateCode = 0;
+    if (gP0Dyn) gPhx->p0ReadDpLink(&lanes, &rateCode);
+    gP0LinkLanes = lanes; gP0LinkRate = rateCode; gP0LinkBpc = bpc;
+
+    phxdyn::LinkCap cap{};
+    cap.lanes = lanes;
+    cap.rateCode = rateCode;
+    cap.bpc = bpc;
+    cap.barLen = gPhx->fbAperLength();
+    cap.fallbackMaxPclk = (hasLive && liveBoot.pclkKhz > 660000u) ? liveBoot.pclkKhz : 660000u;
+
+    uint8_t edid[512] = {};
+    uint32_t edidLen = 0;
+    if (gP0Dyn) {
+        const int src = gPhx->p0ScanoutSource();
+        if (src >= 0) {
+            int32_t rc = -1;
+            if (gPhx->edidFetchFull(edid, &edidLen, &rc, static_cast<uint32_t>(src)) != kIOReturnSuccess || rc != 0)
+                edidLen = 0;
+        }
+    }
+
+    const unsigned nc = phxdyn::buildCatalog(gP0Dyn && edidLen >= 128 ? edid : nullptr, edidLen, cap,
+                                             hasLive ? &liveBoot : nullptr, kP0PlansAll, kP0NPlansAll, &gP0Cat);
+    phxp0pub::Mode m[phxp0pub::kMaxModes] = {};
+    const unsigned n = phxdyn::toPublishedModes(gP0Cat, m, phxp0pub::kMaxModes);
+    if (!n) return;
+    OSData *d = OSData::withBytes(m, n * sizeof m[0]);
+    if (d) { gPhx->setProperty(phxp0pub::kProperty, d); d->release(); }
+    unsigned nStatic = 0, nDyn = 0;
+    for (unsigned i = 0; i < nc; i++) { if (gP0Cat.entries[i].isStatic) nStatic++; else nDyn++; }
+    IOLog("PhxBringup: published %u pipe-0 modes (%u static, %u dynamic; EDID %u B, parsed %u, filtered %u; link %uL rate 0x%02x %ubpc)\n",
+          n, nStatic, nDyn, edidLen, gP0Cat.parsedTotal, gP0Cat.filteredOut, lanes, rateCode, bpc);
+}
+#else
+void p0PublishModes() {}   // only the DIG4 port publishes a table
+#endif
+
 static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m) {
     if (!m || m->version != PHX_PIPE0_SETMODE_VERSION) return kIOReturnBadArgument;
+    gP0LastReq = (int)m->target_hz;
     m->result = -1; m->stage = 0; m->cur_hz = 0; m->flags = 0; m->why[0] = 0;
     // b138: or a key of the replay set (height * 1000 + Hz, PhxAccel b138 with phx-p0-keys: another resolution)
     // b128: 120; navi32: 100 and 165 as well (the 1440p family has a plan for each of this monitor's rates)
     if (m->target_hz != 60 && m->target_hz != 100 && m->target_hz != 120 && m->target_hz != 144 && m->target_hz != 165 &&
-        m->target_hz != 240 && !p0OdmKnows(m->target_hz)) {
-        strlcpy(m->why, "bad target (60, 100, 120, 144, 165, 240 or a replay-set key)", sizeof m->why);
+        m->target_hz != 240 && !p0OdmKnows(m->target_hz)
+#if PHX_PIPE_DIG == 4
+        // navi32 (C route): a key (height * 1000 + Hz) names a plan of either size
+        && !p0PickKeyed(m->target_hz)
+#endif
+        ) {
+        strlcpy(m->why, "bad target (60, 100, 120, 144, 165, 240, a replay-set key or height * 1000 + Hz)", sizeof m->why);
         return kIOReturnBadArgument;
     }
     IOReturn odmRet;
@@ -243,6 +400,22 @@ static IOReturn phxPipe0SetModeFn(phx_pipe0_setmode *m) {
     snprintf(m->why, sizeof m->why, "%s%s", o.rtRes >= 0 && o.rtRes != phxp0::kDone ? "round trip: " : "", gP0.why);
     return kIOReturnSuccess;
 }
+
+#if PHX_PIPE_DIG == 4
+static IOReturn phxPipe0ReplayModeFn(phx_pipe0_setmode *m, const uint32_t *dig) {
+    if (!m || m->version != PHX_PIPE0_SETMODE_VERSION || !dig || (*dig != 0 && *dig != 1 && *dig != 4) ||
+        !p0PickKeyed(m->target_hz)) return kIOReturnBadArgument;
+    char off[8];
+    if (!gP0Enable || PE_parse_boot_argn("-phxhotplugoff", off, sizeof off)) return kIOReturnNotPermitted;
+    phxp0::MacOut out{};
+    int err = 0;
+    const int result = p0MacLocked(m->target_hz, &out, &err, static_cast<int>(*dig));
+    m->result = result; m->stage = out.stage; m->cur_hz = out.curHz; m->flags = out.flags;
+    if (result < 0) return err == EBUSY ? kIOReturnBusy : kIOReturnNotReady;
+    strlcpy(m->why, gP0.why, sizeof m->why);
+    return kIOReturnSuccess;
+}
+#endif
 
 static int phxPipe0Sysctl SYSCTL_HANDLER_ARGS {
     int v = gP0.lastRes;
@@ -272,6 +445,20 @@ static int phxPipe0Sysctl SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0Sysctl, "I",
             "b99 pipe-0 (AOC) mode engine (root; needs debug.phxpipe0_enable=1): 1 survey, 2 set debug.phxpipe0_mode, 3 round trip, 4 (b101) the macOS path's sequence to debug.phxpipe0_mode; reads the last result");
 
+static int phxPipe0KeySysctl SYSCTL_HANDLER_ARGS {
+    int v = 0;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v <= 0) return EINVAL;
+    phxp0::MacOut o{};
+    int busyErr = 0;
+    const int r = p0MacLocked(static_cast<uint32_t>(v), &o, &busyErr);
+    if (r < 0) return busyErr;
+    return r == phxp0::kDone || r == phxp0::kSame ? 0 : r == phxp0::kRefused ? EINVAL : r == phxp0::kFellBack ? EIO : ENXIO;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_key, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0KeySysctl, "I",
+            "navi32 (root): run the macOS mode path for a key (height * 1000 + Hz, e.g. 1080060) - a resolution change test");
 static int phxPipe0EnableSysctl SYSCTL_HANDLER_ARGS {
     int v = gP0Enable;
     const int err = sysctl_handle_int(oidp, &v, 0, req);
@@ -285,6 +472,20 @@ static int phxPipe0EnableSysctl SYSCTL_HANDLER_ARGS {
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_enable, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0EnableSysctl, "I",
             "b99 pipe-0 engine kill switch (root): 0 off (default, every command refused before any register access), 1 on");
 
+// navi32 (power): 1 = write DRAM stutter back after every successful mode set. It is restored only at <= 60 Hz today,
+// so at 100-165 Hz DCHUBBUB's stutter stays forced off and DRAM never enters self refresh. Measured A/B: watch the
+// package power and debug.phxpipe0_stat's arb_restored count; a stutter-induced underflow fails verify, which falls back.
+static int phxPipe0StutterSysctl SYSCTL_HANDLER_ARGS {
+    int v = gP0.stutterAlways;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v != 0 && v != 1) return EINVAL;
+    gP0.stutterAlways = v;
+    return 0;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_stutter, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0StutterSysctl, "I",
+            "navi32 (root): 1 = restore DRAM stutter after every mode set (default 0 = only at <= 60 Hz); power A/B");
 static int phxPipe0ModeSysctl SYSCTL_HANDLER_ARGS {
     int v = gP0Mode;
     const int err = sysctl_handle_int(oidp, &v, 0, req);
@@ -400,3 +601,56 @@ static int phxPipe0DeadSysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_dead, CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxPipe0DeadSysctl, "I",
             "b99: 1 = a pipe-0 revert failed (dark): no pipe-0 write until reboot");
+
+// b164: dynamic EDID mode synthesis switch and catalog dump (Navi 32 / PHX_PIPE_DIG == 4; inert on Navi 31).
+static int phxPipe0DynSysctl SYSCTL_HANDLER_ARGS {
+#if PHX_PIPE_DIG == 4
+    int v = gP0Dyn;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    if (proc_suser(req->p)) return EPERM;
+    if (v != 0 && v != 1) return EINVAL;
+    gP0Dyn = v;
+    p0PublishModes();
+    return 0;
+#else
+    int v = 0;
+    const int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || !req->newptr) return err;
+    return ENOTSUP;
+#endif
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_dyn, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0DynSysctl, "I",
+            "b164 (Navi 32, root): 1 = parse live EDID and synthesize DCN 3.2 plans for all fitting modes (default), 0 = static plans only; writing re-scans EDID");
+
+static int phxPipe0EdidModesSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (req->newptr) return EPERM;
+#if PHX_PIPE_DIG == 4
+    static constexpr int kN = 4096;
+    char *b = static_cast<char *>(IOMalloc(kN));
+    if (!b) return ENOMEM;
+    int len = snprintf(b, kN, "dyn=%d modes=%u parsed=%u filtered=%u link=%uL rate=0x%02x bpc=%u cap_kbps=%u\n",
+                       gP0Dyn, gP0Cat.n, gP0Cat.parsedTotal, gP0Cat.filteredOut,
+                       gP0LinkLanes, gP0LinkRate, gP0LinkBpc, gP0Cat.maxLinkKbps);
+    for (unsigned i = 0; i < gP0Cat.n && len < kN - 120; i++) {
+        const phxdyn::DynPlan &dp = gP0Cat.entries[i];
+        const phxdyn::Timing &t = dp.timing;
+        len += snprintf(b + len, static_cast<size_t>(kN - len),
+                        "  id %2u: %4ux%-4u @ %3u Hz  pclk %6u kHz  tot %4ux%-4u  %s  key 0x%x\n",
+                        i + 1u, t.hActive, t.vActive, t.refreshHz, t.pclkKhz, t.hTotal, t.vTotal,
+                        dp.isStatic ? "static" : "dyn   ", phxdyn::kKeyIdxBase + i);
+    }
+    if (len < 0) len = 0;
+    if (len >= kN) len = kN - 1;
+    b[len] = 0;
+    const int e = SYSCTL_OUT(req, b, static_cast<size_t>(len) + 1);
+    IOFree(b, kN);
+    return e;
+#else
+    static const char msg[] = "dyn=0 (navi31 build uses compiled mode tables)\n";
+    return SYSCTL_OUT(req, msg, sizeof msg);
+#endif
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_edid_modes, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxPipe0EdidModesSysctl, "A",
+            "b164 (Navi 32): live EDID modes in the pipe-0 catalog (static vs synthesized dynamic plans and link bandwidth)");

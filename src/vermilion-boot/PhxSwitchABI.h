@@ -40,6 +40,8 @@ struct phx_pipe0_setmode {
 #define PHX_P0SW_ROUNDTRIP 1u      // a 60->60 (current mode) round trip ran first
 #define PHX_P0SW_STUTTER_OFF 2u    // stutter was allowed and is forced off now (left off while pipe 0 is at 144)
 #define PHX_P0SW_UCLK_PIN 4u       // the UCLK hard minimum was sent (debug.phxpipe0_uclk MHz) before a set above 60
+// phxPipe0ReplayMode (Navi 32): same struct, target_hz is a full mode key, param2 is a const uint32_t * to the expected DIG.
+// Only a verified replay of that same timing on the reconnected DP route returns result = 0.
 #ifdef __cplusplus
 static_assert(sizeof(struct phx_pipe0_setmode) == 120, "phx_pipe0_setmode is 120 B");
 #endif

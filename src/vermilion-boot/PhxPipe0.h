@@ -98,6 +98,13 @@ static constexpr uint16_t kFTodo = 1, kFDerived = 2, kFDb = 4;   // phx_s2_step.
 // list (its selftest checks the names against dcn_3_2_0_offset.h).
 struct Allow { uint32_t reg, mask; const char *name; };
 static const Allow kAllowP0[] = {
+    // navi32: the geometry a resolution change needs (C route). Nobody wrote these before: the port took the
+    // firmware's 2560x1440 values, so a different size scanned out with the old viewport and pitch.
+    {0x03AAA, 0xffffffffu, "HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION (w | h << 16)"},
+    {0x03AAE, 0xffffffffu, "HUBP0_DCSURF_SEC_VIEWPORT_DIMENSION (the same)"},
+    {0x04D16, 0xffffffffu, "DPG0_DPG_DIMENSIONS (w << 16 | h)"},
+    {0x03AC7, 0xffffffffu, "HUBPREQ0_DCSURF_SURFACE_PITCH (pixels - 1)"},
+    {0x00124, 0x7f007f7fu, "DENTIST_DISPCLK_CNTL (navi32: the DISPCLK/DPPCLK divider fields, as the pipe-1 table has them)"},
     {0x00141, 0xffffffffu, "DP_DTO0_PHASE"},
     {0x0012F, 0x00000007u, "OTG_PIXEL_RATE_DIV (OTG0 K1/K2; Linux-convention plans only)"},
     {0x039EE, 0xffffffffu, "VTG0_CONTROL"},
@@ -117,6 +124,8 @@ static const Allow kAllowP0[] = {
     {0x03B1C, 0xffffffffu, "HUBPREQ0_REF_FREQ_TO_PIX_FREQ"},
     {0x041CF, 0xffffffffu, "DSCL0_OTG_H_BLANK"},
     {0x041D0, 0xffffffffu, "DSCL0_OTG_V_BLANK"},
+    {0x041D2, 0xffffffffu, "DSCL0_RECOUT_SIZE (w | h << 16; b165: must follow raster on size changes)"},
+    {0x041D3, 0xffffffffu, "DSCL0_MPC_SIZE (w | h << 16; b165: must follow raster on size changes)"},
     {0x04D01, 0xffffffffu, "FMT0_FMT_BIT_DEPTH_CONTROL (b128: output depth / dither, 1440p plans)"},
     {0x04D14, 0xffffffffu, "DPG0_DPG_CONTROL"},
     {0x04D17, 0xffffffffu, "DPG0_DPG_COLOUR_R_CR"},
@@ -142,6 +151,7 @@ static const Allow kAllowP0[] = {
     {0x056C9 + kPipeDigShift, 0x07000000u, "DP<n>_DP_PIXEL_FORMAT (b128: DP_COMPONENT_DEPTH only)"},
     {0x056CA + kPipeDigShift, 0xff000000u, "DP<n>_DP_MSA_COLORIMETRY (b128: DP_MSA_MISC0 = depth / format)"},
     {0x056D0 + kPipeDigShift, 0x00000c00u, "DP<n>_DP_VID_TIMING (DP_VID_N_MUL; Linux-convention plans only)"},
+    {0x056D2 + kPipeDigShift, 0x00ffffffu, "DP<n>_DP_VID_M (navi32: the M value follows the pixel clock and is written on a rate change)"},
     {0x0570C + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM1"},
     {0x0570D + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM2"},
     {0x0570E + kPipeDigShift, 0xffffffffu, "DP<n>_DP_MSA_TIMING_PARAM3"},
@@ -151,15 +161,21 @@ static constexpr unsigned kNAllow = sizeof kAllowP0 / sizeof kAllowP0[0];
 inline bool linuxConvOnly(uint32_t r) { return r == 0x0012F || r == 0x056D0; }
 // Never written by phxp0, whatever kAllowP0 says (the generator's REFUSED; its selftest checks every name inside).
 static const phxp2::Range kRefusedP0[] = {
-    {0x00100, 0x0012E},  // DCCG PHY PLLs, DS/GTC DTOs, DENTIST_DISPCLK_CNTL 0x124, DSCCLK
+    {0x00100, 0x00123},  // DCCG PHY PLLs, DS/GTC DTOs, DSCCLK
+    // navi32: 0x124 (DENTIST_DISPCLK_CNTL) is writable on purpose - a rate change has to reprogram the
+    // DISPCLK/DPPCLK dividers, and Linux does exactly that (captures: 0x437f4343 at 60 Hz, 0x1c191c1c at
+    // 144, 0x1a191818 at 165). Only the two divider fields are writable, as in the pipe-1 table.
+    {0x00125, 0x0012E},  // the rest of the DCCG block
     {0x00130, 0x00140},  // DCCG clocks, OTG0_PIXEL_RATE_CNTL
     {0x00142, 0x00164},  // DP_DTO0_MODULO, OTG1-3 pixel rate / DTOs, DPPCLK DTOs, SYMCLKA-E
     {0x03512, 0x03516},  // PHY SYMCLK
     {0x03527, 0x03527}, {0x0358D, 0x0358D}, {0x0364E, 0x036F2},   // DMCUB
     {0x03620, 0x03620},  // DCIO
     {0x0392F, 0x039E5}, {0x039F2, 0x03A00},   // DCHUBBUB: watermarks, DET, ARB_DRAM_STATE_CNTL (their own steps)
-    {0x03AA5, 0x03AB0},  // HUBP0 surface config / viewports
-    {0x03AC7, 0x03AE7},  // HUBPREQ0 surface addresses (PhxAccel's flips own them)
+    {0x03AA5, 0x03AA9},  // HUBP0 surface config (0x3AAA / 0x3AAE are the viewports: navi32 plan geometry)
+    {0x03AAB, 0x03AAD},  // HUBP0 surface config continued
+    {0x03AAF, 0x03AB0},  // HUBP0 viewport start (the dimension is the plan's)
+    {0x03AC8, 0x03AE7},  // HUBPREQ0 surface addresses (PhxAccel's flips own them); 0x3AC7 (pitch) is plan geometry
     {0x05410, 0x05496},  // DP_AUX0-5
     {0x05628, 0x05650}, {0x05652, 0x056A6},   // AFMT1 / DME1 / DIG1 FE / BE (b106: all but DIG1_DIG_FIFO_CTRL0)
     {0x056C8, 0x056C8}, {0x056CB, 0x056CB},   // DP1_DP_LINK_CNTL, DP1_DP_CONFIG (the trained link)
@@ -184,7 +200,7 @@ static constexpr uint32_t kOtg0Control = 0x05001, kOtg0HTotal = 0x04FEA, kOtg0VT
                           kVtg0 = 0x039EE, kHubp0Cntl = 0x03AB3, kOdm0 = 0x04F8A,
                           kStream = 0x056CC + kPipeDigShift, kSteer = 0x056CD + kPipeDigShift,
                           kLinkCntl = 0x056C8 + kPipeDigShift, kDpConfig = 0x056CB + kPipeDigShift,
-                          kVidM = 0x056D2 + kPipeDigShift, kDpgCtl = 0x04D14, kDpgR = 0x04D17,
+                          kVidTiming = 0x056D0 + kPipeDigShift, kVidM = 0x056D2 + kPipeDigShift, kDpgCtl = 0x04D14, kDpgR = 0x04D17,
                           kDpgG = 0x04D18, kDpgB = 0x04D19, kDentist = 0x00124, kDet0 = 0x0397B, kArb = 0x039BC,
                           kOtg1Control = 0x05081 + kPipeOtgShift, kOtg1Frame = 0x0508C + kPipeOtgShift,
                           kDigFe = 0x0564B + kPipeDigShift, kDigFifo = 0x05651 + kPipeDigShift;
@@ -263,6 +279,7 @@ struct Env {
 #define PHXP0_HAS_LIVE 1
 #define PHXP0_HAS_SOLO 1
 
+inline uint32_t planViewport(const Plan &p);   // navi32: defined below, macSet uses it first
 struct Snap { uint32_t reg, val, mask; uint8_t group; uint16_t flags; };
 struct State {
     int dark, halted, busy;   // latches: dark (a revert failed), halted (the inverse fingerprint moved); busy during a shell
@@ -273,6 +290,9 @@ struct State {
     Snap snap[kMaxEntries]; unsigned nSnap;   // the revert table: every plan register before the first write
     Snap tgt[kMaxEntries];                     // the target being programmed
     int rtOk;                                  // a round trip (cmd 3) passed in this boot: real mode changes allowed
+    uint32_t tgtDentistMax;                    // navi32: the target plan's DENTIST divider bound, checked in verify
+    unsigned underflowCleared;                // navi32 (C route): one transient HUBP0 underflow per verify is cleared, not fatal
+    int stutterAlways;                         // navi32: 1 = write DRAM stutter back after EVERY set, not only at <= 60 Hz
     uint32_t sDpg[4], sHubp, sStream, sLink, sCfg, sVidM, sPclk;   // the shell's own registers + link proof, before
     int invValid; uint32_t inv[kNInv];
     uint32_t odm0Base;
@@ -348,7 +368,10 @@ inline bool staticCheck(const Plan &p, const char **why) {
         if (!s.mask) { *why = "a plan entry with an empty mask"; return false; }
         if (linuxConvOnly(s.reg) && p.info.conv != 1) { *why = "OTG_PIXEL_RATE_DIV / DP_VID_TIMING in a GOP-convention plan"; return false; }
         if (s.reg == kOtg0Control || s.reg == kOtg0Lock || s.reg == kHubp0Cntl || s.reg == kStream || s.reg == kSteer ||
-            s.reg == kOdm0 || s.reg == kDigFifo || (s.reg >= kDpgCtl && s.reg <= kDpgB)) { *why = "a plan entry writes a register the shell owns"; return false; }
+            s.reg == kOdm0 || s.reg == kDigFifo || s.reg == kDpgCtl || s.reg == kDpgR || s.reg == kDpgG ||
+            // navi32 (C route): DPG_DIMENSIONS (0x4D16) sits between the shell's DPG registers and is the plan's: the
+            // shell only paints the DPG colours and its control, never the size, which follows the raster.
+            s.reg == kDpgB) { *why = "a plan entry writes a register the shell owns"; return false; }
         if (s.reg == kVtg0 && (s.mask & kVtgEnable)) { *why = "a plan entry writes VTG0_ENABLE (the shell's bit)"; return false; }
         for (unsigned k = 0; k < i; k++) if (p.s[k].reg == s.reg) { *why = "a register twice in one plan"; return false; }
         if (s.pad & kFTodo) todo++;
@@ -361,9 +384,18 @@ inline bool staticCheck(const Plan &p, const char **why) {
 }
 
 // ---- writes: the only path to the hardware (allow-list + field mask; then the inverse fingerprint)
+// navi32 (RedNavi rule): DISPCLK/DPPCLK dividers are only ever lowered (faster clock), never raised back.
+inline bool dentistFasterOrEq(uint32_t live, uint32_t target) {
+    return ((live & 0x7fu) <= (target & 0x7fu)) && (((live >> 8) & 0x7fu) <= ((target >> 8) & 0x7fu)) &&
+           (((live >> 24) & 0x7fu) <= ((target >> 24) & 0x7fu));
+}
 inline bool invSame(const Env &e, const State &st, const char **why) {
-    for (unsigned k = 0; k < kNInv; k++)
+    for (unsigned k = 0; k < kNInv; k++) {
+#if PHX_PIPE_DIG == 4
+        if (kInv[k].reg == kDentist) continue;
+#endif
         if ((rd(e, kInv[k].reg) & kInv[k].mask) != (st.inv[k] & kInv[k].mask)) { *why = kInv[k].name; return false; }
+    }
     return true;
 }
 // b105: one read-modify-write of the bits in `mask` to `val`; every other bit is written back as this read returns it, so a
@@ -379,6 +411,7 @@ inline bool W(const Env &e, State &st, uint32_t reg, uint32_t mask, uint32_t val
         return false;
     }
     const uint32_t old = rd(e, reg);
+    if (reg == kDentist && dentistFasterOrEq(old, val)) return true;
     e.io.wr(e.io.c, reg, (old & ~mask) | (val & mask));
     st.writes++;
     if (checkInv && st.invValid && !invSame(e, st, why)) { st.halted = 1; st.haltedN++; return false; }
@@ -450,7 +483,7 @@ inline int shellStages(const Env &e, State &st, const Snap *t, unsigned n, bool 
 inline bool latchWait(const Env &e, State &st, const Snap *t, unsigned n, const char **why) {
     for (uint32_t us = 0;; us += 2000) {
         unsigned bad = n;
-        for (unsigned i = 0; i < n && bad == n; i++) if ((rd(e, t[i].reg) ^ t[i].val) & t[i].mask) bad = i;
+        for (unsigned i = 0; i < n && bad == n; i++) if (t[i].reg == kDentist ? !dentistFasterOrEq(rd(e, kDentist), t[i].val) : (((rd(e, t[i].reg) ^ t[i].val) & t[i].mask) != 0)) bad = i;
         if (bad == n) return true;
         if (us >= 100000) { st.rbMismatch++; snprintf(st.warn, sizeof st.warn, "0x%05X reads 0x%08x, want 0x%08x & 0x%08x", t[bad].reg, rd(e, t[bad].reg), t[bad].val, t[bad].mask); *why = "a plan register did not latch within 100 ms"; return false; }
         dly(e, st, 2000);
@@ -496,7 +529,7 @@ inline int shellStages(const Env &e, State &st, const Snap *t, unsigned n, bool 
     for (unsigned i = 0; i < n; i++) {
         if (t[i].group > kGHubp) continue;
         if (!W(e, st, t[i].reg, t[i].mask, t[i].val, checkInv, &w)) { *why = w; return 5; }
-        if (!(t[i].flags & kFDb) && ((rd(e, t[i].reg) ^ t[i].val) & t[i].mask)) { st.rbMismatch++; *why = "read-back mismatch"; return 5; }
+        if (!(t[i].flags & kFDb) && (t[i].reg == kDentist ? !dentistFasterOrEq(rd(e, kDentist), t[i].val) : (((rd(e, t[i].reg) ^ t[i].val) & t[i].mask) != 0))) { st.rbMismatch++; *why = "read-back mismatch"; return 5; }
     }
     // 6 OTG0 on
     st.curStage = 6;
@@ -597,9 +630,14 @@ inline int liveShell(const Env &e, State &st, const Snap *t, unsigned n, bool ch
 inline uint32_t expectM(const State &st, uint32_t pclkKhz) {
     return static_cast<uint32_t>((static_cast<uint64_t>(st.sVidM) * pclkKhz + st.sPclk / 2) / (st.sPclk ? st.sPclk : 1));
 }
+inline bool dentistFits(uint32_t d, uint32_t max);   // defined below; verify() needs it first
 inline bool mWithin(uint32_t m, uint32_t want) { const uint32_t d = m > want ? m - want : want - m; return d * 100 <= want; }
 
-inline bool verify(const Env &e, State &st, uint32_t hTotal, uint32_t vTotal, uint32_t hz, uint32_t pclkKhz, bool checkInv, const char **why) {
+// strictUnderflow: fail on a HUBP0 underflow. A RATE change keeps it on; a RASTER change (a different active size) must not,
+// because the client only redraws at the new size AFTER the switch returns - until then the plane is fed frames of the old
+// size, starves, and the switch would never complete (measured: every 1440p -> 1080p attempt died here). RedNavi verifies
+// only DP_VID_STREAM_STATUS for the same reason.
+inline bool verify(const Env &e, State &st, uint32_t hTotal, uint32_t vTotal, uint32_t hz, uint32_t pclkKhz, bool checkInv, const char **why, bool strictUnderflow = true) {
     if ((rd(e, kOtg0HTotal) & 0x7fff) != hTotal || (rd(e, kOtg0VTotal) & 0x7fff) != vTotal) { *why = "OTG0 totals are not the plan's"; return false; }
     if ((rd(e, kStream) & (kStreamEn | kStreamStatus)) != (kStreamEn | kStreamStatus)) { *why = "DP1 stream not enabled / status 0"; return false; }
     if ((rd(e, kDigFifo) & kFifoCfg) != kFifoGop) { *why = "DIG1_DIG_FIFO_CTRL0 not back at enabled, out of reset, level 7 (0x1d)"; return false; }
@@ -609,14 +647,38 @@ inline bool verify(const Env &e, State &st, uint32_t hTotal, uint32_t vTotal, ui
     const uint32_t wantM = expectM(st, pclkKhz);
     bool mOk = false;
     for (unsigned i = 0; i <= 50 && !mOk; i++) { st.vidM = rd(e, kVidM) & 0xffffff; mOk = mWithin(st.vidM, wantM); if (!mOk) dly(e, st, 2000); }
-    if (!mOk) { snprintf(st.warn, sizeof st.warn, "DP_VID_M 0x%x, want 0x%x +-1 %%", st.vidM, wantM); *why = "DP_VID_M not within 1 % of the expected value"; return false; }
+    if (!dentistFits(rd(e, kDentist), st.tgtDentistMax)) {
+        snprintf(st.warn, sizeof st.warn, "DENTIST 0x%08x above the plan's dividers 0x%x after the program", rd(e, kDentist), st.tgtDentistMax);
+        *why = "the DISPCLK/DPPCLK dividers are not the plan's";
+        return false;
+    }
+    if (!mOk) {
+        // navi32: name the timing state too, so a failed rate change says whether the DTO moved at all.
+        snprintf(st.warn, sizeof st.warn, "DP_VID_M 0x%x, want 0x%x +-1 %% at %u kHz; OTG0 %u/%u, DTO phase 0x%x, PIXEL_RATE_CNTL 0x%x, VID_TIMING 0x%x",
+                 st.vidM, wantM, pclkKhz, rd(e, kOtg0HTotal) & 0x7fff, rd(e, kOtg0VTotal) & 0x7fff,
+                 rd(e, 0x00141), rd(e, 0x00140), rd(e, kVidTiming));
+        *why = "DP_VID_M not within 1 % of the expected value";
+        return false;
+    }
     // ~1 s: OTG0 frames, underflow sampled every 10 ms; the expected count follows the measured window (on the box:
     // 100 x IOSleep(10) took ~1.067 s, 64 frames at 60 Hz)
     const uint64_t t0 = e.nowUs ? e.nowUs(e.io.c) : 0;
     const uint32_t f0 = rd(e, kOtg0Frame) & 0xffffff;
     for (unsigned i = 0; i < 100; i++) {
         dly(e, st, 10000);
-        if (rd(e, kHubp0Cntl) & kHubpUnderflow) { *why = "HUBP0 underflow after the switch"; return false; }
+        // navi32 (C route): a size change reconfigures HUBP0's viewport and its fetcher, and the first frames after the
+        // unblank can starve once while the new geometry settles. The sticky is cleared once and only a SECOND
+        // occurrence fails the switch - otherwise a 1440p -> 1080p change could never pass, while a real shortage still
+        // keeps failing (measured: one underflow at the size change, none afterwards).
+        if (rd(e, kHubp0Cntl) & kHubpUnderflow) {
+            if (!strictUnderflow) { e.io.wr(e.io.c, kHubp0Cntl, (rd(e, kHubp0Cntl) & ~kHubpUnderflow) | kHubpUnderflowClear); st.underflowCleared++; }
+            else if (st.underflowCleared) { *why = "HUBP0 underflow after the switch"; return false; }
+            e.io.wr(e.io.c, kHubp0Cntl, (rd(e, kHubp0Cntl) & ~kHubpUnderflow) | kHubpUnderflowClear);
+            e.io.delayUs(e.io.c, 1000);
+            e.io.wr(e.io.c, kHubp0Cntl, rd(e, kHubp0Cntl) & ~(kHubpUnderflow | kHubpUnderflowClear));
+            st.underflowCleared++; st.stickyClears++;
+            continue;
+        }
         if (rd(e, kOdm0) & (kOdmSticky | kOdmCurrent) & ~st.odm0Base) { *why = "OPTC0 underflow after the switch"; return false; }
     }
     st.otg0Frames = (rd(e, kOtg0Frame) - f0) & 0xffffff;
@@ -630,6 +692,39 @@ inline bool verify(const Env &e, State &st, uint32_t hTotal, uint32_t vTotal, ui
 }
 
 inline int refuse(State &st, const char *what, const char *detail) { st.refusedN++; return setWhy(st, kRefused, 0, what, detail); }
+// Names up to three plan steps whose live register value differs from the plan (the round trip's refusal reason).
+// A step that matches nothing is the one to reconcile when a captured plan refuses to round-trip.
+inline void mismatchNames(const Env &e, const Plan &p, char *b, size_t n) {
+    size_t o = 0;
+    unsigned shown = 0, total = 0;
+    for (unsigned i = 0; i < p.n; i++) {
+        const uint32_t live = rd(e, p.s[i].reg);
+        if (!((live ^ p.s[i].val) & p.s[i].mask)) continue;
+        total++;
+        if (shown >= 3 || !p.s[i].name) continue;
+        const int k = snprintf(b + o, n > o ? n - o : 0, "%s%s 0x%x: live 0x%x want 0x%x", shown ? ";" : "", p.s[i].name,
+                            p.s[i].reg, live & p.s[i].mask, p.s[i].val & p.s[i].mask);
+        if (k > 0) o += static_cast<size_t>(k);
+        shown++;
+    }
+    if (!total) snprintf(b + o, n > o ? n - o : 0, "none");
+    else if (total > shown && o < n) snprintf(b + o, n - o, " (+%u more)", total - shown);
+}
+// A step flagged kStepDouble (pad bit 2) is a per-frame value the driver rewrites while scanning (VUPDATE,
+// VSTARTUP, VREADY): it can never match a static capture, so it must not count against a round trip. It is
+// compared in the verify stage after programming instead.
+constexpr uint16_t kStepDouble = 4;
+inline unsigned staticSteps(const Plan &p) {
+    unsigned n = 0;
+    for (unsigned i = 0; i < p.n; i++) n += !(p.s[i].pad & kStepDouble);
+    return n;
+}
+inline unsigned equalStaticCount(const Env &e, const Plan &p) {
+    unsigned n = 0;
+    for (unsigned i = 0; i < p.n; i++)
+        if (!(p.s[i].pad & kStepDouble) && p.s[i].reg != kDentist && !((rd(e, p.s[i].reg) ^ p.s[i].val) & p.s[i].mask)) n++;
+    return n;
+}
 inline unsigned equalCount(const Env &e, const Plan &p) {
     unsigned k = 0;
     for (unsigned i = 0; i < p.n; i++) k += !((rd(e, p.s[i].reg) ^ p.s[i].val) & p.s[i].mask);
@@ -637,12 +732,22 @@ inline unsigned equalCount(const Env &e, const Plan &p) {
 }
 // OTG0's plan by its totals; with two plans at the same timing (b103) the one every register already equals, else the
 // first (the timing fields the callers use, hz / totals / pclk, are the same in both: staticCheck refuses otherwise).
+// the plan's DP_DTO0_PHASE value (0 = the plan does not set the DTO)
+inline uint32_t planDto(const Plan &p) {
+    for (unsigned i = 0; i < p.n; i++) if (p.s[i].reg == 0x00141) return p.s[i].val;
+    return 0;
+}
 inline const Plan *identify(const Env &e, const Plan *const *pl, unsigned np) {
     const uint32_t h = rd(e, kOtg0HTotal) & 0x7fff, v = rd(e, kOtg0VTotal) & 0x7fff;
     const Plan *first = nullptr;
     unsigned nt = 0;
     for (unsigned i = 0; i < np; i++) if (pl[i] && pl[i]->info.hTotal == h && pl[i]->info.vTotal == v) { if (!first) first = pl[i]; nt++; }
     if (nt < 2) return first;
+    // navi32: rates that share OTG totals (P27QBA-RX: 60/100 and 120/144) differ in the pixel clock only, so the live
+    // DP DTO phase tells them apart - the discriminator RDNA4's modeset uses for a DP retime.
+    const uint32_t dto = rd(e, 0x00141);
+    for (unsigned i = 0; i < np; i++)
+        if (pl[i] && pl[i]->info.hTotal == h && pl[i]->info.vTotal == v && planDto(*pl[i]) && planDto(*pl[i]) == dto) return pl[i];
     for (unsigned i = 0; i < np; i++)
         if (pl[i] && pl[i]->info.hTotal == h && pl[i]->info.vTotal == v && equalCount(e, *pl[i]) == pl[i]->n) return pl[i];
     return first;
@@ -676,6 +781,8 @@ inline bool sameTimingConsistent(const Plan *const *pl, unsigned np, const char 
         for (unsigned k = i + 1; k < np; k++) {
             const phx_p0_info &a = pl[i]->info, &b = pl[k]->info;
             if (a.hTotal != b.hTotal || a.vTotal != b.vTotal) continue;
+            // navi32: same totals, different pixel clock - identify() separates them by the live DTO phase
+            if (planDto(*pl[i]) && planDto(*pl[k]) && planDto(*pl[i]) != planDto(*pl[k]) && a.pclkKhz != b.pclkKhz) continue;
             // SCDC2: dentistMax may differ (1080p144a165 needs 0x2b): only the target's is read (survey), never identify()'s
             if (a.hz != b.hz || a.pclkKhz != b.pclkKhz || a.conv != b.conv) { *why = "two plans at the same totals differ in rate / pclk / convention"; return false; }
             if (a.pairHTotal == b.pairHTotal && a.pairVTotal == b.pairVTotal) { *why = "two plans at the same totals planned next to the same OTG1 mode"; return false; }
@@ -695,7 +802,9 @@ inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     const char *w = nullptr;
     char d[120];
     if (!e.enable) return refuse(st, "debug.phxpipe0_enable = 0", "the pipe-0 engine is switched off (kill switch)");
-    if (st.dark) return refuse(st, "dark", "a revert failed earlier in this boot: no pipe-0 write until reboot");
+    // navi32 (NullMoth: latching a failure turns one bad request into a permanent one): a 60 Hz request may
+    // always try, because the 60 Hz plan is the raster the firmware itself lit.
+    if (st.dark && tg.info.hz != 60) return refuse(st, "dark", "a revert failed earlier in this boot: only the 60 Hz plan may be set until reboot");
     if (st.halted) return refuse(st, "halted", "pipe 1 / shared state moved during a pipe-0 switch earlier in this boot: reboot");
     if (!staticCheck(tg, &w)) return refuse(st, "target plan", w);
     if (!sameTimingConsistent(pl, np, &w)) return refuse(st, "plans", w);
@@ -712,9 +821,13 @@ inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     if ((rd(e, kDigFifo) & kFifoCfg) != kFifoGop) return refuse(st, "preflight", "DIG1_DIG_FIFO_CTRL0 is not the GOP's enabled, out of reset, read start level 7 (0x1d)");
     const uint32_t m = rd(e, kVidM) & 0xffffff;
     const uint32_t wantM = static_cast<uint32_t>((static_cast<uint64_t>(kVidM60) * cur->info.pclkKhz + kVidM60Khz / 2) / kVidM60Khz);
-    // b128: or half that M = the same 4 lanes at HBR2 (the XTX machine's GOP trains DP B at HBR2 x4 for 1440p: 0x395e at
-    // 241.5 MHz, macOS 2026-11-19); the verify still follows the measured M, so the link may not change either way
-    if (!mWithin(m, wantM) && !mWithin(m, wantM / 2)) { snprintf(d, sizeof d, "DP_VID_M 0x%x, want 0x%x (HBR x4) or 0x%x (HBR2 x4) +-1 %% at %u kHz", m, wantM, wantM / 2, cur->info.pclkKhz); return refuse(st, "preflight", d); }
+    // b128: or half that M = HBR2 x4 (0x395e at 241.5 MHz); b164: or a third = HBR3 x4 (8.1 Gbps/lane).
+    // Verify still follows the measured M, so the link may not change either way.
+    if (!mWithin(m, wantM) && !mWithin(m, wantM / 2) && !mWithin(m, wantM / 3)) {
+        snprintf(d, sizeof d, "DP_VID_M 0x%x, want 0x%x (HBR), 0x%x (HBR2) or 0x%x (HBR3) +-1 %% at %u kHz",
+                 m, wantM, wantM / 2, wantM / 3, cur->info.pclkKhz);
+        return refuse(st, "preflight", d);
+    }
     if (!preClk && !dentistFits(rd(e, kDentist), tg.info.dentistMax)) { snprintf(d, sizeof d, "DENTIST dividers above 0x%x: DISPCLK/DPPCLK too low for %s (the two DAL hard mins first)", tg.info.dentistMax, tg.info.name); return refuse(st, "preflight", d); }
     const bool otg1 = rd(e, kOtg1Control) & kMasterEnState;
     // b103: the pair (pairFits); e.otg1Next* = the OTG1 totals the pipe-1 switch sets right after this call (the safe
@@ -732,7 +845,10 @@ inline int survey(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     }
     if ((rd(e, kArb) & 3) != 2) return refuse(st, "preflight", "stutter allowed (DCHUBBUB_ARB_DRAM_STATE_CNTL & 3 != 2): force it off first (0x1002)");
     if (rd(e, kHubp0Cntl) & kHubpUnderflow) return refuse(st, "preflight", "HUBP0 underflow status set");
-    if (rd(e, kOdm0) & (kOdmSticky | kOdmCurrent)) return refuse(st, "preflight", "ODM0 OPTC underflow sticky / current set");
+    // navi32: a STICKY bit is a past event (the shell clears it at stage 10 and the baseline in odm0Base covers one that
+    // was there before the switch); only an underflow happening NOW blocks the preflight. Refusing on the sticky made a
+    // single old event block every later mode change until the register was written by hand (measured 2026-11-24).
+    if (rd(e, kOdm0) & kOdmCurrent) return refuse(st, "preflight", "ODM0 OPTC underflow current (the pipe is losing data now)");
     if (rd(e, kHubp0Cntl) & kHubpBlank) return refuse(st, "preflight", "HUBP0 blanked");
     if (rd(e, kDpgCtl) & 1) return refuse(st, "preflight", "DPG0 enabled");
     if (rd(e, kOtg0Lock) & 1) return refuse(st, "preflight", "OTG0_OTG_MASTER_UPDATE_LOCK held");
@@ -771,21 +887,35 @@ inline int setMode(const Env &e, State &st, const Plan *const *pl, unsigned np, 
     const int r = survey(e, st, pl, np, tg, &cur);
     if (r != kDone) return r;
     const bool same = cur->info.hTotal == tg.info.hTotal && cur->info.vTotal == tg.info.vTotal && cur->info.hz == tg.info.hz;
-    const bool allEq = st.equal == tg.n;
+    // navi32: only the static plan registers have to agree for a round trip; the per-frame ones (kStepDouble)
+    // are rewritten while scanning and are compared at verify instead.
+    const bool allEq = equalStaticCount(e, tg) == staticSteps(tg);
     if (!force && same && allEq) { st.same++; return setWhy(st, kSame, 0, "same mode", "every plan register already at the target value: nothing written"); }
-    if (force && !(same && allEq)) return refuse(st, "round trip", "needs OTG0 at the target mode with every plan register equal (use 2 for a change)");
+    if (force && !(same && allEq)) {
+        char mm[150], msg[220];
+        mismatchNames(e, tg, mm, sizeof mm);
+        snprintf(msg, sizeof msg, "%s: %u of %u static registers match; differs: %s", tg.info.name, equalStaticCount(e, tg), staticSteps(tg), mm);
+        return refuse(st, "round trip", msg);
+    }
     if (!force && !same && !st.rtOk) return refuse(st, "mode change", "a round trip (3) must pass in this boot first");
     snapshot(e, st, tg, *cur);
     // b123: a same-timing pair re-plan of double-buffered frame / HUBP registers only = the live path (no blank)
     const bool live = e.live && !force && same && liveFits(e, st.tgt, tg.n);
+    st.tgtDentistMax = tg.info.dentistMax;
     st.busy = 1; st.gen++;
     const char *w = nullptr;
     int fs = live ? liveShell(e, st, st.tgt, tg.n, true, &w) : shell(e, st, st.tgt, tg.n, false, true, &w);
-    if (!fs && !verify(e, st, tg.info.hTotal, tg.info.vTotal, tg.info.hz, tg.info.pclkKhz, true, &w)) fs = kStVerify;
+    // navi32: the active size the plan programs (its viewport step) against the size running now: a RASTER change must not be
+    // failed on the HUBP underflow that the old-size frames cause while the client has not redrawn yet.
+    // navi32: both sides from plans (no hardware read): the plan being programmed against the plan identify() found for the
+    // live pipe. A different viewport means the client has not redrawn at the new size yet.
+    const bool rasterChange = planViewport(tg) && cur && planViewport(tg) != planViewport(*cur);
+    if (!fs && !verify(e, st, tg.info.hTotal, tg.info.vTotal, tg.info.hz, tg.info.pclkKhz, true, &w, !rasterChange)) fs = kStVerify;
     char d[200];
     if (!fs) {
         st.busy = 0; st.done++; st.mode = static_cast<int>(tg.info.hz); st.pubHTotal = tg.info.hTotal; st.pubVTotal = tg.info.vTotal;
         st.live = tg.info.name;
+        if (st.dark) st.dark = 0;   // navi32: the 60 Hz plan lit the pipe again
         if (!force && same && &tg != cur) st.replans++;
         if (live) st.liveReplans++;
         if (force) st.rtOk = 1;
@@ -805,6 +935,29 @@ inline int setMode(const Env &e, State &st, const Plan *const *pl, unsigned np, 
     st.busy = 0;
     char d2[200];
     if (rs) {
+        // navi32 (RedNavi restore, NullMoth note that latching is a bug): the first failed revert does not latch.
+        // The family 60 Hz plan - the raster the firmware lit at boot - is programmed instead, and dark is only
+        // set when even that does not verify. A rate the panel refuses then costs the user a rate, not the screen.
+        const Plan *safe = nullptr;
+        for (unsigned i = 0; i < np && !safe; i++) if (pl[i] && pl[i]->info.hz == 60) safe = pl[i];
+        if (safe && safe != &tg && safe->info.ready) {
+            Snap tmp[kMaxEntries];
+            const unsigned ns = safe->n < kMaxEntries ? safe->n : kMaxEntries;
+            for (unsigned i = 0; i < ns; i++) tmp[i] = Snap{safe->s[i].reg, safe->s[i].val, safe->s[i].mask, safe->s[i].stage, safe->s[i].pad};
+            const char *w3 = nullptr;
+            st.curStage = 0; st.curRevert = 1; st.busy = 1;
+            int rs2 = shell(e, st, tmp, ns, false, false, &w3);
+            if (!rs2 && !verify(e, st, safe->info.hTotal, safe->info.vTotal, safe->info.hz, safe->info.pclkKhz, false, &w3)) rs2 = kStVerify;
+            st.curRevert = 0; st.busy = 0;
+            if (!rs2) {
+                st.darkN++; st.fell++;
+                st.mode = static_cast<int>(safe->info.hz); st.pubHTotal = safe->info.hTotal; st.pubVTotal = safe->info.vTotal;
+                st.live = safe->info.name;
+                char d3[200];
+                snprintf(d3, sizeof d3, "%s; revert %s: %s; then the 60 Hz plan verified: the display is back", d, kStageName[rs], w2 ? w2 : "");
+                return setWhy(st, kFellBack, fs, "fell back to 60 Hz (the plan the firmware lit)", d3);
+            }
+        }
         st.dark = 1; st.darkN++;
         snprintf(d2, sizeof d2, "%s; revert %s: %s", d, kStageName[rs], w2 ? w2 : "");
         return setWhy(st, kDark, fs, "DARK: no pipe-0 write until reboot (the GOP relights 1080p60 at boot)", d2);
@@ -814,6 +967,11 @@ inline int setMode(const Env &e, State &st, const Plan *const *pl, unsigned np, 
 }
 
 // The sysctl write: 1 survey, 2 set the target, 3 round trip.
+// navi32 (C route): the active size a plan programs (its HUBP0 viewport step), 0 when it carries none.
+inline uint32_t planViewport(const Plan &p) {
+    for (unsigned i = 0; i < p.n; i++) if (p.s[i].reg == 0x03AAA) return p.s[i].val;
+    return 0;
+}
 inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, int cmd) {
     st.runs++; st.lastCmd = cmd; st.target = static_cast<int>(tg.info.hz); st.warn[0] = 0;
     if (cmd == kCmdSurvey) { const Plan *c = nullptr; return survey(e, st, pl, np, tg, &c); }
@@ -880,6 +1038,9 @@ inline bool dalMins(const Env &e, State &st, const Plan &tg, char *d, size_t n) 
     }
     for (unsigned t = 0; t < 50 && !dentistFits(rd(e, kDentist), tg.info.dentistMax); t++) e.io.delayUs(e.io.c, 2000);
     if (!dentistFits(rd(e, kDentist), tg.info.dentistMax)) {
+        // navi32: the SMU raised the clock source but leaves the DCCG divider alone; a plan that carries its own
+        // DENTIST step gets it written by the shell (stage 1, pipe blanked) and checked in verify.
+        for (unsigned i = 0; i < tg.n; i++) if (tg.s[i].reg == kDentist) return true;
         snprintf(d, n, "DENTIST 0x%08x still above %s's dividers 0x%x after the hard minimums", rd(e, kDentist), tg.info.name, tg.info.dentistMax);
         return false;
     }
@@ -887,14 +1048,19 @@ inline bool dalMins(const Env &e, State &st, const Plan &tg, char *d, size_t n) 
 }
 enum : uint32_t { kMacRoundTrip = 1, kMacStutterOff = 2, kMacUclkPin = 4 };   // = PhxSwitchABI.h PHX_P0SW_*
 struct MacOut { int res, stage, rtRes; uint32_t curHz, flags; bool rebase; };
-inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, uint32_t uclkMhz, MacOut *o) {
+inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, const Plan &tg, uint32_t uclkMhz, MacOut *o,
+                  bool replay = false) {
     *o = MacOut{kRefused, 0, -1, 0, 0, false};
     st.macRuns++;
     if (!e.enable || st.dark || st.halted) { o->res = run(e, st, pl, np, tg, kCmdSurvey); o->stage = st.lastStage; return o->res; }
     const Plan *cur = identify(e, pl, np);
     o->curHz = cur ? cur->info.hz : 0;
-    if (cur && cur->info.hTotal == tg.info.hTotal && cur->info.vTotal == tg.info.vTotal && cur->info.hz == tg.info.hz &&
-        (!tg.info.pairHTotal || equalCount(e, tg) == tg.n)) {
+    const bool sameTiming = cur && cur->info.hTotal == tg.info.hTotal && cur->info.vTotal == tg.info.vTotal && cur->info.hz == tg.info.hz;
+    if (replay && !sameTiming) {
+        o->res = refuse(st, "reconnect", "the requested timing is not the current pipe timing");
+        return o->res;
+    }
+    if (!replay && sameTiming && (!tg.info.pairHTotal || equalCount(e, tg) == tg.n)) {
         st.runs++; st.lastCmd = kCmdSet; st.target = static_cast<int>(tg.info.hz); st.same++; st.mode = static_cast<int>(tg.info.hz);
         o->res = setWhy(st, kSame, 0, "same mode", "OTG0 already runs the target's timing: nothing written");
         return o->res;
@@ -910,9 +1076,20 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     if (tg.opts & kOptStickyClear) {
         const uint32_t odm = rd(e, kOdm0);
         const char *w = nullptr;
+        bool cleared = false;
         if ((odm & kOdmSticky) && !(odm & kOdmCurrent) && W(e, st, kOdm0, kOdmSticky | kOdmClear, kOdmClear, false, &w)) {
-            st.odmPreClears++; e.io.delayUs(e.io.c, 20000);
+            st.odmPreClears++; cleared = true;
         }
+        // b165: also clear a stale HUBP0 underflow sticky before survey; if HUBP0 is actively starving, the bit
+        // re-sets during the 20 ms settle window and survey() still refuses it.
+        const uint32_t hubp = rd(e, kHubp0Cntl);
+        if ((hubp & kHubpUnderflow) && !(hubp & kHubpBlank)) {
+            if (W(e, st, kHubp0Cntl, kHubpUnderflow | kHubpUnderflowClear, kHubpUnderflowClear, false, &w) &&
+                W(e, st, kHubp0Cntl, kHubpUnderflow | kHubpUnderflowClear, 0, false, &w)) {
+                st.stickyClears++; cleared = true;
+            }
+        }
+        if (cleared) e.io.delayUs(e.io.c, 20000);
     }
     if (tg.detMin || tg.dalMin) {
         st.runs++; st.lastCmd = kCmdSurvey; st.target = static_cast<int>(tg.info.hz);
@@ -921,7 +1098,18 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
         const char *w = nullptr;
         char d[120];
         if (r == kDone && tg.detMin && tg.info.hz > 60 && (rd(e, kDet0) & 0x1f) < tg.detMin && !detSolo(e, st, tg.detMin, &w)) r = refuse(st, "DET", w);
-        if (r == kDone && tg.dalMin && !dentistFits(rd(e, kDentist), tg.info.dentistMax) && !dalMins(e, st, tg, d, sizeof d)) r = refuse(st, "DAL", d);
+        if (r == kDone && tg.dalMin && !dentistFits(rd(e, kDentist), tg.info.dentistMax)) {
+            // The SMU is asked for the clock; the DCCG divider itself is written by the shell, from the plan's
+            // DENTIST_DISPCLK_CNTL step (stage 1), after the pipe is blanked. Writing it here would reprogram the
+            // dividers of the mode that is still scanning - measured: it corrupted the live 60 Hz timing.
+            if (!dalMins(e, st, tg, d, sizeof d)) {
+                r = refuse(st, "DAL", d);
+            } else if (!dentistFits(rd(e, kDentist), tg.info.dentistMax)) {
+                // The SMU raised the clock; the divider is the shell's (its stage-1 DENTIST step, written
+                // after the pipe is blanked). verify() checks the final value.
+                // (the DAL messages went out; the plan carries its own DENTIST step for the shell)
+            }
+        }
     }
     if (r == kDone) r = run(e, st, pl, np, tg, kCmdSurvey);
     if (r == kDone && cur && tg.info.hz > cur->info.hz && uclkMhz) {
@@ -934,16 +1122,30 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
             else { snprintf(d, sizeof d, "SetHardMinByFreq UCLK %u MHz answered 0x%x", uclkMhz, s); r = refuse(st, "UCLK pin", d); }
         }
     }
-    if (r == kDone && !st.rtOk) {
+    if (r == kDone && (replay || !st.rtOk)) {
         o->flags |= kMacRoundTrip;
-        r = o->rtRes = run(e, st, pl, np, *cur, kCmdRoundTrip);
+        r = o->rtRes = run(e, st, pl, np, replay ? tg : *cur, kCmdRoundTrip);
         if (r == kDone || r == kFellBack) o->rebase = true;
     }
     bool set = false;
-    if (r == kDone) { set = true; r = run(e, st, pl, np, tg, kCmdSet); if (r == kDone || r == kFellBack) o->rebase = true; }
+    // navi32: the captured plans do not carry DP_VID_M, and the hardware does not recompute it when the DTO
+    // changes: it stayed at the 60 Hz value through a 144 Hz set. The MSA M value is linear in the pixel
+    // clock (M = M_snapshot * pclk_new / pclk_snapshot, which is exactly what verify() expects), so write it
+    // before the shell hands the stream over.
+    if (!replay && r == kDone && st.sPclk && st.sVidM) {
+        const uint32_t mNew = expectM(st, tg.info.pclkKhz) & 0xffffffu;
+        const char *w = nullptr;
+        if (!W(e, st, kVidM, 0x00ffffffu, mNew, false, &w)) {
+            snprintf(st.warn, sizeof st.warn, "DP_VID_M 0x%x: %s", mNew, w ? w : "write refused");
+            r = refuse(st, "DP_VID_M", st.warn);
+        }
+    }
+    if (!replay && r == kDone) { set = true; r = run(e, st, pl, np, tg, kCmdSet); if (r == kDone || r == kFellBack) o->rebase = true; }
     o->res = r; o->stage = st.lastStage;
     o->curHz = set && r == kDone ? tg.info.hz : cur ? cur->info.hz : 0;
-    if (forced && r != kDark && o->curHz <= 60) { e.io.wr(e.io.c, kArb, arb); st.writes++; st.arbRestored++; o->flags &= ~kMacStutterOff; }
+    // navi32: at > 60 Hz the stutter stayed off for the rest of the boot, so DRAM never entered self refresh.
+    // stutterAlways restores it after every successful set (power A/B); a stutter-induced underflow then shows in verify.
+    if (forced && r != kDark && (o->curHz <= 60 || st.stutterAlways)) { e.io.wr(e.io.c, kArb, arb); st.writes++; st.arbRestored++; o->flags &= ~kMacStutterOff; }
     st.macBusy = 0;
     return r;
 }

@@ -114,7 +114,9 @@ static void gop(Hw &h) {
 }
 static std::set<uint32_t> allowedWrites() {
     std::set<uint32_t> a = {0x03AB3, 0x04D14, 0x04D17, 0x04D18, 0x04D19, 0x04F8A, 0x05001, 0x0504A, 0x039EE, 0x05651, 0x056CC, 0x056CD,
-                            0x0397B, 0x0397C, 0x0397D, 0x0397E, 0x039BC};
+                            0x0397B, 0x0397C, 0x0397D, 0x0397E, 0x039BC,
+                            // navi32: macSet writes DP_VID_M for the target pixel clock (the plans never carry it)
+                            0x056D2, 0x059D2};
     for (const phxp0::Plan *p : kFam) for (unsigned i = 0; i < p->n; i++) a.insert(p->s[i].reg);
     return a;
 }
@@ -154,6 +156,15 @@ int main() {
         const phxp0::Env e = env(h);
         CHECK(phxp0::identify(e, kFam, N(kFam)) == &P60 && phxp0::identify(e, kXt, N(kXt)) == nullptr);
         CHECK(phxp0::equalCount(e, P60) == P60.n);   // so the round trip at 60 passes
+    }
+    {
+        Hw h; gop(h); phxp0::State st{}; phxp0::MacOut out{};
+        const phxp0::Env e = env(h);
+        CHECK(phxp0::macSet(e, st, kFam, N(kFam), P60, 456, &out) == phxp0::kSame && h.writes.empty());
+        CHECK(phxp0::macSet(e, st, kFam, N(kFam), P120, 456, &out, true) == phxp0::kRefused && h.writes.empty());
+        st.rtOk = 1;
+        CHECK(phxp0::macSet(e, st, kFam, N(kFam), P60, 456, &out, true) == phxp0::kDone && !h.writes.empty());
+        CHECK(out.rtRes == phxp0::kDone && out.rebase && out.curHz == 60 && planEquals(h, P60) && writesOk(h));
     }
     {   // 60 -> 120 -> 144 -> 60 on one boot
         Hw h; gop(h); phxp0::State st{}; phxp0::MacOut o{};

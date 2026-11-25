@@ -65,14 +65,14 @@ IOReturn phxRotValidate(const PhxRotModes &m, void *desc, IOByteCount size)
     phxrot::Timing t;
     toTiming(*d, &t);
     uint32_t plan = 0;
-    const int why = phxrot::check(t, m.head, m.ids, m.n, &plan, m.single);
+    const int why = phxrot::check(t, m.head, m.ids, m.n, &plan, m.single, m.modes, m.nModes);
     OSAddAtomic64(1, &gRotWhy[why < phxrot::kWhyCount ? why : 0]);
     if (why == phxrot::kWhyNotRotated) return kIOReturnUnsupported;   // not ours: IOFramebuffer's own answer, as gate off
     if (why != phxrot::kOk) return kIOReturnUnsupportedMode;
     if (!d->minPixelClock) d->minPixelClock = d->pixelClock;
     if (!d->maxPixelClock) d->maxPixelClock = d->pixelClock;
     if (info) {
-        const phxhead::HeadMode *hm = phxrot::modeOf(m.head, plan, m.single);
+        const phxhead::HeadMode *hm = phxrot::modeOf(m.head, plan, m.single, m.modes, m.nModes);
         uint32_t w, h;
         phxrot::desktopOf(t, &w, &h);
         info->maxDepthIndex = 0; info->nominalWidth = w; info->nominalHeight = h;
@@ -99,7 +99,7 @@ IOReturn phxRotSetTimings(PhxRotHead &r, const PhxRotModes &m, OSArray *array)
         phxrot::Timing t;
         toTiming(d, &t);
         const unsigned before = r.tb.n;
-        if (phxrot::add(r.tb, t, m.head, m.ids, m.n, m.single) == phxrot::kOk) r.raw[before] = d;
+        if (phxrot::add(r.tb, t, m.head, m.ids, m.n, m.single, m.modes, m.nModes) == phxrot::kOk) r.raw[before] = d;
     }
     if (m.head < phxhead::kMaxHeads) gRotInstalledN[m.head] = r.tb.n;
     IOLog("PhxRot: head %u setDetailedTimings: %u of %u timing(s) are rotated modes of a listed raster (%u skipped)\n",
@@ -123,11 +123,11 @@ bool phxRotOwns(const PhxRotHead &r, unsigned head, IODisplayModeID id)
 uint32_t phxRotPlan(const PhxRotHead &r, IODisplayModeID id) { const phxrot::Installed *e = entry(r, id, nullptr); return e ? e->plan : 0; }
 
 IOReturn phxRotInfo(const PhxRotHead &r, unsigned head, IODisplayModeID id, IODisplayModeInformation *info,
-                    const phxhead::HeadMode *single)
+                    const phxhead::HeadMode *single, const phxhead::HeadMode *modes, unsigned nModes)
 {
     const phxrot::Installed *e = entry(r, id, nullptr);
     if (!e || !info) return kIOReturnBadArgument;
-    const phxhead::HeadMode *hm = phxrot::modeOf(head, e->plan, single);
+    const phxhead::HeadMode *hm = phxrot::modeOf(head, e->plan, single, modes, nModes);
     uint32_t w, h;
     phxrot::desktopOf(e->t, &w, &h);
     bzero(info, sizeof(*info));

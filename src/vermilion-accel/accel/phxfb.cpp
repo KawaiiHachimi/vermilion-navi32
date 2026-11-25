@@ -5,9 +5,11 @@
 // (IOPlatformExpert::getConsoleInfo), the accelerator's display pipe copies each finished frame into a write-combined CPU
 // mapping of it, and a timer at the panel's refresh (measured on the display engine, measureRefresh) stands in for the VBL
 // interrupt WindowServer paces an accelerated display on.
+#include "../../vermilion-boot/PhxP0Modes.h"
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/graphics/IOFramebuffer.h>
+#include <IOKit/graphics/IOGraphicsInterfaceTypes.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/pwr_mgt/RootDomain.h>
 #include <IOKit/IOPlatformExpert.h>
@@ -25,6 +27,7 @@
 #include "../../vermilion-boot/PhxSwitchABI.h"   // mode switch: PhxBringup's "phxPipe2SetMode" (kext b93)
 #include "../../vermilion-boot/PhxDdc.h"    // phxddc::kSrcAuto / kSrcOther: the phxEdidRead source request (kext b81)
 #include "../../vermilion-boot/PhxGamma.h"  // head-1 gamma: PhxBringup's "phxPipe2SetGamma" (kext b98), resample / identity
+#include "../../vermilion-boot/PhxCursor.h" // b163: opt-in head-0 HUBP0 hardware cursor ("phxCursorImage" / "phxCursorState")
 #include "phxhead.h"                    // M7 S3a: the second head's layout, mode rule, AGDC list, EDID fallback (host-tested)
 #include "phxrotate_k.h"                // rotation S1: rotated modes + the copy's angle (phxrotate_k.cpp, phxrotate.h), off by default
 #include "phxoffer.h"                   // head 0's offer gate: only the lit mode until the daemon's restart (host-tested)
@@ -104,6 +107,9 @@ SYSCTL_INT(_debug, OID_AUTO, phxfb_switch_last, CTLFLAG_RD | CTLFLAG_LOCKED, &gH
            "head 0's last switch: phx_pipe0_setmode.result (0 done, 1 same, 2 refused, 3 fell back, 4 dark, -1 not run); why: debug.phxpipe0_stat");
 SYSCTL_INT(_debug, OID_AUTO, phxfb_switch_flags, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0SwFlags, 0,
            "head 0's last switch: PHX_P0SW_* (1 round trip first, 2 stutter forced off, 4 UCLK hard minimum sent)");
+static volatile SInt64 gHead0SwReqId, gHead0SwReqTarget;   // navi32: the id and the target_hz of the last head-0 switch
+SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_swreq, CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gHead0SwReqId, "the mode id CoreDisplay asked head 0 for last");
+SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_swtarget, CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gHead0SwReqTarget, "the target_hz the framebuffer derived for it");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb_switches, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0Switches, "head 0: setDisplayMode calls that asked PhxBringup to switch pipe 0");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb_switch_fails, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead0SwitchFails, "head 0: switches that did not end at the target");
 // Boot rate: the boot daemon re-times pipe 0 itself (PhxBringup debug.phxpipe0=4)
@@ -220,6 +226,8 @@ SYSCTL_INT(_debug, OID_AUTO, phxfb1_scan, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead1Sc
            "head 1: 1 = HUBP1 scans its surface (unblanked, address = its VRAM), 0 = not, -1 = unknown (no MMIO view)");
 SYSCTL_INT(_debug, OID_AUTO, phxfb1_pipe_refresh, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead1PipeRefresh, 0,
            "head 1: OTG1's refresh measured at start, mHz (0 = OTG1 was not running: the 60 Hz synthetic tick)");
+static volatile SInt64 gHead0Locked;
+SYSCTL_QUAD(_debug, OID_AUTO, phxfb0_vbl_locked, CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gHead0Locked, "head 0 VBL ticks placed on OTG0's vblank start");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb1_vbl_locked, CTLFLAG_RD | CTLFLAG_LOCKED, &gHead1Locked, "head 1 VBL ticks placed on OTG1's vblank start");
 static int phxfb1FlipSysctl SYSCTL_HANDLER_ARGS;
 SYSCTL_PROC(_debug, OID_AUTO, phxfb1_flip, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0, phxfb1FlipSysctl, "I",
@@ -252,6 +260,11 @@ SYSCTL_QUAD(_debug, OID_AUTO, phxfb_flip_waits, CTLFLAG_RD | CTLFLAG_LOCKED, &gF
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb_flip_wait_us_sum, CTLFLAG_RD | CTLFLAG_LOCKED, &gFlipWaitUsSum, "microseconds frames waited for the previous flip, summed");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb_flip_latch_us, CTLFLAG_RD | CTLFLAG_LOCKED, &gFlipLatchUs, "the last test flip: microseconds from the write to the latch (-1 = never)");
 SYSCTL_QUAD(_debug, OID_AUTO, phxfb_flip_latch_line, CTLFLAG_RD | CTLFLAG_LOCKED, &gFlipLatchLine, "the last test flip: OTG0 line when the latch was seen");
+extern struct sysctl_oid sysctl__debug_phxfb0_modes;   // navi32: defined below with its handler
+// b163: opt-in HUBP0 hardware cursor on head 0 (default 0 = software cursor; boot-arg phxcursor=1 or root sysctl)
+static int gPhxCursor = 0;
+SYSCTL_INT(_debug, OID_AUTO, phxcursor, CTLFLAG_RW | CTLFLAG_LOCKED, &gPhxCursor, 0,
+           "b163: 1 = head-0 HUBP0 hardware cursor (when unrotated and PhxBringup b163+ has phx-cursor-fn), 0 = software cursor (default)");
 static struct sysctl_oid *const kFbOids[] = { &sysctl__debug_phxfb_alias, &sysctl__debug_phxfb_vbl_staged, &sysctl__debug_phxfb_vbl_n,
                                               &sysctl__debug_phxfb_vbl_late_us_sum, &sysctl__debug_phxfb_vbl_late_us_max,
                                               &sysctl__debug_phxfb_vbl_handlers, &sysctl__debug_phxfb_vbl_procs,
@@ -278,7 +291,9 @@ static struct sysctl_oid *const kFbOids[] = { &sysctl__debug_phxfb_alias, &sysct
                                               &sysctl__debug_phxfb_switch_last, &sysctl__debug_phxfb_switch_flags,
                                               &sysctl__debug_phxfb_switches, &sysctl__debug_phxfb_switch_fails,
                                               &sysctl__debug_phxfb_resync, &sysctl__debug_phxfb_resyncs,
-                                              &sysctl__debug_phxfb0_offer, &sysctl__debug_phxfb0_offer_opens };
+                                              &sysctl__debug_phxfb0_offer, &sysctl__debug_phxfb0_offer_opens,
+                                              &sysctl__debug_phxfb0_swreq, &sysctl__debug_phxfb0_swtarget, &sysctl__debug_phxfb0_modes,
+                                              &sysctl__debug_phxcursor };
 
 // The class name carries "AMD": CoreDisplay tells the GPU vendor from the framebuffer's class name (Intel, AMD, NVDA,
 // AppleParavirt), and for any other name it turns IOPresentment off, which left the panel on the software compositor
@@ -337,6 +352,9 @@ class PhxAMDFB : public IOFramebuffer {
     thread_call_t fVblTimer = nullptr;
     uint64_t fVblNext = 0;
     volatile bool fStopping = false;
+#if PHX_PIPE_DIG == 4
+    volatile bool fHp0Powered = true;
+#endif
     bool fBeside = false;   // another framebuffer (the firmware's IONDRV one) already drives this GPU: not the console
     IOPhysicalAddress fBase = 0;
     uint32_t fWidth = 0, fHeight = 0, fRowBytes = 0;
@@ -351,15 +369,80 @@ class PhxAMDFB : public IOFramebuffer {
     // HDR: the depth macOS set (1 = 30-bit). No hardware follows it: the scan-out's format is the lit plan's (8-bit in
     // SDR, ARGB2101010 in HDR, gPhxScan10), and the copies convert to that.
     IOIndex fDepth = 0;
+    // navi32: the mode table PhxBringup published (PhxP0Modes.h). When present it is the whole truth for head 0:
+    // the ids, the rates and the timings all come from the plans the engine can actually program.
+    phxp0pub::Mode fPub[phxp0pub::kMaxModes] {};
+    phxhead::HeadMode fPubHM[phxp0pub::kMaxModes] {};
+    unsigned fPubN = 0;
+    // navi32: the published row whose totals (and nearest rate) match what the pipe scans. phxhead::modeForTotals only
+    // knows the compiled table, so it cannot name a published-only row - which is why the framebuffer reported the old mode
+    // after a landed 1080p switch and CoreGraphics kept believing 2560x1440.
+    uint32_t pubModeForTotals(uint32_t hTotal, uint32_t vTotal, uint32_t milliHz) const {
+        uint32_t best = 0, bestErr = 0;
+        for (unsigned i = 0; i < fPubN; i++) {
+            if (fPub[i].hTotal != hTotal || fPub[i].vTotal != vTotal) continue;
+            const uint32_t e = fPub[i].milliHz > milliHz ? fPub[i].milliHz - milliHz : milliHz - fPub[i].milliHz;
+            if (!best || e < bestErr) { best = fPub[i].id; bestErr = e; }
+        }
+        return best;
+    }
+    bool pubMode(IODisplayModeID mode, phxp0pub::Mode *out) const {
+        if (!fHead && fPubN && mode >= 1 && (unsigned)mode <= fPubN) { *out = fPub[(unsigned)mode - 1]; return true; }
+        return false;
+    }
+    const phxhead::HeadMode *pubHeadMode(IODisplayModeID mode) const {
+        if (!fHead && fPubN && mode >= 1 && (unsigned)mode <= fPubN) return &fPubHM[(unsigned)mode - 1];
+        return nullptr;
+    }
     bool fAnySize = false;   // b138: PhxBringup published phx-p0-keys at start: head 0 offers the other sizes too
     const phxhead::HeadMode *modeOf(IODisplayModeID mode) const {   // b138: a listed mode's row on head 0 with a list, else null
         return fHead == 0 && fNModes && listed(mode) ? phxhead::headMode(0, (uint32_t)mode) : nullptr;
     }
-    uint32_t modeW(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->w : fWidth; }
-    uint32_t modeH(IODisplayModeID mode) const { const phxhead::HeadMode *m = modeOf(mode); return m && fAnySize ? m->h : fHeight; }
+    // navi32 (C route): the published table is the authority for a mode's raster, including ids the compiled table does
+    // not have (the 1080p row is id 6 there). Reading the compiled row first reported 2560x1440 in getPixelInformation
+    // for a 1920x1080 mode, and CoreDisplay dropped the mode for the inconsistency - the engine published 6, the
+    // framebuffer listed 6, and CoreGraphics offered 5.
+    uint32_t modeW(IODisplayModeID mode) const {
+        phxp0pub::Mode pm{};
+        if (pubMode(mode, &pm)) return fAnySize ? pm.w : fWidth;
+        const phxhead::HeadMode *m = modeOf(mode);
+        return m && fAnySize ? m->w : fWidth;
+    }
+    uint32_t modeH(IODisplayModeID mode) const {
+        phxp0pub::Mode pm{};
+        if (pubMode(mode, &pm)) return fAnySize ? pm.h : fHeight;
+        const phxhead::HeadMode *m = modeOf(mode);
+        return m && fAnySize ? m->h : fHeight;
+    }
     uint32_t modeRow(IODisplayModeID mode) const {
+        phxp0pub::Mode pm{};
+        if (pubMode(mode, &pm) && fAnySize) return ((pm.w + 255u) & ~255u) * 4u;   // the tight stride the plan writes
         const phxhead::HeadMode *m = modeOf(mode);
         return m && fAnySize ? phxhead::modeRowBytes(*m, fBootW, fBootH, fBootRowBytes) : fRowBytes;
+    }
+    // navi32 (C route): what this head answers for every listed mode - the size, the row pitch and the timing are
+    // the three answers CoreDisplay compares before it keeps a mode. A mode missing from the Displays pane can be a
+    // disagreement here, which is otherwise invisible without a GUI session.
+    friend int phxfb0ModesSysctl SYSCTL_HANDLER_ARGS;
+    int dumpModes(char *b, int n) {
+        int len = 0;
+        for (unsigned k = 0; k < fNModes && k < phxp0pub::kMaxModes && len < n - 200; k++) {
+            const IODisplayModeID id = (IODisplayModeID)fModeIds[k];
+            IODisplayModeInformation info{};
+            IOPixelInformation pi{};
+            IOTimingInformation ti{};
+            const IOReturn a = getInformationForDisplayMode(id, &info);
+            const IOReturn c = getPixelInformation(id, 0, kIOFBSystemAperture, &pi);
+            const IOReturn d = getTimingInfoForDisplayMode(id, &ti);
+            len += snprintf(b + len, (size_t)(n - len), "id %u: info 0x%x %ux%u %u mHz | pix 0x%x %ux%u row %u | timing 0x%x %s\n",
+                            (unsigned)id, (unsigned)a, (unsigned)info.nominalWidth, (unsigned)info.nominalHeight,
+                            (unsigned)(((uint64_t)info.refreshRate * 1000) >> 16), (unsigned)c, (unsigned)pi.activeWidth,
+                            (unsigned)pi.activeHeight, (unsigned)pi.bytesPerRow, (unsigned)d,
+                            (ti.flags & kIODetailedTimingValid) ? "valid" : "none");
+        }
+        len += snprintf(b + len, (size_t)(n - len), "listed %u, current id %u, gate %s\n", fNModes, (unsigned)fModeId,
+                        gHead0OfferOpen ? "open" : "closed");
+        return len;
     }
     static constexpr uint64_t kFrameNs = 16666667ull;   // 60 Hz, when the refresh cannot be measured
     uint64_t fFrameNs = kFrameNs;
@@ -375,8 +458,8 @@ class PhxAMDFB : public IOFramebuffer {
     PhxRotHead fRot = {};   // rotation S1 (phxrotate_k.h): empty and angle 0 unless debug.phxfb_rotate names this head
     PhxRotModes rotModes() const {
         static const uint32_t kOne[1] = {1};
-        if (!fNModes && fSingleOk) return PhxRotModes{fHead, kOne, 1, fEdid, fEdidLen, &fSingle};   // rot12
-        return PhxRotModes{fHead, fModeIds, fNModes, fEdid, fEdidLen, nullptr};
+        if (!fNModes && fSingleOk) return PhxRotModes{fHead, kOne, 1, fEdid, fEdidLen, &fSingle, nullptr, 0};   // rot12
+        return PhxRotModes{fHead, fModeIds, fNModes, fEdid, fEdidLen, nullptr, (!fHead && fPubN) ? fPubHM : nullptr, !fHead ? fPubN : 0};
     }
     bool listed(IODisplayModeID m) const {
         if (!fNModes) return m == 1;
@@ -565,7 +648,10 @@ class PhxAMDFB : public IOFramebuffer {
         uint64_t period; nanoseconds_to_absolutetime(me->fFrameNs, &period);
         const uint64_t now = mach_absolute_time();
         me->fVblNext = (me->fVblNext && me->fVblNext + period > now) ? me->fVblNext + period : now + period;
-        if (me->fHead != 0) me->lockToPipe(now);   // M7 S3b: head 1's tick on OTG1's vblank start
+        // M7 S3b: head 1's tick on OTG1's vblank start. navi32 (2026-11-24): head 0 too - a free-running tick drifts
+        // against OTG0, the present after a tick then waits a whole frame for the previous flip to latch, and
+        // WindowServer composited at 30 fps on a 60 Hz panel (nvaccel_iop_gap2 = 97 % of frames).
+        me->lockToPipe(now);
         uint64_t lead; nanoseconds_to_absolutetime(1500000, &lead);
         thread_call_enter_delayed(me->fVblTimer, gVblStaged ? me->fVblNext - lead : me->fVblNext);
     }
@@ -603,8 +689,9 @@ class PhxAMDFB : public IOFramebuffer {
         const uint32_t ctl = R(P.otgControl);
         const uint32_t hc = R(P.hubpCntl), lo = R(P.addrLo), hi = R(P.addrHi), fb = R(phxhead::kRegFbLocationBase);
         const uint64_t bOff = fFlipOk && fBmc ? fBmc - ((uint64_t)(fb & 0xffffff) << 24) : ~0ull;   // S4a: B counts too
-        gHead1Scan = phxhead::otgRunning(ctl) && (phxhead::scansSurface(hc, lo, hi, fb, (uint64_t)gHead1VramOff) ||
-                                                  (bOff != ~0ull && phxhead::scansSurface(hc, lo, hi, fb, bOff))) ? 1 : 0;
+        if (fHead != 0)
+            gHead1Scan = phxhead::otgRunning(ctl) && (phxhead::scansSurface(hc, lo, hi, fb, (uint64_t)gHead1VramOff) ||
+                                                      (bOff != ~0ull && phxhead::scansSurface(hc, lo, hi, fb, bOff))) ? 1 : 0;
         if (!phxhead::otgRunning(ctl) || fVblNext <= now) return;
         const uint64_t frameUs = fFrameNs / 1000;
         uint64_t candNs; absolutetime_to_nanoseconds(fVblNext - now, &candNs);
@@ -613,7 +700,7 @@ class PhxAMDFB : public IOFramebuffer {
         if (us == candNs / 1000) return;
         uint64_t d; nanoseconds_to_absolutetime(us * 1000, &d);
         fVblNext = now + d;
-        OSAddAtomic64(1, &gHead1Locked);
+        OSAddAtomic64(1, fHead ? &gHead1Locked : &gHead0Locked);
     }
 
     // The double buffer (gFlipOn[fHead]). Registers are absolute dwords in BAR5 (DCN 3.2 segment base 0x34c0 + dcn_3_2_0_offset.h).
@@ -827,6 +914,11 @@ public:
     }
     uint32_t hp0Served(uint8_t out[256]) const { const uint32_t n = fEdidLen < 256 ? fEdidLen : 256; memcpy(out, fEdid, n); return n; }
     int hp0EdidLive(uint32_t src, uint8_t out[256], uint32_t *len);
+#if PHX_PIPE_DIG == 4
+    bool hp0CanSample() const { return !fStopping && fOnline && fHp0Powered; }
+    bool hp0CanReplay() const { return hp0CanSample() && fConnect.proc && !gFlipOn[0]; }
+    IOReturn hp0Replay(const phxhp0::Conn &conn);
+#endif
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
     bool startHead(IOService *provider, unsigned head);   // M7 S3a: the phantom second head (head >= 1)
@@ -867,11 +959,15 @@ public:
                (!fNModes || (uint32_t)mode == phxRotDefaultId(fHead, fBootModeId, fModeId) ? kDisplayModeDefaultFlag : 0);   // rotation rot2
     }
     IOReturn getInformationForDisplayMode(IODisplayModeID mode, IODisplayModeInformation *info) override {
-        if (phxRotOwns(fRot, fHead, mode)) return phxRotInfo(fRot, fHead, mode, info, rotModes().single);
+        if (phxRotOwns(fRot, fHead, mode)) {
+            const PhxRotModes rm = rotModes();
+            return phxRotInfo(fRot, fHead, mode, info, rm.single, rm.modes, rm.nModes);
+        }
         if (!listed(mode) || !info) return kIOReturnBadArgument;
         bzero(info, sizeof(*info));
         info->maxDepthIndex = fHdr ? 1 : 0; info->nominalWidth = modeW(mode); info->nominalHeight = modeH(mode);   // b138: per mode
-        const phxhead::HeadMode *hm = fNModes ? phxhead::headMode(fHead, (uint32_t)mode) : nullptr;
+        const phxhead::HeadMode *hm = pubHeadMode(mode);
+        if (!hm && fNModes) hm = phxhead::headMode(fHead, (uint32_t)mode);
         const uint32_t mhz = hm ? hm->milliHz : fRefreshMilliHz;
         info->refreshRate = (IOFixed1616)(((uint64_t)mhz << 16) / 1000); info->flags = modeFlags(mode);
         // the panel's physical size for every mode (a smaller mode is scaled by the monitor to the whole panel)
@@ -911,7 +1007,18 @@ public:
         if (!fNModes) r = (hw == 1 && depthOk) ? kIOReturnSuccess : kIOReturnUnsupported;
         else if (!depthOk || !listed(hw)) r = kIOReturnUnsupportedMode;
         else if (fHead) r = switchHead1Mode(hw);
+#if PHX_PIPE_DIG == 4
+        else {
+            if (!OSCompareAndSwap(0, 1, &gHead0SwBusy)) return kIOReturnBusy;
+            r = switchHead0Mode(hw);
+            if (r == kIOReturnSuccess && (rot || fRot.curValid)) phxRotSelect(fRot, fHead, rot ? (uint32_t)mode : 0);
+            if (r == kIOReturnSuccess && fHdr) fDepth = depth;
+            OSDecrementAtomic(&gHead0SwBusy);
+            return r;
+        }
+#else
         else { OSIncrementAtomic(&gHead0SwBusy); r = switchHead0Mode(hw); OSDecrementAtomic(&gHead0SwBusy); }   // hp0 holds meanwhile
+#endif
         if (r == kIOReturnSuccess && (rot || fRot.curValid)) phxRotSelect(fRot, fHead, rot ? (uint32_t)mode : 0);
         if (r == kIOReturnSuccess && fHdr) fDepth = depth;
         return r;
@@ -926,7 +1033,14 @@ public:
         // otherwise no detailed timing: the panel keeps the firmware's
         phxhead::DetailedTiming t;
         // rotation S1: head 1's listed modes too while debug.phxfb_rotate names it (the EDID's DTD, phxRotPlanTiming)
-        bool have = fNModes && (fHead ? phxRotPlanTiming(rotModes(), (uint32_t)mode, &t) : phxhead::detailedTiming(0, (uint32_t)mode, &t));
+        phxp0pub::Mode pm{};
+        bool have = pubMode(mode, &pm);
+        if (have) {   // navi32: every timing field from the plan the engine will program
+            t.pixelHz = (uint64_t)pm.pclkHz * 1000ull; t.hActive = pm.w; t.hBlank = pm.hBlank;
+            t.hSyncOffset = pm.hSyncOff; t.hSyncWidth = pm.hSyncWidth;
+            t.vActive = pm.h; t.vBlank = pm.vBlank; t.vSyncOffset = pm.vSyncOff; t.vSyncWidth = pm.vSyncWidth;
+            t.hSyncPos = pm.hPos != 0; t.vSyncPos = pm.vPos != 0;
+        } else have = fNModes && (fHead ? phxRotPlanTiming(rotModes(), (uint32_t)mode, &t) : phxhead::detailedTiming(0, (uint32_t)mode, &t));
         // rot12: the one-mode head 0 reports its GOP mode's EDID timing while it may rotate (none before, as with gate 0)
         if (!have && !fHead && !fNModes && fSingleOk && mode == 1 && phxRotGate(0)) { t = fSingleT; have = true; }
         if (have) {
@@ -1066,6 +1180,10 @@ public:
     // power and connection answers as NullMoth's NMIntelFB/NVRMFB give them: acknowledge at once, never queue on the
     // controller thread (a base-class power change waited 45 s for an acknowledge and froze WindowServer restarts)
     IOReturn setPowerState(unsigned long ordinal, IOService *) override {
+#if PHX_PIPE_DIG == 4
+        fHp0Powered = ordinal != 0;
+#endif
+        if (!ordinal) cursorHideIfActive();
         handleEvent(ordinal ? kIOFBNotifyDidPowerOn : kIOFBNotifyWillPowerOff);
         return kIOPMAckImplied;
     }
@@ -1074,16 +1192,67 @@ public:
         if (fHdr && attribute == 'hdrm') return kIOReturnSuccess;
         if (attribute == kIOWindowServerActiveAttribute) return kIOReturnSuccess;
         if (attribute == kIOPowerAttribute) {
+#if PHX_PIPE_DIG == 4
+            fHp0Powered = value != 0;
+#endif
             if (value) { IOReturn r = IOFramebuffer::setAttribute(attribute, value); handleEvent(kIOFBNotifyDidPowerOn);
                          return r == kIOReturnUnsupported ? kIOReturnSuccess : r; }
+            cursorHideIfActive();
             handleEvent(kIOFBNotifyWillPowerOff);
             IOReturn r = IOFramebuffer::setAttribute(attribute, value);
             return r == kIOReturnUnsupported ? kIOReturnSuccess : r;
         }
         return IOFramebuffer::setAttribute(attribute, value);
     }
+    // b163: opt-in HUBP0 hardware cursor (head 0 only, unrotated only; inert while debug.phxcursor == 0)
+    IOService *fCursorSvc = nullptr;
+    uint32_t *fCursorBuf = nullptr;
+    bool fCursorActive = false;
+    bool hwCursorOn() const { return !fHead && gPhxCursor != 0 && !fRot.curValid && fCursorSvc != nullptr; }
+    void cursorHideIfActive() {
+        if (!fCursorActive || !fCursorSvc) return;
+        phx_cursor_state st{PHX_CURSOR_ABI_VERSION, 0, 0, 0, fWidth, fHeight};
+        fCursorSvc->callPlatformFunction("phxCursorState", true, &st, nullptr, nullptr, nullptr);
+        fCursorActive = false;
+    }
+    IOReturn setCursorImage(void *cursorImage) override {
+        if (!hwCursorOn()) { cursorHideIfActive(); return kIOReturnUnsupported; }
+        if (!fCursorBuf) {
+            fCursorBuf = static_cast<uint32_t *>(IOMalloc(phxcursor::kImageBytes));
+            if (!fCursorBuf) return kIOReturnNoMemory;
+        }
+        bzero(fCursorBuf, phxcursor::kImageBytes);
+        IOHardwareCursorDescriptor desc{};
+        desc.majorVersion = kHardwareCursorDescriptorMajorVersion;
+        desc.minorVersion = kHardwareCursorDescriptorMinorVersion;
+        desc.width = phxcursor::kMaxDim;
+        desc.height = phxcursor::kMaxDim;
+        desc.bitDepth = kIO32ARGBPixelFormat;
+        IOHardwareCursorInfo info{};
+        info.majorVersion = kHardwareCursorInfoMajorVersion;
+        info.minorVersion = kHardwareCursorInfoMinorVersion;
+        info.hardwareCursorData = reinterpret_cast<UInt8 *>(fCursorBuf);
+        if (!convertCursorImage(cursorImage, &desc, &info) || !info.cursorWidth || !info.cursorHeight ||
+            info.cursorWidth > phxcursor::kMaxDim || info.cursorHeight > phxcursor::kMaxDim ||
+            !phxcursor::spreadRows64(fCursorBuf, info.cursorWidth, info.cursorHeight)) {
+            cursorHideIfActive();
+            return kIOReturnUnsupported;
+        }
+        phx_cursor_image img{PHX_CURSOR_ABI_VERSION, info.cursorWidth, info.cursorHeight, fWidth, fHeight, fCursorBuf};
+        const IOReturn r = fCursorSvc->callPlatformFunction("phxCursorImage", true, &img, nullptr, nullptr, nullptr);
+        if (r == kIOReturnSuccess) fCursorActive = true;
+        return r;
+    }
+    IOReturn setCursorState(SInt32 x, SInt32 y, bool visible) override {
+        if (!hwCursorOn()) { cursorHideIfActive(); return kIOReturnUnsupported; }
+        phx_cursor_state st{PHX_CURSOR_ABI_VERSION, x, y, visible ? 1u : 0u, fWidth, fHeight};
+        const IOReturn r = fCursorSvc->callPlatformFunction("phxCursorState", true, &st, nullptr, nullptr, nullptr);
+        if (r == kIOReturnSuccess) fCursorActive = visible;
+        return r;
+    }
     IOReturn getAttribute(IOSelect attribute, uintptr_t *value) override {
         if (attribute == kIOWindowServerActiveAttribute) { if (value) *value = 1; return kIOReturnSuccess; }
+        if (attribute == kIOHardwareCursorAttribute) { if (value) *value = hwCursorOn() ? 1 : 0; return kIOReturnSuccess; }
         return IOFramebuffer::getAttribute(attribute, value);
     }
     IOReturn setAttributeForConnection(IOIndex idx, IOSelect attribute, uintptr_t value) override {
@@ -1208,6 +1377,22 @@ static PhxAMDFB *gPhxFB;   // the panel the flip sysctls act on (set while start
 
 // M7 S3a: the started heads, by index, for PhxAGDC's framebuffer list and NMXAccel's debug.phxhead2. Head 0 first.
 static PhxAMDFB *gHeads[phxhead::kMaxHeads];
+
+// navi32 (C route): what head 0 answers for every listed mode, one line per id - the three answers CoreDisplay compares.
+int phxfb0ModesSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (req->newptr) return EPERM;
+    if (!gHeads[0]) return ENXIO;
+    const int kN = 8192;
+    char *b = static_cast<char *>(IOMalloc(kN));
+    if (!b) return ENOMEM;
+    const int len = gHeads[0]->dumpModes(b, kN - 1);
+    const int e = SYSCTL_OUT(req, b, (size_t)(len > 0 ? len : 0));
+    IOFree(b, kN);
+    return e;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxfb0_modes, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxfb0ModesSysctl, "A",
+            "navi32: per listed mode, what head 0 reports for size, row pitch and timing (what CoreDisplay compares)");
 static IOLock *gHeadsLock;
 static IOLock *headsLock()
 {
@@ -1484,7 +1669,27 @@ bool PhxAMDFB::start(IOService *provider)
     bool hdrFn = false;   // PhxBringup's replay set has the HDR modes (b145+, read below)
     if (IOService *b = copyBringup("phx-pipe0-mode-fn")) {   // AOC at 144: the list must be complete before IOFramebuffer::start's first query (R0 D1)
         const bool armed = b->getProperty("phx-pipe0-modes") == kOSBooleanTrue;
-        fAnySize = b->getProperty("phx-p0-keys") == kOSBooleanTrue;   // b138: PhxBringup b138+ resizes the scan-out
+        fAnySize = b->getProperty("phx-p0-keys") == kOSBooleanTrue;
+        // navi32: the engine publishes the modes it can program; when that table is there it is the whole truth
+        if (OSData *d = OSDynamicCast(OSData, b->getProperty(phxp0pub::kProperty))) {
+            const unsigned k = (unsigned)(d->getLength() / sizeof(phxp0pub::Mode));
+            if (k && k <= phxp0pub::kMaxModes) {
+                memcpy(fPub, d->getBytesNoCopy(), k * sizeof(phxp0pub::Mode));
+                fPubN = k;
+                // navi32: the id is the POSITION in the list, always (RedNavi's rule). Taking the id the publisher wrote made
+                // the sixth entry come back as id 1, a duplicate of the current mode that CoreDisplay then dropped - the
+                // published table was right and the framebuffer listed five of six. Also mirror into fPubHM so rotation
+                // preflight (phxrot::check) and mode queries see every published row (including 1080p60 id 6) instead of
+                // rejecting rotated timings with kWhyNoPlan (which crashes CoreDisplay without IOFBScalerInfo).
+                for (unsigned i = 0; i < fPubN; i++) {
+                    fPub[i].id = i + 1;
+                    fPubHM[i] = phxhead::HeadMode{fPub[i].id, fPub[i].w, fPub[i].h, fPub[i].milliHz,
+                                                  fPub[i].pclkHz / 10u, fPub[i].hTotal, fPub[i].vTotal, 0};
+                }
+            }
+            PFBLOG("head 0 modes: %u published by PhxBringup (first %ux%u %u mHz, last %u mHz)", fPubN,
+                   fPubN ? fPub[0].w : 0, fPubN ? fPub[0].h : 0, fPubN ? fPub[0].milliHz : 0, fPubN ? fPub[fPubN - 1].milliHz : 0);
+        }   // b138: PhxBringup b138+ resizes the scan-out
         const bool vrrFn = b->getProperty("phx-vrr-fn") == kOSBooleanTrue;   // b144: PhxBringup switches the VRR range
         const OSNumber *bn = OSDynamicCast(OSNumber, b->getProperty("phx-build"));
         hdrFn = bn && bn->unsigned32BitValue() >= 145;
@@ -1514,11 +1719,16 @@ bool PhxAMDFB::start(IOService *provider)
             PFBLOG("vrr: floor %u Hz (EDID %u-%u Hz, debug.phxfb0_vrrmin %d, PhxBringup %s)", fVrrMinHz, vr.minVHz, vr.maxVHz,
                    gPhxVrrMin, fVrrFloorFn ? "takes it" : "before b146: the EDID's");
             // HDR rides on Adaptive Sync's timing range, so it needs the floor too (fHdrOk is set here, in the call)
-            const unsigned n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0,
-                                                 fHdrOk = fVrrMinHz != 0 && gPhxHdr && hdrFn);
-            const uint32_t cur = fHTotal ? phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n) : 0;
+            unsigned n;
+            if (fPubN) { for (unsigned k = 0; k < fPubN; k++) ids[k] = fPub[k].id; n = fPubN; }   // navi32: the engine's table
+            else n = phxhead::modeList(0, oe, olen, fWidth, fHeight, ids, fAnySize, fVrrMinHz != 0,   // (no shadowing: n is read below)
+                                       fHdrOk = fVrrMinHz != 0 && gPhxHdr && hdrFn);
+            const uint32_t cur = fHTotal ? (fPubN ? pubModeForTotals(fHTotal, fVTotal, fRefreshMilliHz)
+                                               : phxhead::modeForTotals(0, fHTotal, fVTotal, ids, n)) : 0;
             if (n >= 2 && cur) { memcpy(fModeIds, ids, n * sizeof ids[0]); fNModes = n; fModeId = fBootModeId = cur; gHead0NModes = (int)n; gHead0Mode = (int)cur; }
-            PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s", n, fWidth, fHeight, fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)");
+            PFBLOG("head 0 modes: %u listed for %ux%u, OTG0 %ux%u totals -> id %u%s (ids %u %u %u %u %u %u, pub %u)", n, fWidth, fHeight,
+                   fHTotal, fVTotal, cur, fNModes ? "" : " (single mode kept)", ids[0], ids[1], ids[2], ids[3], ids[4],
+                   n > 5 ? ids[5] : 0, fPubN);
         }
     }
     {   // the offer gate (phxoffer.h): decided here, before IOFramebuffer::start's first query
@@ -1590,6 +1800,8 @@ bool PhxAMDFB::start(IOService *provider)
     phxRotInstall();
     phxRotPublish(this, 0);   // rot10: head 0's IOFBProbeOptions from start (the gate is on by default; startHead does head 1)
     if (!gAliasSysctl) { for (auto *o : kFbOids) sysctl_register_oid(o); gAliasSysctl = true; }
+    { uint32_t cv = 0; if (PE_parse_boot_argn("phxcursor", &cv, sizeof cv) && cv != 0) gPhxCursor = 1; }
+    fCursorSvc = copyBringup("phx-cursor-fn");
     phxHp0Install();   // hot-plug hp0: sysctls only; the poll starts with debug.phxhotplug0 >= 1 (default 0)
     PFBLOG("panel published: %ux%u row %u at 0x%llx (vbl timer %s)", fWidth, fHeight, fRowBytes,
            (unsigned long long)fBase, fVblTimer ? "running" : "MISSING");
@@ -1829,7 +2041,12 @@ IOReturn PhxAMDFB::switchHead1Mode(IODisplayModeID id)
         gHead1PipeRefresh = fHTotal ? (int)fRefreshMilliHz : 0;
         setProperty("PhxFBRefreshMilliHz", fRefreshMilliHz, 32);
         if (fHTotal) { setProperty("PhxFBHTotal", fHTotal, 32); setProperty("PhxFBVTotal", fVTotal, 32); }
-        ret = act == phxhead::kActDone && now == (uint32_t)id ? kIOReturnSuccess : kIOReturnIOError;
+        // navi32: the engine answer is authoritative - it programmed AND verified the plan. Requiring `now` (what the
+        // re-measure could identify, and modeForTotals only knows the compiled table, so it cannot name the published
+        // 1080p row) to equal the requested id made a successful size switch return IOError, left fModeId at the old
+        // mode, and made the whole success block below dead code the compiler removed.
+
+        ret = act == phxhead::kActDone ? kIOReturnSuccess : kIOReturnIOError;
     }
     if (ret != kIOReturnSuccess) gHead1SwitchFails++;
     if (flips && act != phxhead::kActDark) flipEnable(1);
@@ -1847,10 +2064,12 @@ void PhxAMDFB::head0ModeRate()
     if (fHead != 0 || !fNModes || !fHTotal) return;
     // b138: the lit id when its totals are OTG0's (1080p 60 / 120 share theirs), else the listed mode of those totals nearest
     // the measured rate
-    const phxhead::HeadMode *lit = phxhead::headMode(0, fModeId);
+    const phxhead::HeadMode *lit = pubHeadMode((IODisplayModeID)fModeId);
+    if (!lit) lit = phxhead::headMode(0, fModeId);
     const uint32_t id = lit && lit->hTotal == fHTotal && lit->vTotal == fVTotal ? fModeId
-                      : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes);
-    const phxhead::HeadMode *m = id ? phxhead::headMode(0, id) : nullptr;
+                      : (fPubN ? pubModeForTotals(fHTotal, fVTotal, fRefreshMilliHz)
+                               : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes));
+    const phxhead::HeadMode *m = id ? (pubHeadMode((IODisplayModeID)id) ?: phxhead::headMode(0, id)) : nullptr;
     if (!m) return;
     fRefreshMilliHz = m->milliHz;
     fFrameNs = phxhead::modeFrameNs(*m);
@@ -1868,8 +2087,10 @@ int PhxAMDFB::head0Resync()
     const uint64_t oldNs = fFrameNs;
     fHTotal = fVTotal = 0;
     measureRefresh();
-    uint32_t now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
-    if (now && (phxhead::headMode(0, now)->w != fWidth || phxhead::headMode(0, now)->h != fHeight)) now = 0;   // b138: no resize here
+    uint32_t now = fHTotal ? (fPubN ? pubModeForTotals(fHTotal, fVTotal, fRefreshMilliHz)
+                                    : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes)) : 0;
+    const phxhead::HeadMode *nm = now ? (pubHeadMode((IODisplayModeID)now) ?: phxhead::headMode(0, now)) : nullptr;
+    if (now && (!nm || nm->w != fWidth || nm->h != fHeight)) now = 0;   // b138: no resize here
     if (!now) {
         PFBLOG("head 0 resync: OTG0 %ux%u totals are no listed mode: id %u kept", fHTotal, fVTotal, fModeId);
         fHTotal = oldH; fVTotal = oldV; fRefreshMilliHz = oldMhz; fFrameNs = oldNs;
@@ -1898,45 +2119,97 @@ int PhxAMDFB::head0Resync()
 IOReturn PhxAMDFB::switchHead0Mode(IODisplayModeID id)
 {
     if ((uint32_t)id == fModeId) return kIOReturnSuccess;   // R0 D6: same mode, no hardware access
-    const phxhead::HeadMode *hm = phxhead::headMode(0, (uint32_t)id);
+    phxhead::HeadMode hml{}; phxp0pub::Mode spm{};
+    const bool pub = pubMode(id, &spm);
+    if (pub) {   // navi32: the row the engine published for this id (the plans are the only table)
+        hml.id = spm.id; hml.w = spm.w; hml.h = spm.h; hml.milliHz = spm.milliHz;
+        hml.pclk10kHz = spm.pclkHz / 10u; hml.hTotal = spm.hTotal; hml.vTotal = spm.vTotal; hml.std = 0;
+    }
+    const phxhead::HeadMode *hm = pub ? &hml : phxhead::headMode(0, (uint32_t)id);
     if (!hm) return kIOReturnUnsupportedMode;
     IOService *bringup = copyBringup("phx-pipe0-mode-fn");
     if (!bringup) { gHead0SwLast = -1; gHead0SwitchFails++; PFBLOG("head 0 switch to id %d: no PhxBringup b101+", (int)id); return kIOReturnNotReady; }
     const bool flips = gFlipOn[0] != 0;
     if (flips) flipEnable(0);   // HUBP0 back on A while pipe 0 is re-timed (the engine blanks HUBP0, never moves its address)
+    // navi32 (C route): the pipe and the frames must describe the same raster. A different size is taken up BEFORE the
+    // engine programs HUBPREQ0's pitch, and put back if the engine does not take it - otherwise the plane fetches a
+    // stride nothing writes, which is the 'HUBP0 underflow' a 1440p -> 1080p switch used to fail on.
+    const uint32_t swW = hm->w, swH = hm->h;
+    const uint32_t swRow = (pub && fAnySize) ? modeRow(id)
+                         : (fAnySize ? phxhead::modeRowBytes(*hm, fBootW, fBootH, fBootRowBytes) : fRowBytes);
+    const bool geomChange = swW != fWidth || swH != fHeight || swRow != fRowBytes;
+    const uint32_t oldW = fWidth, oldH = fHeight, oldRow = fRowBytes;
+    if (geomChange) { fWidth = swW; fHeight = swH; fRowBytes = swRow; }
     phx_pipe0_setmode req = {};
     // b128: rounded (the LG 59.951 Hz = 60); b138: another size = PhxBringup b137's key (height * 1000 + Hz)
-    req.version = PHX_PIPE0_SETMODE_VERSION; req.target_hz = fAnySize ? phxhead::switchKey(*hm, fBootW, fBootH) : phxhead::switchHz(*hm);
+    // navi32: a published row carries the key the engine takes (its plan rate); the compiled rows still go through
+    // switchKey, which also encodes the other sizes and the HDR twins.
+    req.version = PHX_PIPE0_SETMODE_VERSION;
+    req.target_hz = pub ? spm.key   // the engine published the key it takes for this row
+                  : (fAnySize ? phxhead::switchKey(*hm, fBootW, fBootH) : phxhead::switchHz(*hm));
+    PFBLOG("head 0 switch: id %d (%ux%u %u mHz) -> target %u (anySize %d, boot %ux%u)", (int)id, hm->w, hm->h, hm->milliHz, req.target_hz, (int)fAnySize, fBootW, fBootH);
+    gHead0SwReqId = (SInt64)id; gHead0SwReqTarget = (SInt64)req.target_hz;
     req.result = -1;
-    const IOReturn r = bringup->callPlatformFunction("phxPipe0SetMode", false, &req, nullptr, nullptr, nullptr);
+    const IOReturn r = bringup->callPlatformFunction("phxPipe0SetMode", true, &req, nullptr, nullptr, nullptr);   // navi32: wait for it - a
+                                      // platform call that returns early lets CoreDisplay read getCurrentDisplayMode before the
+                                      // switch lands, so it caches the OLD mode and then treats the way back as a no-op
     bringup->release();
     gHead0Switches++;
     gHead0SwLast = r == kIOReturnSuccess ? req.result : -1;
     gHead0SwFlags = (int)req.flags;
     const int act = r == kIOReturnSuccess ? phxhead::p0Action(req.result) : phxhead::kActRefused;
+    // navi32: the geometry was adopted BEFORE the call (so the pipe and the frames describe the same raster); when the
+    // engine did not take the mode, put it back.
+    if (geomChange && act != phxhead::kActDone) { fWidth = oldW; fHeight = oldH; fRowBytes = oldRow; }
     IOReturn ret = kIOReturnNotReady;
-    uint32_t now = 0;
-    if (act != phxhead::kActRefused) {
+    if (act == phxhead::kActDone) {
+        // The engine programmed AND verified the plan, so the id that was asked for is the mode now running, and that is
+        // what getCurrentDisplayMode returns. Two things had to be fixed here: the mode/geometry were left at the old
+        // values (CoreGraphics kept reporting the previous raster and made the way back a no-op, because setDisplayMode
+        // early-returns when the id equals the current one), and ret was never set, so a switch that really happened was
+        // reported to IOGraphics as a failure - and IOGraphics only records lastSuccessfulMode on success.
+        fModeId = (uint32_t)id;
+        gHead0Mode = (int)id;
+        fHTotal = hm->hTotal; fVTotal = hm->vTotal; fRefreshMilliHz = hm->milliHz; fFrameNs = phxhead::modeFrameNs(*hm);
+        fWidth = hm->w; fHeight = hm->h; fRowBytes = modeRow(id);
+        if (geomChange) {
+            fFlipOk = false;   // flipSetupLocked checks HUBP0's pitch against the new rows and refills B at the next enable
+            setProperty("PhxFBWidth", fWidth, 32); setProperty("PhxFBHeight", fHeight, 32);
+        }
+        nanoseconds_to_absolutetime(fFrameNs, &gPhxFrameAbs);   // the VBL tick's new period is read at its next fire
+        setProperty("PhxFBRefreshMilliHz", fRefreshMilliHz, 32);
+        if (fHTotal) { setProperty("PhxFBHTotal", fHTotal, 32); setProperty("PhxFBVTotal", fVTotal, 32); }
+        // the rotation cache answers getCurrentDisplayMode while it is valid; a landed plain mode has none.
+        if (fRot.curValid) { fRot.curValid = false; fRot.cur.id = 0; fRot.cur.plan = 0; }
+        setProperty("PhxFBCurrentMode", (uint64_t)id, 32);
+        const bool hadCfg = getProperty("IOFBConfig") != nullptr;
+        if (hadCfg) removeProperty("IOFBConfig");   // the mode cache CoreDisplay stored on this framebuffer
+        if (geomChange) handleEvent(kIOFBNotifyDisplayDimsChange, this);
+        PFBLOG("head 0 switch to id %u landed: current %u, %ux%u row %u, IOFBConfig %s", (unsigned)id, (unsigned)fModeId,
+               (unsigned)fWidth, (unsigned)fHeight, (unsigned)fRowBytes, hadCfg ? "dropped" : "absent");
+        ret = kIOReturnSuccess;   // the ACK
+    } else if (act != phxhead::kActRefused) {
+        // a fall-back / dark: the old raster is still up, so take whatever the pipe reports now.
         fHTotal = fVTotal = 0;
         measureRefresh();   // OTG0's totals now (OTG0 not running after a dark: the old rate stays)
-        now = fHTotal ? phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes) : 0;
-        if (now == (uint32_t)id || (now && phxhead::headMode(0, now)->hTotal == hm->hTotal && phxhead::headMode(0, now)->vTotal == hm->vTotal &&
-                                    act == phxhead::kActDone))
-            now = (uint32_t)id;   // b138: PhxBringup lit the asked mode (totals shared by two rates: its answer decides)
+        const uint32_t now = fHTotal ? (fPubN ? pubModeForTotals(fHTotal, fVTotal, fRefreshMilliHz)
+                                              : phxhead::modeForTotalsHz(0, fHTotal, fVTotal, fRefreshMilliHz, fModeIds, fNModes)) : 0;
         if (now) {
             fModeId = now;
             head0ModeRate();
             if (fAnySize) {   // b138: the scan-out's geometry follows the lit mode (flipping is off until the end of this switch)
-                const phxhead::HeadMode *lm = phxhead::headMode(0, now);
-                fWidth = lm->w; fHeight = lm->h; fRowBytes = phxhead::modeRowBytes(*lm, fBootW, fBootH, fBootRowBytes);
-                fFlipOk = false;   // flipSetupLocked checks HUBP0's pitch against the new rows and refills B at the next enable
-                setProperty("PhxFBWidth", fWidth, 32); setProperty("PhxFBHeight", fHeight, 32);
+                const phxhead::HeadMode *lm = pubHeadMode((IODisplayModeID)now) ?: phxhead::headMode(0, now);
+                if (lm) {
+                    fWidth = lm->w; fHeight = lm->h; fRowBytes = modeRow((IODisplayModeID)now);
+                    fFlipOk = false;   // flipSetupLocked checks HUBP0's pitch against the new rows and refills B at the next enable
+                    setProperty("PhxFBWidth", fWidth, 32); setProperty("PhxFBHeight", fHeight, 32);
+                }
             }
         }
         nanoseconds_to_absolutetime(fFrameNs, &gPhxFrameAbs);   // the VBL tick's new period is read at its next fire
         setProperty("PhxFBRefreshMilliHz", fRefreshMilliHz, 32);
         if (fHTotal) { setProperty("PhxFBHTotal", fHTotal, 32); setProperty("PhxFBVTotal", fVTotal, 32); }
-        ret = act == phxhead::kActDone && now == (uint32_t)id ? kIOReturnSuccess : kIOReturnIOError;
+        if (act != phxhead::kActDone) ret = kIOReturnIOError;   // a fall-back / dark: the old raster is still up
     }
     gHead0Mode = (int)fModeId; gHead0Refresh = (int)fRefreshMilliHz;
     if (ret != kIOReturnSuccess) gHead0SwitchFails++;
@@ -2022,6 +2295,9 @@ void PhxAMDFB::stop(IOService *provider)
         return;
     }
     phxHp0Remove();   // hot-plug hp0: no poll reads fMmio after this
+    cursorHideIfActive();
+    if (fCursorBuf) { IOFree(fCursorBuf, phxcursor::kImageBytes); fCursorBuf = nullptr; }
+    OSSafeReleaseNULL(fCursorSvc);
     headsSet(0, nullptr);
     phxAgdcRemove();
     phxSurfMapRemove();

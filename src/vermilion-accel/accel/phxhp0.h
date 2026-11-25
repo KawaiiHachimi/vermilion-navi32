@@ -79,6 +79,34 @@ inline bool litFromOtg0(const Raw &r) {
 enum : int { kLvlOff = 0, kLvlObserve = 1, kLvlAct = 2, kLvlMax = 2 };
 constexpr uint32_t kPlugMs = 1000, kUnplugMs = 6000, kLitMs = 500, kEdidRetryMs = 2000;
 constexpr unsigned kEdidTries = 3;
+
+struct ReplayEdge {
+    int active = -1, candidate = -1;
+    uint64_t downSince = 0, readySince = 0;
+    bool down = false, lost = false;
+};
+
+inline int replayEdge(ReplayEdge &edge, const Sample &sample, uint64_t now) {
+    int lit = -1;
+    if (!sample.bad) for (unsigned i = 0; i < kN; ++i) {
+        if (!litFromOtg0(sample.c[i])) continue;
+        if (lit >= 0) { lit = -1; break; }
+        lit = static_cast<int>(i);
+    }
+    if (sample.bad) {
+        edge.down = false; edge.candidate = -1;
+        return -1;
+    }
+    if (edge.active < 0) { edge.active = lit; return -1; }
+    if (!edge.lost) {
+        if (hpdHigh(sample.c[edge.active])) { edge.down = false; return -1; }
+        if (!edge.down) { edge.down = true; edge.downSince = now; }
+        if (now - edge.downSince >= kUnplugMs) edge.lost = true;
+    }
+    if (!edge.lost) return -1;
+    if (edge.candidate != lit) { edge.candidate = lit; edge.readySince = now; }
+    return lit >= 0 && now - edge.readySince >= kPlugMs ? lit : -1;
+}
 enum : uint32_t { kOptEdid = 1u << 0 };   // compare EDID block 0 before online (default on)
 constexpr uint32_t kOptsDefault = kOptEdid;
 // own: who took head 0 offline

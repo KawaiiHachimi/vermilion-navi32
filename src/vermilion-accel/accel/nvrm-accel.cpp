@@ -1141,6 +1141,34 @@ static int    gNvIop = 0;
 static SInt64 gCntIopOk, gCntIopFail, gCntIopEmpty, gCntIopSrcRes, gCntIopSrcSurf, gCntIopBlank;
 static SInt64 gCntIopSkipForeign;
 static int gIopSkipForeign = 0;   // phxboot turns it on with GPU present (debug.nvaccel_iop_skipforeign)
+// Display sleep (inspired by AMDRadeonRDNA4 a6e9f37): IOAccelDisplayPipe::framebuffer_will_power_off() marks the
+// pipe offline (+0x299 = 1) so transactionEnd() answers kIOReturnOffline and CoreDisplay retries at ~1.4 Hz for
+// the entire sleep, delaying WindowServer's IOPM ack (30 s timeout). When enabled (default 1), clear +0x299 ONLY
+// if super::framebuffer_will_power_off() itself transitioned it 0 -> 1, and drop transactions until power-on.
+static int    gIopSleepDrop = 1;
+static SInt64 gCntIopSleepOff, gCntIopSleepDrop;
+void NVDisplayPipe::framebuffer_will_power_off()
+{
+    uint8_t *raw = reinterpret_cast<uint8_t *>(this);
+    const uint8_t before = raw[0x299];
+    IOAccelDisplayPipe::framebuffer_will_power_off();
+    const uint8_t after = raw[0x299];
+    if (gIopSleepDrop) {
+        fDisplayOff = true;
+        fIopVblSeq = 0;
+        if (before == 0 && after == 1) {
+            raw[0x299] = 0;
+            OSAddAtomic64(1, &gCntIopSleepOff);
+        } else {
+            ALOG("iop: sleepdrop: pipe %p +0x299 was %u -> %u (offline byte not cleared)", this, before, after);
+        }
+    }
+}
+void NVDisplayPipe::framebuffer_did_power_on()
+{
+    fDisplayOff = false;
+    IOAccelDisplayPipe::framebuffer_did_power_on();
+}
 static SInt64 gCntIopOkHead[kNvMaxFB];
 #define NVIOP_LOG_MAX 40
 static unsigned gIopLogs = 0;
@@ -1197,7 +1225,7 @@ static uint64_t gIopLastAbs;
 static SInt64 gCntIopGap[4], gIopPhaseUsSum;
 #include "phxhead.h"     // bgraTo2101010
 extern int gPhxScan10;   // phxfb.cpp: HUBP0 scans ARGB2101010 (10-bit HDR)
-static int gIopSse = 0;   // debug.nvaccel_iop_sse
+static int gIopSse = 1;   // debug.nvaccel_iop_sse (navi32 2026-11-24: on by default - 13.5 ms -> 6.9 ms per 1440p frame, no fault in use)
 
 // One row of a copied frame in 64-byte steps: SSE4.1 streaming loads (movntdqa) and non-temporal stores (movntdq).
 // Some of WindowServer's display surfaces are write-combined, and plain loads read those at ~0.5 GB/s: a frame from
@@ -1264,6 +1292,7 @@ static int gIopVsync = 0;   // phxboot turns it on once the panel is armed
 static SInt64 gCntIopVsyncWaits, gCntIopVsyncLate;
 bool NVDisplayPipe::isTransactionComplete(IOAccelDisplayPipeTransaction2 *)
 {
+    if (fDisplayOff && gIopSleepDrop) return true;
     if (gNvIop == 0 || nvAccelIopAsyncBusy(this)) return false;
     if (!gIopVsync || !gPhxFrameAbs || !fIopVblSeq) return true;
     if (__atomic_load_n(&gPhxVblSeq, __ATOMIC_ACQUIRE) != fIopVblSeq) { fIopVblSeq = 0; return true; }
@@ -1325,6 +1354,7 @@ static void h1Rec(unsigned head, uint32_t path, IOSurface *s, unsigned w, unsign
 IOReturn NVDisplayPipe::performTransaction(IOAccelDisplayPipeTransaction2 *txn)
 {
     if (!gNvIop) return (IOReturn)0xe00002c7;
+    if (fDisplayOff && gIopSleepDrop) { OSAddAtomic64(1, &gCntIopSleepDrop); return kIOReturnSuccess; }
     if (!txn) NVIOP_FAIL(kIOReturnBadArgument, "performTransaction(NULL)");
     NVAccel *a = NVAccel::gAccel;
     unsigned head = 0;
@@ -1689,6 +1719,9 @@ NVACCEL_CNT(nvaccel_iop_phase_us_sum, gIopPhaseUsSum,     "microseconds from the
 SYSCTL_INT(_debug, OID_AUTO, nvaccel_iop_vsync, CTLFLAG_RW | CTLFLAG_LOCKED, &gIopVsync, 0, "1 = a copied frame completes on the next VBL tick (a flip's latch), 0 = at once");
 SYSCTL_INT(_debug, OID_AUTO, nvaccel_iop_skipforeign, CTLFLAG_RW | CTLFLAG_LOCKED, &gIopSkipForeign, 0, "1 = no copy while HUBP0 scans a GPU-present slot (neither A nor B)");
 NVACCEL_CNT(nvaccel_iop_skipped_foreign, gCntIopSkipForeign, "transactions not copied: GPU present owned the plane");
+SYSCTL_INT(_debug, OID_AUTO, nvaccel_iop_sleepdrop, CTLFLAG_RW | CTLFLAG_LOCKED, &gIopSleepDrop, 0, "1 = accept and drop display-pipe transactions while the display sleeps (avoids kIOReturnOffline retry loop)");
+NVACCEL_CNT(nvaccel_iop_sleep_off,   gCntIopSleepOff,   "display-sleep entries where pipe +0x299 transitioned 0->1 and was cleared");
+NVACCEL_CNT(nvaccel_iop_sleep_drop,  gCntIopSleepDrop,  "display-pipe transactions accepted and dropped while the display slept");
 NVACCEL_CNT(nvaccel_iop_vsync_waits,  gCntIopVsyncWaits,  "completion checks answered 'not yet' (the frame waits for its tick)");
 NVACCEL_CNT(nvaccel_iop_vsync_late,   gCntIopVsyncLate,   "frames completed past two refreshes without a tick");
 static int    gIopFlip = 0;
@@ -1902,6 +1935,8 @@ static void nvaccelInstallSysctl(void)
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_vsync);      sysctl_register_oid(&sysctl__debug_nvaccel_iop_vsync_waits);
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_vsync_late);
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_skipforeign); sysctl_register_oid(&sysctl__debug_nvaccel_iop_skipped_foreign);
+    sysctl_register_oid(&sysctl__debug_nvaccel_iop_sleepdrop);   sysctl_register_oid(&sysctl__debug_nvaccel_iop_sleep_off);
+    sysctl_register_oid(&sysctl__debug_nvaccel_iop_sleep_drop);
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_flip);       sysctl_register_oid(&sysctl__debug_nvaccel_iop_flips);
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_flip_home);  sysctl_register_oid(&sysctl__debug_nvaccel_iop_flip_lock);
     sysctl_register_oid(&sysctl__debug_nvaccel_iop_flip_novram); sysctl_register_oid(&sysctl__debug_nvaccel_iop_flip_stale);

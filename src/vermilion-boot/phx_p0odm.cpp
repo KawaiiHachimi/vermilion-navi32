@@ -244,7 +244,21 @@ static bool p0OdmKnows(uint32_t key) { return phxodm::findMode(kOdmSet, key) >= 
 static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret) {
     const uint32_t t = m->target_hz;
     // macOS's own 60 / 120 / 144 stay with the pipe-0 engine; 240 and every keyed mode start with the entry
-    if (gOdm.where == phxodm::kMac && (t == 60 || t == 120 || t == 144)) return false;
+    // navi32 (2026-11-24): every rate the pipe-0 family has a plan for stays with the pipe-0 engine. The old
+    // whitelist named the XTX machine rates (60 / 120 / 144), so this board 100 and 165 fell into the ODM engine
+    // and came back as "240: the step to 144 first" or "no sink: HPD2 (DP B) sense low": the ODM path is for
+    // 240 Hz and the keyed modes of other sizes. Asking the family itself keeps the two engines apart.
+    if (gOdm.where == phxodm::kMac) {
+#if PHX_PIPE_DIG == 4
+        // navi32 (b164): every key resolved by the pipe-0 catalog (verified static plans + dynamically synthesized
+        // EDID plans, whether kKeyIdxBase + idx, height * 1000 + Hz, or bare Hz) stays with the pipe-0 engine instead
+        // of falling into the Navi 31 ODM path.
+        if (p0PickKeyed(t)) return false;
+#else
+        const P0Fam f = p0Family(p0Env());
+        for (unsigned i = 0; i < f.n; i++) if (f.pl[i] && f.pl[i]->info.hz == t) return false;
+#endif
+    }
     int err = 0;
     *ret = kIOReturnSuccess;
     if (gOdm.where == phxodm::kMac && phxp2::rd(p2Env(), phxodm::kOtg0V) != kOdmModes[2].vTotal) {   // 60 / 120 -> 144 first

@@ -18,7 +18,8 @@ struct PhxRotHead {
 };
 // What the head lists (the ids its plans have) and the EDID it serves (head 1's detailed timings).
 struct PhxRotModes { unsigned head; const uint32_t *ids; unsigned n; const uint8_t *edid; uint32_t edidLen;
-                     const phxhead::HeadMode *single = nullptr; };   // rot12: the one-mode head 0
+                     const phxhead::HeadMode *single = nullptr;   // rot12: the one-mode head 0
+                     const phxhead::HeadMode *modes = nullptr; unsigned nModes = 0; };   // navi32: published mode table
 
 bool phxRotGate(unsigned head);                                    // debug.phxfb_rotate names this head
 IOReturn phxRotValidate(const PhxRotModes &m, void *desc, IOByteCount size);
@@ -29,7 +30,8 @@ uint32_t phxRotPlan(const PhxRotHead &r, IODisplayModeID id);      // the head m
 // CoreDisplay's rotated ids are never listed in getDisplayModes (it drops driver ids with bit 31 set: REA); they are
 // only accepted and described.
 IOReturn phxRotInfo(const PhxRotHead &r, unsigned head, IODisplayModeID id, IODisplayModeInformation *info,
-                    const phxhead::HeadMode *single = nullptr);
+                    const phxhead::HeadMode *single = nullptr,
+                    const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0);
 IOReturn phxRotPixelInfo(const PhxRotHead &r, IODisplayModeID id, IOIndex depth, IOPixelAperture ap, IOPixelInformation *pi);
 IOReturn phxRotTimingInfo(const PhxRotHead &r, IODisplayModeID id, IOTimingInformation *info);
 // head 1's own plan mode `id` as the detailed timing of the EDID's DTD, only while the gate names the head and only when

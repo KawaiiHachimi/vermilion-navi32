@@ -602,3 +602,11 @@ the same register, then a Mode1 reset (an SMU message and PCI config writes; hw-
 Refusing is the part of that we can do without adding a message.
 **Revisit:** if a warm macOS restart turns out to leave the sOS running (the daemon logs `sOS check:` at every boot).
 Then the warm restart needs Linux's Mode1 reset path, with its own hw-safety review.
+
+## 2026-11-25: Replay the current Navi 32 mode after DP reconnect
+
+**Decision:** add opt-in hp0 level 3, use the existing same-mode round-trip shell, and signal the registered
+connection-change handler only after verify. Keep the only display logically online while its cable is out.
+**Why:** a regular same-mode request does no hardware work, and a dimensions event does not ask for a connection probe.
+**Revisit:** if the board does not restore a trained OTG0 stream, capture the failing transition before adding a
+port-specific training or routing sequence. Host checks pass; relight and reprobe are unverified on the box.

@@ -243,14 +243,21 @@ enum : int {
     kWhyCount = 8
 };
 constexpr uint32_t kInterlaced = 0x4;   // kIOInterlacedCEATiming in signalConfig
-// The raster of a listed id: phxhead's table, or (rot12) the one-mode head's own mode when `single` is given (head 0 with
-// no mode list, e.g. the Acer alone on pipe 0: the GOP mode, built by singleMode from the EDID and OTG0's totals).
-inline const phxhead::HeadMode *modeOf(unsigned head, uint32_t id, const phxhead::HeadMode *single) {
-    return single ? (single->id == id ? single : nullptr) : phxhead::headMode(head, id);
+// The raster of a listed id: the published mode table when the engine supplied one (modes/nModes), else the one-mode
+// head's own mode (`single`, rot12), else phxhead's compiled table.
+inline const phxhead::HeadMode *modeOf(unsigned head, uint32_t id, const phxhead::HeadMode *single,
+                                       const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0) {
+    if (single) return single->id == id ? single : nullptr;
+    if (modes && nModes) {
+        for (unsigned i = 0; i < nModes; i++) if (modes[i].id == id) return &modes[i];
+        return nullptr;
+    }
+    return phxhead::headMode(head, id);
 }
-// head modes: the ids the head lists (phxhead::headMode(head, id) gives each one's raster). *plan = the matching id.
+// head modes: the ids the head lists (modeOf gives each one's raster). *plan = the matching id.
 inline int check(const Timing &t, unsigned head, const uint32_t *ids, unsigned n, uint32_t *plan,
-                 const phxhead::HeadMode *single = nullptr) {
+                 const phxhead::HeadMode *single = nullptr,
+                 const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0) {
     const int a = angleOf(t.scalerFlags);
     if (a == kRotBad) return kWhyMirror;
     if (a == kRot0) return kWhyNotRotated;
@@ -260,7 +267,7 @@ inline int check(const Timing &t, unsigned head, const uint32_t *ids, unsigned n
     if (swaps(a)) { if (t.hScaled != t.vActive || t.vScaled != t.hActive) return kWhyScaled; }
     else if (!((!t.hScaled && !t.vScaled) || (t.hScaled == t.hActive && t.vScaled == t.vActive))) return kWhyScaled;
     for (unsigned i = 0; i < n; i++) {
-        const phxhead::HeadMode *m = modeOf(head, ids[i], single);
+        const phxhead::HeadMode *m = modeOf(head, ids[i], single, modes, nModes);
         if (!m || m->w != t.hActive || m->h != t.vActive) continue;
         if (m->w + t.hBlank != m->hTotal || m->h + t.vBlank != m->vTotal) continue;
         const uint64_t hz = (uint64_t)m->pclk10kHz * 10000ull, tol = hz / 500;   // 0.2 %, as phxhead::dtdIs
@@ -279,7 +286,7 @@ inline void desktopOf(const Timing &t, uint32_t *w, uint32_t *h) {
 constexpr uint32_t rowBytes(uint32_t w) { return w * 4; }
 
 // The modes CoreDisplay installed (setDetailedTimings), as accepted; ids are CoreDisplay's.
-constexpr unsigned kMaxInstalled = 16;
+constexpr unsigned kMaxInstalled = 32;
 struct Installed { uint32_t id, plan; int angle; Timing t; };
 struct Table { Installed e[kMaxInstalled]; unsigned n; uint32_t skipped; };
 inline const Installed *find(const Table &tb, uint32_t id) {
@@ -289,9 +296,10 @@ inline const Installed *find(const Table &tb, uint32_t id) {
 // One timing of a setDetailedTimings array into the table: accepted and not colliding with the head's own ids or an
 // entry already there. Returns the check's why (kOk = added); a full table counts as skipped.
 inline int add(Table &tb, const Timing &t, unsigned head, const uint32_t *ids, unsigned n,
-                const phxhead::HeadMode *single = nullptr) {
+                const phxhead::HeadMode *single = nullptr,
+                const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0) {
     uint32_t plan = 0;
-    const int why = check(t, head, ids, n, &plan, single);
+    const int why = check(t, head, ids, n, &plan, single, modes, nModes);
     bool clash = !t.id || find(tb, t.id) != nullptr;
     for (unsigned i = 0; i < n; i++) clash = clash || ids[i] == t.id;
     if (why != kOk || clash || tb.n >= kMaxInstalled) { tb.skipped++; return why != kOk ? why : kWhyCount; }
@@ -354,8 +362,9 @@ inline Timing turned(const phxhead::DetailedTiming &d, int a, uint32_t id) {
 }
 // A detailed timing the head may report: all three turned versions pass check (CoreDisplay would preflight them).
 inline bool rotatable(const phxhead::DetailedTiming &d, unsigned head, const uint32_t *ids, unsigned n,
-                      const phxhead::HeadMode *single = nullptr) {
-    for (int a = kRot90; a <= kRot270; a++) if (check(turned(d, a, 0), head, ids, n, nullptr, single) != kOk) return false;
+                      const phxhead::HeadMode *single = nullptr,
+                      const phxhead::HeadMode *modes = nullptr, unsigned nModes = 0) {
+    for (int a = kRot90; a <= kRot270; a++) if (check(turned(d, a, 0), head, ids, n, nullptr, single, modes, nModes) != kOk) return false;
     return true;
 }
 inline bool edidTiming(const uint8_t *e, uint32_t len, const phxhead::HeadMode &m, phxhead::DetailedTiming *out) {

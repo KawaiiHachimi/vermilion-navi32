@@ -592,6 +592,11 @@ Other open items from 02 (not ranked; none is a parity gap on its own):
       ([finding](findings/2026-11-18-mock-tests-on-linux.md))
 - [ ] Upstream PRs to leolivm (VermilionTrust first, the XTX profile and detection, derived apertures, portable tests)
 
+## Navi 32 DP reconnect
+
+- [ ] On the box, verify that `debug.phxhotplug0=3` replays once after a same-port reconnect and asks
+      CoreDisplay to reprobe; check an already-routed alternate port separately. See `docs/NAVI32.md`.
+
 ## Later: virtualization (after the series)
 
 - [ ] macOS as a VM with the dGPU passed through (VFIO), Linux on the iGPU: reset strategy for Navi 31 (Vermilion

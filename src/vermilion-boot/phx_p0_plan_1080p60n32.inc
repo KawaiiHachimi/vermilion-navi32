@@ -32,6 +32,8 @@ static const struct phx_s2_step kPhxP0_1080p60n32[] = {
   {PHX_S2_W, 3, 6, 0x039EE, 0x04610002, 0x7fff7fff, {0}, "VTG0_CONTROL"},  /* [T] Linux steady read */
   {PHX_S2_W, 3, 6, 0x041CF, 0x00c00840, 0x3fff3fff, {0}, "DSCL0_OTG_H_BLANK"},  /* [D] = OTG0 blank */
   {PHX_S2_W, 3, 6, 0x041D0, 0x00290461, 0x3fff3fff, {0}, "DSCL0_OTG_V_BLANK"},  /* [D] = OTG0 blank */
+  {PHX_S2_W, 3, 4, 0x041D2, 0x04380780, 0xffffffff, {0}, "DSCL0_RECOUT_SIZE"},  /* [F] b165: w | h << 16 */
+  {PHX_S2_W, 3, 4, 0x041D3, 0x04380780, 0xffffffff, {0}, "DSCL0_MPC_SIZE"},  /* [F] b165: w | h << 16 */
   {PHX_S2_W, 3, 4, 0x04D01, 0x0000d100, 0xffffffff, {0}, "FMT0_FMT_BIT_DEPTH_CONTROL"},  /* [F] 10 bpc */
   {PHX_S2_W, 4, 6, 0x03B03, 0x00290040, 0x7fff1fff, {0}, "HUBPREQ0_BLANK_OFFSET_0"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 6, 0x03B04, 0x00001188, 0x0003ffff, {0}, "HUBPREQ0_BLANK_OFFSET_1"},  /* [T] Linux steady read */
@@ -46,6 +48,10 @@ static const struct phx_s2_step kPhxP0_1080p60n32[] = {
   {PHX_S2_W, 4, 4, 0x03AEA, 0xe0007191, 0xfbffffff, {0}, "HUBPREQ0_DCN_GLOBAL_TTU_CNTL"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 4, 0x03AEB, 0x08005631, 0x1f7fffff, {0}, "HUBPREQ0_DCN_SURF0_TTU_CNTL0"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 4, 0x03AEC, 0x00002aca, 0x007fffff, {0}, "HUBPREQ0_DCN_SURF0_TTU_CNTL1"},  /* [T] Linux steady read */
+  {PHX_S2_W, 4, 0, 0x03AAA, 0x04380780, 0xffffffff, {0}, "HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION"},  /* [F] w | h << 16 (RedNavi: sizeWH) */
+  {PHX_S2_W, 4, 0, 0x03AAE, 0x04380780, 0xffffffff, {0}, "HUBP0_DCSURF_SEC_VIEWPORT_DIMENSION"},  /* [F] the same, the secondary viewport */
+  {PHX_S2_W, 4, 0, 0x04D16, 0x07800438, 0xffffffff, {0}, "DPG0_DPG_DIMENSIONS"},  /* [F] w << 16 | h (RedNavi: dpgDims) */
+  {PHX_S2_W, 4, 0, 0x03AC7, 0x000007FF, 0xffffffff, {0}, "HUBPREQ0_DCSURF_SURFACE_PITCH"},  /* [F] pitch in pixels - 1: Linux rounds the width up to 256 pixels, so 1920 -> 2048 (phxhead::modeRowBytes returns the same) */
   {PHX_S2_W, 5, 4, 0x05A0C, 0x08980465, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM1"},  /* [T] Linux steady read */
   {PHX_S2_W, 5, 4, 0x05A0D, 0x00c00029, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM2"},  /* [T] Linux steady read */
   {PHX_S2_W, 5, 4, 0x05A0E, 0x802c8005, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM3"},  /* [T] Linux steady read */

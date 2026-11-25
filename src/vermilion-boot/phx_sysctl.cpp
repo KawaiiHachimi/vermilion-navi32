@@ -385,7 +385,7 @@ static int phxDalStat SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxdal_stat, CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_LOCKED, nullptr, 0, phxDalStat, "A", "b76 DAL mailbox counters");
 // b74: the scanout latch race (UI shake)
-static int gScanLatchFix = 0;
+static int gScanLatchFix = 1;   // navi32: prevent dragging-window flicker under GPU present (front slot never reused)
 // b131: 1 = pipe 0 runs ODM 2:1 (debug.phxp0odm at 240 Hz): every flip goes to HUBP1 too (the right half of the same surface)
 static volatile int gP0OdmActive = 0;
 // Adaptive Sync state shared by phx_scan.cpp (the flip path) and phx_p0odm.cpp (the range), which are included after

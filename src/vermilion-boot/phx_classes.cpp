@@ -345,6 +345,42 @@ public:
         OSCompareAndSwap(1, 0, &edidBusy);
         return kIOReturnSuccess;
     }
+    // b164: read-only helpers for PhxDynPlan (live BAR0 aperture length, active scanout source, DPCD link rate/lanes)
+    uint64_t fbAperLength() const { return fbAperLen; }
+    int p0ScanoutSource() {
+        if (!mmio) return -1;
+        phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                      [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                      [](void *, uint32_t us) { IODelay(us); }};
+        return phxddc::scanoutSource(io);
+    }
+    bool p0ReadDpLink(uint8_t *lanesOut, uint8_t *rateCodeOut) {
+        if (lanesOut) *lanesOut = 0;
+        if (rateCodeOut) *rateCodeOut = 0;
+        if (!mmio) return false;
+        bool got = false;
+        for (unsigned i = 0; i < 20 && !(got = OSCompareAndSwap(0, 1, &edidBusy)); i++) IOSleep(5);
+        if (!got) return false;
+        phxddc::Io io{this, [](void *c, uint32_t r) { return static_cast<PhxBringup *>(c)->rreg(r); },
+                      [](void *c, uint32_t r, uint32_t v) { static_cast<PhxBringup *>(c)->wreg(r, v); },
+                      [](void *, uint32_t us) { IODelay(us); }};
+        const int src = phxddc::scanoutSource(io);
+        bool ok = false;
+        if (src >= 0x20 && src <= 0x24) {
+            uint8_t buf[2] = {};
+            phxddc::Diag d{};
+            if (phxddc::dpcdRead(io, static_cast<unsigned>(src - 0x20), 0x0100u, buf, 2, &d) == phxddc::kOk) {
+                const uint8_t rate = buf[0], lanes = buf[1] & 0x1Fu;
+                if ((rate == 0x06 || rate == 0x0A || rate == 0x14 || rate == 0x1E) && (lanes == 1 || lanes == 2 || lanes == 4)) {
+                    if (rateCodeOut) *rateCodeOut = rate;
+                    if (lanesOut) *lanesOut = lanes;
+                    ok = true;
+                }
+            }
+        }
+        OSCompareAndSwap(1, 0, &edidBusy);
+        return ok;
+    }
     // WP1 step 2a: the interrupt handler (IH) ring in system memory, polled from debug.phxih_stat (no MSI yet)
     IOReturn ihEnable();
     void ihDisable();
@@ -418,7 +454,14 @@ private:
     struct PhxVmEnv vmEnv();
 public:
     int ptStat(char *b, size_t n);
+    // b163: opt-in HUBP0 / DPP0 hardware cursor plane (phx_cursor.cpp)
+    IOReturn cursorImage(const phx_cursor_image *req);
+    IOReturn cursorState(const phx_cursor_state *req);
+    void cursorReprogram();
+    void cursorStop();
+    int cursorStat(char *b, size_t n) const;
 private:
+    void cursorProgramLocked(bool attributes);
     void ringPut(GpuQueue &q, uint32_t idx, uint32_t value);
     bool debug{false};
     bool smuUsed{false};

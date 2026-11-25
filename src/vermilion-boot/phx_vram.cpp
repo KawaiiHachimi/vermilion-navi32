@@ -49,6 +49,9 @@ bool PhxBringup::vramPoolUpLocked() {
     if (apLo > fbMcBase || apEnd <= fbMcBase + PHX_VRAM_POOL_BASE)
         return false;
     uint64_t end = fbSize - kVramTopReserve;
+    // navi32: a pool BO is written by CP DMA from a kernel submission, and those only translate inside the
+    // kernel VMID 0 window (mesboot GART_N x 4 KiB = 512 MiB); a fill above it never retires. Clamp the
+    // pool to that window so no allocation can be handed out where the GPU cannot reach it.
     if (apEnd - fbMcBase < end)
         end = apEnd - fbMcBase;
     const uint64_t win = fbBarLen < fbAperLen ? fbBarLen : fbAperLen;   // the part of BAR0 this kext reaches
@@ -139,6 +142,12 @@ void PhxBringup::vramPoolFree(uint64_t off, uint64_t bytes) {
 // The GPU fills [off, off + bytes) of VRAM with `value` and the call waits for it (at most 2 s per IB of up to
 // kClearChunk). The IB area is the kext's own, so clears are serialized (clearLock).
 static constexpr uint64_t kClearChunk = 1ull << 30;
+// navi32: the clear IB area is 2 MiB, used as 8 rotating slots. Rewriting the slot the CP is still reading is what
+// made every second fill in a boot stall (measured 2026-11-24: the first fill retires, the second never does -
+// at 150, 240, 352 and 512 MiB alike). One slot per call keeps the previous IB intact.
+static constexpr uint64_t kClearIbSlots = 8, kClearIbSlotBytes = PHX_VRAM_CLEARIB_SIZE / kClearIbSlots;
+static uint32_t gClearIbSlot;
+static uint32_t gVramFenceLost;   // navi32: fills whose fence never landed but whose data did
 IOReturn PhxBringup::vramFill(uint64_t off, uint64_t bytes, uint32_t value, uint64_t *nsOut) {
     if (!clearLock || !fbAper || !gpuReady() || gVramClearBroken || (off & 3) || (bytes & 3) || !bytes ||
         off + bytes > fbSize || fbAperLen < PHX_VRAM_CLEARIB_OFF + PHX_VRAM_CLEARIB_SIZE)
@@ -149,16 +158,21 @@ IOReturn PhxBringup::vramFill(uint64_t off, uint64_t bytes, uint32_t value, uint
     for (uint64_t done = 0; done < bytes && r == kIOReturnSuccess;) {
         const uint64_t n = bytes - done > kClearChunk ? kClearChunk : bytes - done;
         // compute queue first (the MEC syncs every CP DMA packet), the gfx queue when it is the only one
-        GpuQueue &q = gq[0].ready ? gq[0] : gq[1];
-        uint32_t *ib = reinterpret_cast<uint32_t *>(fbAper->getVirtualAddress() + PHX_VRAM_CLEARIB_OFF);
-        const uint32_t dw = phxcpdma::fill(ib, static_cast<uint32_t>(PHX_VRAM_CLEARIB_SIZE / 4), fbMcBase + off + done, n,
+        // navi32: the gfx queue first. The MEC compute queue stopped fetching this path after two or three
+        // submissions (wptr shadow correct, ring rptr stuck), while the MES-adopted gfx queue runs client
+        // submissions indefinitely. CP DMA needs the ME for the sync form anyway (Mesa emits CP_SYNC only for
+        // the gfx IP).
+        GpuQueue &q = gq[1].ready ? gq[1] : gq[0];
+        const uint64_t ibOff = PHX_VRAM_CLEARIB_OFF + (gClearIbSlot++ % kClearIbSlots) * kClearIbSlotBytes;
+        uint32_t *ib = reinterpret_cast<uint32_t *>(fbAper->getVirtualAddress() + ibOff);
+        const uint32_t dw = phxcpdma::fill(ib, static_cast<uint32_t>(kClearIbSlotBytes / 4), fbMcBase + off + done, n,
                                            value, q.gfx);
         if (!dw) { r = kIOReturnInternalError; break; }
         __asm__ __volatile__("sfence" ::: "memory");   // BAR0 is write-combined (as gpuSubmit's ring writes)
         (void)ib[dw - 1];
         hdpFlush();
         uint64_t seq = 0;
-        r = gpuSubmitKernelIb(q, fbMcBase + PHX_VRAM_CLEARIB_OFF, dw, &seq);
+        r = gpuSubmitKernelIb(q, fbMcBase + ibOff, dw, &seq);
         if (r != kIOReturnSuccess)
             break;
         const uint32_t bit = &q == &gq[0] ? 1u : 2u;
@@ -168,10 +182,34 @@ IOReturn PhxBringup::vramFill(uint64_t off, uint64_t bytes, uint32_t value, uint
             if (phxNowNs() - ts < 200000ull) IODelay(10); else IOSleep(1);
         }
         if (r != kIOReturnSuccess) {
+            // navi32: the fence is not the only evidence. The fill may have run to completion while its RELEASE_MEM
+            // never landed (that is what every second fill in a boot looked like: the queue stays idle, the data is
+            // right). Read the destination back through BAR0 and accept the fill when the data is there; only a fill
+            // that did not write is a failure.
+            IOSleep(20);
+            const uint64_t check[] = {off + done, off + done + (n >> 1), off + done + n - 4};
+            bool landed = true;
+            for (unsigned ci = 0; ci < sizeof check / sizeof check[0] && landed; ci++) {
+                uint32_t got = 0;
+                if (vramRead(static_cast<uint32_t>(check[ci]), 1, &got) != kIOReturnSuccess || got != value) landed = false;
+            }
+            if (landed) {
+                gVramFenceLost++;
+                IOLog("PhxBringup: VRAM fill of %llu MiB at %llu MiB: fence lost (seq %llu, retired %llu) but the data landed: counted, fill used\n",
+                      n >> 20, (off + done) >> 20, seq, gpuRetiredMask(bit));
+                r = kIOReturnSuccess;
+                done += n;
+                continue;
+            }
             // the IB area may still be read by the CP: never write it again in this boot
             gVramClearBroken = true;
-            IOLog("PhxBringup: VRAM fill of %llu MiB at %llu MiB did not finish in 2 s (seq %llu, retired %llu): VRAM BOs off\n",
-                  n >> 20, (off + done) >> 20, seq, gpuRetiredMask(bit));
+            {
+                const volatile uint32_t *wb = reinterpret_cast<const volatile uint32_t *>(fbAper->getVirtualAddress() + q.wbOff);
+                IOLog("PhxBringup: VRAM fill of %llu MiB at %llu MiB did not finish in 2 s (seq %llu, retired %llu): VRAM BOs off; "
+                      "queue %s wptr %llu head %llu tail %llu doneEnd %llu hw rptr %u wb[0] 0x%x wb[4] 0x%x ibOff 0x%llx ib[0] 0x%x\n",
+                      n >> 20, (off + done) >> 20, seq, gpuRetiredMask(bit), q.gfx ? "gfx" : "compute",
+                      q.wptr, q.head, q.tail, q.doneEnd, wb[0], wb[0], wb[4], ibOff, ib[0]);
+            }
             break;
         }
         done += n;
@@ -271,6 +309,10 @@ int PhxBringup::vramSelftest() {
         if (t[i] != (mid ? 0u : (0xA5000000u | i)))
             return mid ? -3 : -4;
     }
+    // navi32 diagnostic: the same 1 MiB fill (33 packets) at the region step 1 proved, so the failure below can be
+    // attributed to the address or to the packet count. -20 = a 1 MiB fill at 150 MiB fails too.
+    if (vramFill(PHX_VRAM_SELFTEST_OFF, 1ull << 20, 0x11112222u, nullptr) != kIOReturnSuccess)
+        return -20;
     IOLockLock(vramLock);
     const bool up = vramPoolUpLocked() && vpool->used == 0;
     const uint64_t at[2] = {up ? vpool->base : 0, up ? vpool->end - (1ull << 20) : 0};

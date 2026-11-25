@@ -17,6 +17,7 @@ struct phx_p0_info { uint32_t hz, hTotal, vTotal, pclkKhz, dentistMax, conv, rea
 /* op W only; stage = group (1 DTO, 2 OTG timing, 3 frame position, 4 HUBP0 DLG/TTU, 5 MSA); pad = flags
    (1 TODO-CAPTURE, 2 DML rule, 4 double-buffered: compared at verify); mask = the bits written and compared */
 static const struct phx_s2_step kPhxP0_1440p120n32[] = {
+  {PHX_S2_W, 1, 0, 0x00124, 0x22192222, 0x7f007f7f, {0}, "DENTIST_DISPCLK_CNTL"},  /* Linux steady read; W() only ever raises DISPCLK */
   {PHX_S2_W, 1, 0, 0x00141, 0x1dab3700, 0xffffffff, {0}, "DP_DTO0_PHASE"},  /* [F] pclk in Hz (firmware DTO convention, modulo 716666667) */
   {PHX_S2_W, 2, 4, 0x04FEA, 0x00000a9f, 0x00007fff, {0}, "OTG0_OTG_H_TOTAL"},  /* [T] Linux steady read */
   {PHX_S2_W, 2, 4, 0x04FEC, 0x00200000, 0x7fff7fff, {0}, "OTG0_OTG_H_SYNC_A"},  /* [T] Linux steady read */
@@ -32,6 +33,8 @@ static const struct phx_s2_step kPhxP0_1440p120n32[] = {
   {PHX_S2_W, 3, 6, 0x039EE, 0x05f20001, 0x7fff7fff, {0}, "VTG0_CONTROL"},  /* [T] Linux steady read */
   {PHX_S2_W, 3, 6, 0x041CF, 0x00700a70, 0x3fff3fff, {0}, "DSCL0_OTG_H_BLANK"},  /* [D] = OTG0 blank */
   {PHX_S2_W, 3, 6, 0x041D0, 0x005205f2, 0x3fff3fff, {0}, "DSCL0_OTG_V_BLANK"},  /* [D] = OTG0 blank */
+  {PHX_S2_W, 3, 4, 0x041D2, 0x05a00a00, 0xffffffff, {0}, "DSCL0_RECOUT_SIZE"},  /* [F] b165: w | h << 16 */
+  {PHX_S2_W, 3, 4, 0x041D3, 0x05a00a00, 0xffffffff, {0}, "DSCL0_MPC_SIZE"},  /* [F] b165: w | h << 16 */
   {PHX_S2_W, 3, 4, 0x04D01, 0x0000d100, 0xffffffff, {0}, "FMT0_FMT_BIT_DEPTH_CONTROL"},  /* [F] 10 bpc */
   {PHX_S2_W, 4, 6, 0x03B03, 0x0052000b, 0x7fff1fff, {0}, "HUBPREQ0_BLANK_OFFSET_0"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 6, 0x03B04, 0x000017cc, 0x0003ffff, {0}, "HUBPREQ0_BLANK_OFFSET_1"},  /* [T] Linux steady read */
@@ -46,6 +49,10 @@ static const struct phx_s2_step kPhxP0_1440p120n32[] = {
   {PHX_S2_W, 4, 4, 0x03AEA, 0xe0004ca8, 0xfbffffff, {0}, "HUBPREQ0_DCN_GLOBAL_TTU_CNTL"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 4, 0x03AEB, 0x080019b7, 0x1f7fffff, {0}, "HUBPREQ0_DCN_SURF0_TTU_CNTL0"},  /* [T] Linux steady read */
   {PHX_S2_W, 4, 4, 0x03AEC, 0x000019b7, 0x007fffff, {0}, "HUBPREQ0_DCN_SURF0_TTU_CNTL1"},  /* [T] Linux steady read */
+  {PHX_S2_W, 4, 0, 0x03AAA, 0x05A00A00, 0xffffffff, {0}, "HUBP0_DCSURF_PRI_VIEWPORT_DIMENSION"},  /* [F] w | h << 16 (RedNavi: sizeWH) */
+  {PHX_S2_W, 4, 0, 0x03AAE, 0x05A00A00, 0xffffffff, {0}, "HUBP0_DCSURF_SEC_VIEWPORT_DIMENSION"},  /* [F] the same, the secondary viewport */
+  {PHX_S2_W, 4, 0, 0x04D16, 0x0A0005A0, 0xffffffff, {0}, "DPG0_DPG_DIMENSIONS"},  /* [F] w << 16 | h (RedNavi: dpgDims) */
+  {PHX_S2_W, 4, 0, 0x03AC7, 0x000009FF, 0xffffffff, {0}, "HUBPREQ0_DCSURF_SURFACE_PITCH"},  /* [F] pitch in pixels - 1 (RedNavi: (w + 63) & ~63) */
   {PHX_S2_W, 5, 4, 0x05A0C, 0x0aa005f5, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM1"},  /* [T] Linux steady read */
   {PHX_S2_W, 5, 4, 0x05A0D, 0x00700052, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM2"},  /* [T] Linux steady read */
   {PHX_S2_W, 5, 4, 0x05A0E, 0x00208005, 0xffffffff, {0}, "DP4_DP_MSA_TIMING_PARAM3"},  /* [T] Linux steady read */
@@ -53,4 +60,4 @@ static const struct phx_s2_step kPhxP0_1440p120n32[] = {
   {PHX_S2_W, 5, 0, 0x059C9, 0x02000000, 0x07000000, {0}, "DP4_DP_PIXEL_FORMAT"},  /* [F] DP_COMPONENT_DEPTH 10 bpc */
   {PHX_S2_W, 5, 0, 0x059CA, 0x40000000, 0xff000000, {0}, "DP4_DP_MSA_COLORIMETRY"},  /* [F] MSA MISC0 10 bpc RGB */
 };
-static const struct phx_p0_info kPhxP0_1440p120n32Info = {120, 0xa9f, 0x5f4, 497760, 0x0, 0, 1, 0, 0x0, 0x0, "1440p120n32"};
+static const struct phx_p0_info kPhxP0_1440p120n32Info = {120, 0xa9f, 0x5f4, 497760, 0x22, 0, 1, 0, 0x0, 0x0, "1440p120n32"};

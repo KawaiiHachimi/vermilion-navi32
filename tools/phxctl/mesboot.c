@@ -85,8 +85,11 @@ static uint32_t vr(uint64_t off)
 // navi31: dGPU — VRAM "physical" = VRAM offset (GCMC_VM_FB_OFFSET reads 0; Linux PT base 0x4_feb00001 = offset).
 // Work area moved above the GOP framebuffer, the PSP fw_buf (128-144 MiB) and the SMU tables (144-146 MiB), and
 // still inside the 256 MiB BAR0 macOS gives us: GART table at 160 MiB, rings/MQDs/test buffers from 161 MiB.
-#define GART_PT 0xA000000ull             // flat PTE table (VRAM offset), 512 KiB
-#define GART_N 65536                     // 256 MiB window: covers the whole BAR0-visible VRAM
+#define GART_PT 0xA000000ull             // flat PTE table (VRAM offset); 1 MiB at 512 MiB of window (rings start at 161 MiB)
+// navi32: the window has to reach past the display's scan slots so a VRAM BO pool can live above them: 131072
+// entries = 512 MiB, and the table then fills [160 MiB, 161 MiB) exactly, where the rings start. The kext's own
+// submissions (rings, fences, the clear IB) stay below 256 MiB either way; this only lifts the ceiling.
+#define GART_N 131072                    // 512 MiB window
 #define FB_PA 0x0ull                     // navi31: no UMA carve-out
 // The GPU physical address of VRAM offset 0 on a dGPU is the BAR0 aperture base, which the kext publishes as
 // phx-fb-aper-phys (0x1080000000 on the Navi 32 board). The page tables must map VA -> that + offset; with 0

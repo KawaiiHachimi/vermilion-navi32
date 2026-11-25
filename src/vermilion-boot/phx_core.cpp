@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+extern void p0PublishModes(void);   // navi32: phx_pipe0.cpp publishes the pipe-0 mode table (PhxP0Modes.h)
+extern void p0SetDynBoot(int on);   // b164: phx_pipe0.cpp boot-arg phxpipe0_dyn=0 opt-out
 // phx_core.cpp: PhxBringup start/stop (bring-up), MMIO/VRAM register access, the FB layout, HDP flush, sysMem.
 // Part of the PhxBringup.cpp translation unit (included there, in order); not compiled on its own.
 
@@ -81,12 +83,15 @@ bool PhxBringup::start(IOService *provider) {
     // b138: phxPipe0SetMode takes the replay set's keys (height * 1000 + Hz) and its plans write Linux's HUBP0 pitch per mode:
     // PhxAccel b138 then offers the EDID's other resolutions on head 0 and resizes its scan-out geometry
     setProperty("phx-p0-keys", kOSBooleanTrue);
+    { uint32_t dynArg = 1; if (PE_parse_boot_argn("phxpipe0_dyn", &dynArg, sizeof(dynArg))) p0SetDynBoot(dynArg != 0 ? 1 : 0); }
+    p0PublishModes();   // navi32: the table PhxAMDFB head 0 reads (PhxP0Modes.h)
     setProperty("phx-edid-req", kOSBooleanTrue);  // b81: ...and ask it for a source (param4 in, phxddc::resolveSource)
     setProperty("phx-pipe2-mode-fn", kOSBooleanTrue);   // b93: PhxAMDFB head 1 may call "phxPipe2SetMode" (PhxSwitchABI.h)
     setProperty("phx-pipe2-gamma-fn", kOSBooleanTrue);  // b98: ...and "phxPipe2SetGamma" (PhxGamma.h; writes only with debug.phxgamma=1)
     setProperty("phx-pipe0-mode-fn", kOSBooleanTrue);
     setProperty("phx-scanfmt-fn", kOSBooleanTrue);   // b149: PhxAMDFB's CPU copy may call "phxScanFmt" (10-bit HDR)
     setProperty("phx-vrr-fn", kOSBooleanTrue);   // b144: PhxAMDFB head 0 may call "phxVrrSet" (System Settings' Variable)   // b101: PhxAMDFB head 0 may call "phxPipe0SetMode" (PhxSwitchABI.h; needs debug.phxpipe0_enable=1)
+    setProperty("phx-cursor-fn", kOSBooleanTrue);   // b163: PhxAMDFB head 0 may call "phxCursorImage" / "phxCursorState" (opt-in)
     setProperty("phx-stage", "E3");
     setProperty("phx-debug", debug);
     setProperty("phx-fb-aper-phys", fbAperPhys, 64);
@@ -100,6 +105,7 @@ bool PhxBringup::start(IOService *provider) {
 void PhxBringup::stop(IOService *provider) {
     phxHotplugStop();   // b102: the hot-plug poll first (it reads MMIO and calls PhxAccel)
     phxDpWatchStop();   // b120: the DP stream watcher (it reads MMIO)
+    cursorStop();       // b163: disable HUBP0 cursor plane if armed and release lock
     if (gIhOn)
         ihDisable();
     if (gIrqSrc) {
@@ -165,6 +171,8 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxp0odm_dbuf);   // b155
         sysctl_unregister_oid(&sysctl__debug_phxdpwatch); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_stat); sysctl_unregister_oid(&sysctl__debug_phxdpwatch_snap);   // b120, b122
         sysctl_unregister_oid(&sysctl__debug_phxhotplug); sysctl_unregister_oid(&sysctl__debug_phxhotplug_stat);
+        sysctl_unregister_oid(&sysctl__debug_phxcursor_stat);   // b163
+        sysctl_unregister_oid(&sysctl__debug_phxpipe0_dyn); sysctl_unregister_oid(&sysctl__debug_phxpipe0_edid_modes);   // b164
         gPhx = nullptr;
         gSysctlUp = 0;
     }
