@@ -1763,10 +1763,12 @@ static uint32_t nvmtl_tex_attach_vkfmt(NVMTLTexture *t, int *a8) {
         nvmtl_vk_image_view_create_range_swz([v nvi], vkf, a8, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, v->_viewType, s4, &nv)) {
         nvlog("newTextureView:swizzle: par1 the swizzled view could not be built (format %lu) — the view keeps the identity mapping", (unsigned long)f);
         return v; }
-    // NVMTL_SWZ_SEPARATE=1: the swizzle only for sampling (nvsampleview), _ownView left the identity view attachments and
-    // storage writes use (Meteor Lake fork 0.3.12). Off by default: no change in the widget glyph A/B (0/8 clean both ways,
-    // 2026-10-25) and not yet run across the desktop.
-    static int old = -1; if (old < 0) { const char *e = getenv("NVMTL_SWZ_SEPARATE"); old = !(e && e[0] == '1'); }
+    // Keep the swizzle on _swzView for sampling (nvsampleview) and leave _ownView as the identity view for attachments
+    // and storage writes: Metal swizzle only applies to reads/samples, and Vulkan forbids non-identity swizzles on
+    // storage images. OpenCL compute kernels (e.g. ScreensharingAgent's clImageHorizontalScale/clImageVerticalScale)
+    // write through swizzled views, which previously cleared _stex and routed writes to the dummy storage image.
+    // Set NVMTL_SWZ_SEPARATE=0 to restore the old behavior.
+    static int old = -1; if (old < 0) { const char *e = getenv("NVMTL_SWZ_SEPARATE"); old = (e && e[0] == '0'); }
     if (old) { if (v->_ownView) nvmtl_vk_image_view_destroy(v->_ownView); v->_ownView = nv; v->_stex = NO; }
     else { if (v->_swzView) nvmtl_vk_image_view_destroy(v->_swzView); v->_swzView = nv; }
     v->_swz = sw; v->_hasSwz = YES;
