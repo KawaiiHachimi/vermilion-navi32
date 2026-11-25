@@ -740,6 +740,26 @@ echo "done $(date '+%T')"
 vcn_boot(){
   [ -e "$G/phxboot-vcn" ] || return 0
   [ -x "$G/vcnup/vcn_up.sh" ] || { echo "vcn: $G/vcnup/vcn_up.sh missing"; return 0; }
+  # Short-VBLANK guard (e.g. 2560x1440@165 CVT-RBv2 = 103 us < 220 us): DCN never asserts ALLOW_PSTATE,
+  # so SMU PowerUpVcn (0x2A) stalls PMFW until a longer-VBLANK mode is active.
+  local vt vb vbs vbe vbl hz vb_us pbin
+  pbin="$G/phxctl.bin"; [ -x "$pbin" ] || pbin="/usr/local/sbin/phxctl"
+  if [ -x "$pbin" ]; then
+    vt=$("$pbin" regs 0x4FEF 2>/dev/null | awk '{print $NF}')
+    vb=$("$pbin" regs 0x4FF6 2>/dev/null | awk '{print $NF}')
+    hz=$(sysctl -n debug.phxpipe0_stat 2>/dev/null | sed -n 's/.*mode=\([0-9]*\).*/\1/p')
+    if [ -n "$vt" ] && [ -n "$vb" ] && [ "${hz:-0}" -gt 0 ] 2>/dev/null; then
+      vt=$(( (vt & 0x7FFF) + 1 )); vbs=$(( vb & 0x7FFF )); vbe=$(( (vb >> 16) & 0x7FFF ))
+      vbl=$(( vt - vbs + vbe ))
+      if [ "$vt" -gt 0 ] && [ "$vbl" -gt 0 ]; then
+        vb_us=$(( vbl * 1000000 / (vt * hz) ))
+        if [ "$vb_us" -lt 220 ]; then
+          echo "vcn: skipped: short vblank (${vb_us} us < 220 us at ${hz} Hz; PowerUpVcn waits on ALLOW_PSTATE)"
+          return 0
+        fi
+      fi
+    fi
+  fi
   if bash "$G/vcnup/vcn_up.sh" --run > "$G/vcnup/boot.log" 2>&1; then
     sysctl -w debug.phxvcn=1 >/dev/null 2>&1 && sysctl -w debug.phxmmvm=1 >/dev/null 2>&1 \
       && echo "vcn: up, ring adopted, MMHUB VM on ($(sysctl -n debug.phxmmvm_stat 2>/dev/null | cut -c1-40))" \

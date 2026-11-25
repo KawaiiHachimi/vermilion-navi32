@@ -270,9 +270,14 @@ IOReturn PhxBringup::dalMessage(uint32_t msg, uint32_t arg, uint32_t *resp, uint
     if (!mmio || !smuLock)
         return kIOReturnNotReady;
     IOLockLock(smuLock);
-    if (gDalDead) {   // b76: never talk to a PMFW that already stopped answering (it does not recover without a power-off)
-        IOLockUnlock(smuLock);
-        return kIOReturnNotResponding;
+    if (gDalDead) {   // b76: never talk to a wedged PMFW; b167: self-heal if both RESP regs answered after a transient timeout
+        const uint32_t dr = rreg(kDalRespReg), sr = rreg(PHX_SMU_RESP_REG);
+        if (dr && dr != 0xFFFFFFFFu && sr && sr != 0xFFFFFFFFu) {
+            gDalDead = 0;
+        } else {
+            IOLockUnlock(smuLock);
+            return kIOReturnNotResponding;
+        }
     }
     // b76: Linux dcn32_smu_send_msg_with_param waits for RESP != 0 first; a zero RESP = a message still in flight.
     // The first DAL message of the boot skips it: nothing may have used the DAL mailbox since the VBIOS.
@@ -312,9 +317,14 @@ IOReturn PhxBringup::smuMessage(uint32_t msg, uint32_t arg, uint32_t *resp, uint
     if (!mmio || !smuLock)
         return kIOReturnNotReady;
     IOLockLock(smuLock);
-    if (gDalDead) {   // b76: the PMFW stopped answering a DAL message; it serves both mailboxes
-        IOLockUnlock(smuLock);
-        return kIOReturnNotResponding;
+    if (gDalDead) {   // b76: the PMFW stopped answering a DAL message; b167: self-heal if both RESP regs answered
+        const uint32_t dr = rreg(kDalRespReg), sr = rreg(PHX_SMU_RESP_REG);
+        if (dr && dr != 0xFFFFFFFFu && sr && sr != 0xFFFFFFFFu) {
+            gDalDead = 0;
+        } else {
+            IOLockUnlock(smuLock);
+            return kIOReturnNotResponding;
+        }
     }
     // The first message of the boot skips the pre-poll (Linux SMU_FW_INIT): nothing may have been sent yet.
     if (smuUsed && smuPoll() == 0) {

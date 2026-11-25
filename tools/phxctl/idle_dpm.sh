@@ -41,6 +41,23 @@ st() {
 clr() { w 0x4F8A 0x1000; h=$(r 0x3AB3); w 0x3AB3 $(printf 0x%X $(( (h & 0x0FFFFFFF) | 0x80000000 ))); w 0x3AB3 $(printf 0x%X $(( h & 0x0FFFFFFF ))); }
 hit() { v=$(r 0x4F8A); h=$(r 0x3AB3); k=""
   [ $(( v & 0x400 )) -ne 0 ] && k=optc0; [ $(( (h >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp0"; [ -n "$k" ]; }
+# Compute live OTG0 VBLANK duration in microseconds from OTG0 totals/blank and current mode Hz.
+# On Navi 32 GDDR6, UCLK P-state switches require >= 220 us of VBLANK (ARB_UCLK_PSTATE_CHANGE_WATERMARK_A ~202 us);
+# modes with shorter VBLANK (e.g. 2560x1440@165 CVT-RBv2 = 25 lines / 103 us) never assert ALLOW_PSTATE and stall
+# PMFW if DAL TABLE_WATERMARKS (0x08) or UCLK unpin is sent.
+vblank_us() {
+  vt=$(r 0x4FEF); vb=$(r 0x4FF6)
+  [ -n "$vt" ] && [ -n "$vb" ] || { echo 0; return; }
+  vt=$(( (vt & 0x7FFF) + 1 )); vbs=$(( vb & 0x7FFF )); vbe=$(( (vb >> 16) & 0x7FFF ))
+  vbl=$(( vt - vbs + vbe ))
+  hz=$(sysctl -n debug.phxpipe0_stat 2>/dev/null | sed -n 's/.*mode=\([0-9]*\).*/\1/p')
+  if [ -z "$hz" ] || [ "$hz" -le 0 ] 2>/dev/null; then
+    ht=$(r 0x4FEA); ph=$(r 0x0141)
+    ht=$(( (ht & 0x7FFF) + 1 )); ph=$(( ph ))
+    [ "$ht" -gt 0 ] && [ "$vt" -gt 0 ] && [ "$ph" -gt 0 ] && hz=$(( ph / (ht * vt) ))
+  fi
+  [ "${hz:-0}" -gt 0 ] && [ "$vt" -gt 0 ] && [ "$vbl" -gt 0 ] && echo $(( vbl * 1000000 / (vt * hz) )) || echo 0
+}
 pin() { say "$1: $(sh "$G/uclk.sh" pin 456 2>&1 | tail -1 | cut -c1-90); $(sh "$G/dal.sh" SetFclkSwitchAllow 0 2>&1 | tail -1 | cut -c1-90)"; }
 dal() { out=$(sh "$G/dal.sh" "$@" 2>&1); echo "$out" | grep -q '(OK)' || { say "dal $*: $(echo "$out" | tail -1 | cut -c1-100)"; return 1; }; }
 dsleep() { case "${1##*@}" in 60\ *) echo 0x12;; 100\ *) echo 0x1E;; 120\ *) echo 0x24;; 144\ *) echo 0x2B;; 165\ *) echo 0x32;; 240\ *) echo 0x48;; *) echo "";; esac; }
@@ -58,6 +75,12 @@ say "settled: $last"
 # 2 baseline with UCLK pinned
 clr; t=0; while [ $t -lt "$BASE" ]; do
   hit && { say "$k underflow with UCLK pinned (baseline): nothing changed"; exit 2; }; sleep "$POLL"; t=$((t + POLL)); done
+# 2.5 short-VBLANK guard: modes with VBLANK < 220 us (e.g. 1440p165 = 103 us) cannot complete UCLK P-state in VBLANK
+vb_us=$(vblank_us)
+if [ "${vb_us:-0}" -gt 0 ] && [ "$vb_us" -lt 220 ]; then
+  say "vblank ${vb_us} us < 220 us (short VBLANK): UCLK stays pinned, DAL WM skipped"
+  exit 0
+fi
 # 3 + 4
 sh "$G/dalwm.sh" >/dev/null 2>&1 || { say "dalwm.sh failed: UCLK stays pinned"; exit 1; }
 out=$(sh "$G/uclk.sh" unpin 2>&1); echo "$out" | grep -q '(OK)' || { pin "unpin answered '$(echo "$out" | tail -1 | cut -c1-80)'"; exit 1; }

@@ -5,6 +5,8 @@ For every new kext build: bump `PHX_KEXT_BUILD` and add its line at the top of t
 refuses an unbumped build). The host test suites named below (pipe2_test, pipe0_test, ...) belong to the development
 tree and are not included here.
 
+- 167 (Navi 32): self-heal `gDalDead` in `phx_psp_smu.cpp` (`dalMessage()` / `smuMessage()`) when both `kDalRespReg` (`0x16274`) and `PHX_SMU_RESP_REG` (`0x1629A`) have returned non-zero (non-`0xFFFFFFFF`), so a transient PMFW stall (e.g. waiting on `ALLOW_PSTATE` during a short-VBLANK mode) no longer bricks SMU/DAL mode switches (`SetHardMinByFreq UCLK 456 MHz answered 0x0`) for the rest of the boot while keeping `b76` protection intact for genuinely wedged PMFW. Paired with short-VBLANK (`< 220 us`) guards in `idle_dpm.sh` / `phxboot-navi31.sh` and proper exit-code propagation in `dal.sh`.
+
 - 166 (Navi 32, verified live on RX 7800 XT 2026-11-25): raise `kGttMaxBo` (`256 MiB -> 1024 MiB`) and `kGttCap` (`2048 MiB -> 4096 MiB`) in `phx_globals.cpp` to match `kHostMaxBo` / `kHostCap`. Fixes Geekbench 7 Metal Feature Matching GPU hang caused by `560280 KiB` (~547 MiB) managed/GTT buffer allocation being refused (`cause 2`, `VK_ERROR_OUT_OF_DEVICE_MEMORY`). Verified live: full Geekbench 7.1.0 Metal suite completed end-to-end (`exit 0`, `BO create refused: 0`, `seq emitted 27509 retired 27509`, `WindowServer` uninterrupted).
 
 - 165 (Navi 32, verified live on RX 7800 XT 2026-11-25): fixes two real-hardware bugs found during live modeset testing on `b164`:

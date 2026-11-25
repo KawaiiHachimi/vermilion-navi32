@@ -13,4 +13,6 @@ case "$1" in
   SetFclkSwitchAllow) id=17;; SetAlwaysWaitDmcubResp) id=20;; ReturnHardMinStatus) id=21;;
   0x*) id=$(($1));; *) echo "unknown DAL message $1" >&2; exit 2;;
 esac
-sudo -n "$P" smu $((0x10000 | id)) "${2:-0}" | sed "s/smu  */dal $1 /"
+out=$(sudo -n "$P" smu $((0x10000 | id)) "${2:-0}") || { echo "$out" | sed "s/smu  */dal $1 /"; exit 1; }
+echo "$out" | sed "s/smu  */dal $1 /"
+echo "$out" | grep -q '(OK)' || exit 1
