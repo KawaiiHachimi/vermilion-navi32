@@ -588,13 +588,15 @@ impl Emitter {
         if call.callee != "air.wg.barrier" {
             return false;
         }
-        let flags = call
+        let flags_lit = call
             .args
             .first()
-            .and_then(|arg| air_i32_literal(&arg.value))
-            .unwrap_or(0);
-        if flags & 1 != 0 || flags & 2 == 0 {
-            return false;
+            .and_then(|arg| air_i32_literal(&arg.value));
+        let non_constant_flags = flags_lit.is_none();
+        if let Some(flags) = flags_lit {
+            if flags & 1 != 0 || flags & 2 == 0 {
+                return false;
+            }
         }
         let has_workgroup_mem = self.ir.globals.iter().any(|g| g.addrspace == 3)
             || self
@@ -606,7 +608,11 @@ impl Emitter {
                     .iter()
                     .any(|(_, ty)| matches!(ty, LlType::Ptr(3)))
             });
-        if has_workgroup_mem {
+        // For literal `mem_threadgroup` (2), only promote when the module has zero workgroup memory.
+        // For non-constant flags (e.g. OpenCL `_Z7barrierj(i32 %1)` -> `@air.wg.barrier(i32 %1, i32 1)`),
+        // the caller may pass `CLK_GLOBAL_MEM_FENCE` (2) or `CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE` (3)
+        // even when workgroup memory is also present, so promote whenever the module reads & writes device memory.
+        if !non_constant_flags && has_workgroup_mem {
             return false;
         }
         let mut reads_device = false;

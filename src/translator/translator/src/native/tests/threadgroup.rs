@@ -3111,6 +3111,87 @@ declare void @air.wg.barrier(i32, i32)
         barrier_scopes(device_only_rw_ll, "devonly_rw"),
         vec![(Scope::Workgroup as u32, Scope::Device as u32, promoted_sem)]
     );
+
+    // OpenCL's `barrier(CLK_GLOBAL_MEM_FENCE)` routes through a helper `_Z7barrierj(i32 %flags)` that
+    // calls `@air.wg.barrier(i32 %flags, i32 1)` with a non-constant flags operand. When the module
+    // both reads and writes device memory, that barrier must still include device memory semantics.
+    let opencl_helper_barrier_ll = r#"
+target triple = "spirv-unknown-vulkan1.2"
+define void @sort_ocl(ptr addrspace(1) %buf, i32 %tid) {
+entry:
+  %p = getelementptr inbounds i32, ptr addrspace(1) %buf, i32 %tid
+  %v = load i32, ptr addrspace(1) %p, align 4
+  store i32 %v, ptr addrspace(1) %p, align 4
+  call void @_Z7barrierj(i32 2)
+  %v2 = load i32, ptr addrspace(1) %p, align 4
+  store i32 %v2, ptr addrspace(1) %p, align 4
+  ret void
+}
+
+define internal void @_Z7barrierj(i32 %flags) {
+entry:
+  tail call void @air.wg.barrier(i32 %flags, i32 1)
+  ret void
+}
+
+declare void @air.wg.barrier(i32, i32)
+
+!air.kernel = !{!0}
+!0 = !{ptr @sort_ocl, !1, !2}
+!1 = !{}
+!2 = !{!3, !4}
+!3 = !{i32 0, !"air.buffer", !"air.location_index", i32 0, i32 1, !"air.read_write", !"air.address_space", i32 1, !"air.arg_type_name", !"int*", !"air.arg_name", !"buf"}
+!4 = !{i32 1, !"air.thread_position_in_threadgroup", !"air.arg_type_name", !"uint", !"air.arg_name", !"tid"}
+"#;
+    assert_eq!(
+        barrier_scopes(opencl_helper_barrier_ll, "ocl_helper"),
+        vec![(Scope::Workgroup as u32, Scope::Device as u32, promoted_sem)]
+    );
+}
+
+#[test]
+fn native_kernel_threadgroup_param_direct_atomic_smax_uses_element_zero() {
+    let ll = r#"
+target triple = "spirv-unknown-vulkan1.2"
+
+define void @k(ptr addrspace(1) %out, ptr addrspace(3) %local_max, i32 %tid) {
+entry:
+  store i32 0, ptr addrspace(3) %local_max, align 4
+  tail call void @air.wg.barrier(i32 2, i32 1)
+  %prev = tail call i32 @air.atomic.local.max.s.i32(ptr addrspace(3) %local_max, i32 %tid, i32 0, i32 1, i1 true)
+  %v = load i32, ptr addrspace(3) %local_max, align 4
+  %g = tail call i32 @air.atomic.global.max.s.i32(ptr addrspace(1) %out, i32 %v, i32 0, i32 2, i1 true)
+  ret void
+}
+
+declare void @air.wg.barrier(i32, i32)
+declare i32 @air.atomic.local.max.s.i32(ptr addrspace(3), i32, i32, i32, i1)
+declare i32 @air.atomic.global.max.s.i32(ptr addrspace(1), i32, i32, i32, i1)
+
+!air.kernel = !{!0}
+!0 = !{ptr @k, !1, !2}
+!1 = !{}
+!2 = !{!3, !4, !5}
+!3 = !{i32 0, !"air.buffer", !"air.location_index", i32 0, i32 1, !"air.read_write", !"air.address_space", i32 1, !"air.arg_type_size", i32 4, !"air.arg_type_align_size", i32 4, !"air.arg_type_name", !"int", !"air.arg_name", !"out"}
+!4 = !{i32 1, !"air.buffer", !"air.location_index", i32 0, i32 1, !"air.read_write", !"air.address_space", i32 3, !"air.arg_type_size", i32 4, !"air.arg_type_align_size", i32 4, !"air.arg_type_name", !"int", !"air.arg_name", !"local_max"}
+!5 = !{i32 2, !"air.thread_position_in_threadgroup", !"air.arg_type_name", !"uint", !"air.arg_name", !"tid"}
+"#;
+    let tmp = std::env::temp_dir().join(format!(
+        "metal2vulkan_tg_direct_atomic_smax_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::create_dir_all(&tmp);
+    let spv = crate::translate_sanitized_native(ll, Stage::Kernel, &tmp).expect("translate");
+    let module = load_bytes(&spv).expect("load spv");
+    let smax_count = module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .filter(|i| i.class.opcode == Op::AtomicSMax)
+        .count();
+    assert_eq!(smax_count, 2);
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[test]

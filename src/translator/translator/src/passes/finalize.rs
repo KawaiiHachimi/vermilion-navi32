@@ -280,9 +280,91 @@ pub(in crate::passes) fn finalize(
     }
     exact_narrowing_float_conversions(ctx);
     metal_nan_to_zero_conversions(ctx);
+    mark_device_barrier_storage_buffers_coherent(ctx);
     order_module_scope_dependencies(&mut ctx.module)?;
 
     Ok(())
+}
+
+/// Under SPIR-V `MemoryModel::GLSL450`, a `ControlBarrier` or `MemoryBarrier` with
+/// `UniformMemory` only guarantees cross-invocation visibility on `StorageBuffer` variables
+/// decorated `Coherent` (otherwise RADV/ACO on GFX11 can keep non-coherent L0 reads/writes
+/// across CUs in a WGP). Decorate writable `StorageBuffer` variables `Coherent` whenever the
+/// module contains a device-memory barrier.
+fn mark_device_barrier_storage_buffers_coherent(ctx: &mut Ctx) {
+    let uint_constants: HashMap<Word, u32> = ctx
+        .module
+        .types_global_values
+        .iter()
+        .filter_map(|inst| match (inst.class.opcode, inst.result_id, inst.operands.first()) {
+            (Op::Constant, Some(id), Some(Operand::LiteralBit32(v))) => Some((id, *v)),
+            _ => None,
+        })
+        .collect();
+    let has_uniform_memory_barrier = ctx.module.functions.iter().any(|func| {
+        func.blocks.iter().any(|blk| {
+            blk.instructions.iter().any(|inst| {
+                let sem_operand = match inst.class.opcode {
+                    Op::ControlBarrier => inst.operands.get(2),
+                    Op::MemoryBarrier => inst.operands.get(1),
+                    _ => None,
+                };
+                let Some(Operand::IdMemorySemantics(sem_id) | Operand::IdRef(sem_id)) = sem_operand
+                else {
+                    return false;
+                };
+                uint_constants
+                    .get(sem_id)
+                    .is_some_and(|bits| (*bits & spirv::MemorySemantics::UNIFORM_MEMORY.bits()) != 0)
+            })
+        })
+    });
+    if !has_uniform_memory_barrier {
+        return;
+    }
+    let mut non_writable = HashSet::default();
+    let mut already_coherent = HashSet::default();
+    for ann in &ctx.module.annotations {
+        if ann.class.opcode != Op::Decorate {
+            continue;
+        }
+        if let [Operand::IdRef(target), Operand::Decoration(dec), ..] = ann.operands.as_slice() {
+            match dec {
+                spirv::Decoration::NonWritable => {
+                    non_writable.insert(*target);
+                }
+                spirv::Decoration::Coherent => {
+                    already_coherent.insert(*target);
+                }
+                _ => {}
+            }
+        }
+    }
+    let writable_ssbos: Vec<Word> = ctx
+        .module
+        .types_global_values
+        .iter()
+        .filter_map(|inst| {
+            if inst.class.opcode != Op::Variable
+                || inst.operands.first() != Some(&Operand::StorageClass(StorageClass::StorageBuffer))
+            {
+                return None;
+            }
+            let id = inst.result_id?;
+            (!non_writable.contains(&id) && !already_coherent.contains(&id)).then_some(id)
+        })
+        .collect();
+    for var_id in writable_ssbos {
+        ctx.module.annotations.push(Instruction::new(
+            Op::Decorate,
+            None,
+            None,
+            vec![
+                Operand::IdRef(var_id),
+                Operand::Decoration(spirv::Decoration::Coherent),
+            ],
+        ));
+    }
 }
 
 fn metal_nan_to_zero_conversions(ctx: &mut Ctx) {

@@ -5,6 +5,41 @@ use crate::passes::access::{
 use crate::passes::resources::rewrites::*;
 use crate::passes::stage_input::{layout_ty_size_align, round_up};
 
+fn atomic_root_scalar_type(
+    inst: &Instruction,
+    root: Word,
+    value_types: &HashMap<Word, Word>,
+) -> Option<Word> {
+    if inst.operands.first() != Some(&Operand::IdRef(root)) {
+        return None;
+    }
+    match inst.class.opcode {
+        Op::AtomicStore => match inst.operands.get(3) {
+            Some(Operand::IdRef(value)) => value_types.get(value).copied(),
+            _ => None,
+        },
+        Op::AtomicLoad
+        | Op::AtomicExchange
+        | Op::AtomicCompareExchange
+        | Op::AtomicCompareExchangeWeak
+        | Op::AtomicIIncrement
+        | Op::AtomicIDecrement
+        | Op::AtomicIAdd
+        | Op::AtomicISub
+        | Op::AtomicSMin
+        | Op::AtomicUMin
+        | Op::AtomicSMax
+        | Op::AtomicUMax
+        | Op::AtomicAnd
+        | Op::AtomicOr
+        | Op::AtomicXor
+        | Op::AtomicFAddEXT
+        | Op::AtomicFMinEXT
+        | Op::AtomicFMaxEXT => inst.result_type,
+        _ => None,
+    }
+}
+
 pub(in crate::passes) fn rewrite_workgroup_root_access(
     ctx: &mut Ctx,
     entry_idx: usize,
@@ -73,7 +108,13 @@ pub(in crate::passes) fn rewrite_workgroup_root_access(
                         want.push(target);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(t) = atomic_root_scalar_type(inst, var, &value_types) {
+                        if !want.contains(&t) {
+                            want.push(t);
+                        }
+                    }
+                }
             }
         }
     }
@@ -152,7 +193,13 @@ pub(in crate::passes) fn rewrite_workgroup_root_access(
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(&chain) = atomic_root_scalar_type(inst, var, &value_types)
+                        .and_then(|t| leaf_chain.get(&t))
+                    {
+                        inst.operands[0] = Operand::IdRef(chain);
+                    }
+                }
             }
         }
     }
@@ -390,7 +437,13 @@ pub(in crate::passes) fn rewrite_collapsed_buffer(
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(t) = atomic_root_scalar_type(inst, pid, &value_types) {
+                        if !want.contains(&t) {
+                            want.push(t);
+                        }
+                    }
+                }
             }
         }
     }
@@ -449,7 +502,13 @@ pub(in crate::passes) fn rewrite_collapsed_buffer(
                         inst.operands[0] = Operand::IdRef(c);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(&c) = atomic_root_scalar_type(inst, pid, &value_types)
+                        .and_then(|t| leaf_chain.get(&t))
+                    {
+                        inst.operands[0] = Operand::IdRef(c);
+                    }
+                }
             }
         }
     }
