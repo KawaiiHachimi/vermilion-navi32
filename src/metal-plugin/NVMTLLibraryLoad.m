@@ -298,9 +298,27 @@ static void nvmtl_spvcache_trim_async(NSString *dir) {
 // A cache hit moves the entry's times so the trimmer keeps its age order. A sandbox that may write the cache but not
 // file times (iconservicesagent: deny file-write-times) refused every one of them, and each refusal is a sandbox
 // violation report the kernel files: hundreds a minute. After the first refusal this process stops touching.
+// Cache-file mtimes only order entries for trimming. A hot shader can reuse its last
+// timestamp for a minute. Colliding slots can cause an extra touch.
 static _Atomic int nvmtl_touch_refused;
+static struct { uint64_t hash, timeNs; } nvmtl_touched[1024];
+static os_unfair_lock nvmtl_touch_lock = OS_UNFAIR_LOCK_INIT;
+
 static void nvmtl_cache_touch(const char *path) {
-    if (atomic_load_explicit(&nvmtl_touch_refused, memory_order_relaxed)) return;
+    if (!path || atomic_load_explicit(&nvmtl_touch_refused, memory_order_relaxed)) return;
+    uint64_t hash = 14695981039346656037ull;
+    for (const unsigned char *p = (const unsigned char *)path; *p; p++) hash = (hash ^ *p) * 1099511628211ull;
+    const size_t slot = hash % (sizeof nvmtl_touched / sizeof nvmtl_touched[0]);
+    os_unfair_lock_lock(&nvmtl_touch_lock);
+    const uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW_APPROX);
+    const BOOL recent = nvmtl_touched[slot].timeNs && nvmtl_touched[slot].hash == hash
+        && now - nvmtl_touched[slot].timeNs < 60ull * NSEC_PER_SEC;
+    if (!recent) {
+        nvmtl_touched[slot].hash = hash;
+        nvmtl_touched[slot].timeNs = now;
+    }
+    os_unfair_lock_unlock(&nvmtl_touch_lock);
+    if (recent) return;
     if (utimes(path, NULL) != 0 && (errno == EPERM || errno == EACCES)) atomic_store(&nvmtl_touch_refused, 1);
 }
 static BOOL nvmtl_dir_writable(NSString *d) {
