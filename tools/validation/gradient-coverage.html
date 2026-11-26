@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+<meta charset="utf-8">
+<title>SVG gradient coverage</title>
+<style>
+  body { font: 16px system-ui, sans-serif; }
+  table { border-spacing: 1rem; text-align: left; }
+  canvas { display: block; }
+  pre { white-space: pre-wrap; }
+</style>
+<h1>SVG gradient coverage</h1>
+<p>Open this page in the browser under test. Both columns should show a translucent curved shape
+on a dark blue background. The probe samples the background inside the path’s bounding box
+and the middle of the shape. For a hardware test, verify GPU rasterization separately in the
+browser’s GPU diagnostics.</p>
+<table>
+  <thead><tr><th>Gradient stops</th><th>Default canvas</th><th>Readback-optimized canvas</th></tr></thead>
+  <tbody id="samples"></tbody>
+</table>
+<pre id="result" aria-live="polite">Running…</pre>
+<script>
+'use strict';
+
+const size = 128;
+const background = [0, 59, 123];
+const cases = [
+  {name: 'Legacy sRGB', stops: ['#ffe970', '#ff9240'], center: [102, 110, 108]},
+  {name: 'Display P3', stops: ['color(display-p3 1 .92 .44)', 'color(display-p3 1 .57 .25)'],
+   center: [102, 110, 98]}
+];
+
+async function gradient(stops) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <defs><linearGradient id="paint" x1="0%" x2="0%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="${stops[0]}"/><stop offset="100%" stop-color="${stops[1]}"/>
+    </linearGradient></defs>
+    <path d="M12 8C14 5 77 4 83 12S98 77 85 85S14 99 10 81S2 19 12 8Z"
+          fill="url(#paint)" opacity=".4"/>
+  </svg>`;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  return img;
+}
+
+function pixel(data, x, y) {
+  const index = 4 * (size * y + x);
+  return Array.from(data.subarray(index, index + 3));
+}
+
+function closeTo(value, expected) {
+  return value.every((channel, i) => Math.abs(channel - expected[i]) <= 4);
+}
+
+async function run() {
+  if (!CSS.supports('color', cases[1].stops[0])) throw Error('Display P3 colors are unavailable');
+  const results = [];
+  for (const test of cases) {
+    const img = await gradient(test.stops);
+    const row = document.getElementById('samples').insertRow();
+    row.insertCell().textContent = test.name;
+    for (const willReadFrequently of [false, true]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      row.insertCell().append(canvas);
+      const ctx = canvas.getContext('2d', {willReadFrequently, colorSpace: 'srgb'});
+      ctx.fillStyle = 'rgb(0 59 123)';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      // Read once after presentation. Repeated readbacks can switch the default canvas to CPU raster.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const data = ctx.getImageData(0, 0, size, size).data;
+      const outside = pixel(data, 11, 8);
+      const center = pixel(data, 64, 64);
+      const pass = closeTo(outside, background) && closeTo(center, test.center);
+      results.push({name: test.name, willReadFrequently, outside, center, pass});
+    }
+  }
+  const pass = results.every(result => result.pass);
+  document.documentElement.dataset.result = pass ? 'pass' : 'fail';
+  document.getElementById('result').textContent = [pass ? 'PASS' : 'FAIL', ...results.map(result =>
+    `${result.pass ? 'PASS' : 'FAIL'}  ${result.name}, willReadFrequently=${result.willReadFrequently}` +
+    `  outside [${result.outside}], center [${result.center}]`
+  )].join('\n');
+}
+
+run().catch(error => {
+  document.documentElement.dataset.result = 'error';
+  document.getElementById('result').textContent = 'ERROR  ' + error.message;
+});
+</script>
+</html>
