@@ -45,6 +45,8 @@ working - the command that proves it. Measure a row before claiming it.
 | 38 | Scaled HiDPI modes (`IOFBScalerInfo` + scaled timing validation) | **works** | `VermilionAccel` (`phxrotate.h`, `phxrotate_k.cpp`, `phxfb.cpp`, `nvrm-accel.cpp`): publishes `IOFBScalerInfo` (up to `5120x5120`), marks native-raster modes `kDisplayModeNativeFlag`, validates unrotated scaled HiDPI timings (`kDisplayModeNotPresetFlag \| kDisplayModeValidForHiResFlag`), verified live at `1920x1080 HiDPI` (`3840x2160` backing @ `165 Hz`) on a 2560x1440 monitor |
 | 39 | macOS Screen Sharing (native & scaled/HiDPI resolutions) | **works** | `NVMTLDriver` (`nvmtl_vk.c` buffer-texture compatible view format list + `NVMTLObjects.m` separate `_swzView` for sampling while keeping identity `_ownView` / `_stex` for storage writes): fixes OpenCL `EncodeVectorized` (`RGBA8` view over `BGRA8` IOSurface) and `clImageHorizontalScale`/`clImageVerticalScale` writes through swizzled views |
 
+The [November 27 graphics verification](../.agents/findings/2026-11-27-navi32-edge-and-plugin.md) records the open Edge gradient defect, the offline reproducer, and RX 7800 XT results for multisample transfers, buffer initialization and shader cache performance.
+
 ## Tests that need no card
 
 ```sh
