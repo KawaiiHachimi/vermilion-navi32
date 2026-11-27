@@ -3357,15 +3357,44 @@ static int nvmtl_rp_fetch(const nvk_pipeline *p)
     return nvmtl_fbfetch_on() && (every || p->fetch_mask || p->samples > 1);
 }
 #define NVMTL_STENCIL_EMU_OFFSET 160u   /* the translator's native::stencil_export::STENCIL_EXPORT_PUSH_OFFSET */
-/* the translator's stencil-export lowering: a push-constant block member at offset 160 (stencil emulation, see NVMTL_SEMU_DRAW) */
-uint32_t nvmtl_spirv_stencil_emu(const void *code, size_t bytes)
+// Find a declaration in the global section. SPIR-V puts annotations before types
+// and types before variables, so follow IDs independently of instruction order.
+static const uint32_t *nvmtl_spv_global(const uint32_t *w, size_t nw, uint32_t opcode,
+                                       uint32_t words, unsigned operand, uint32_t value)
 {
-    const uint32_t *w = (const uint32_t *)code; const size_t nw = bytes / 4;
-    if (nw < 5 || w[0] != 0x07230203u) return 0;
     for (size_t i = 5; i < nw; ) {
         uint32_t wc = w[i] >> 16, op = w[i] & 0xffffu;
-        if (!wc || i + wc > nw) break;
-        if (op == 72 && wc == 5 && w[i + 3] == 35 && w[i + 4] == 160u) return 1;   // OpMemberDecorate .. Offset 160
+        if (!wc || wc > nw - i || op == 54 /* OpFunction */) break;
+        if (op == opcode && wc == words && w[i + operand] == value) return w + i;
+        i += wc;
+    }
+    return NULL;
+}
+
+uint32_t nvmtl_spirv_stencil_emu(const void *code, size_t bytes)
+{
+    const uint32_t *w = code;
+    const size_t nw = bytes / sizeof *w;
+    if (!w || bytes % sizeof *w || nw < 5 || w[0] != 0x07230203u) return 0;
+
+    // lower_stencil_export emits one PushConstant variable pointing to a block
+    // with a single uint at offset 160. The same offset occurs in ordinary
+    // gradient uniforms; replaying those draws also repeats their colour blend.
+    const uint32_t push = 9;  // SpvStorageClassPushConstant
+    const uint32_t *var = nvmtl_spv_global(w, nw, 59 /* OpVariable */, 4, 3, push);
+    if (!var) return 0;
+    const uint32_t *ptr = nvmtl_spv_global(w, nw, 32 /* OpTypePointer */, 4, 1, var[1]);
+    if (!ptr || ptr[2] != push) return 0;
+    const uint32_t *block = nvmtl_spv_global(w, nw, 30 /* OpTypeStruct */, 3, 1, ptr[3]);
+    if (!block) return 0;
+    const uint32_t *member = nvmtl_spv_global(w, nw, 21 /* OpTypeInt */, 4, 1, block[2]);
+    if (!member || member[2] != 32 || member[3] != 0) return 0;
+    for (size_t i = 5; i < nw; ) {
+        uint32_t wc = w[i] >> 16, op = w[i] & 0xffffu;
+        if (!wc || wc > nw - i || op == 54) break;
+        if (op == 72 /* OpMemberDecorate */ && wc == 5 && w[i + 1] == block[1] &&
+            w[i + 2] == 0 && w[i + 3] == 35 /* Offset */ && w[i + 4] == NVMTL_STENCIL_EMU_OFFSET)
+            return 1;
         i += wc;
     }
     return 0;
