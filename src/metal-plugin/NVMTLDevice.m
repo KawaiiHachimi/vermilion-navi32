@@ -657,9 +657,11 @@ static void nvmtl_install_hw_resource_pools(id dev)
     static int vk = 0; if (!vk) { vk = 1; nvmtl_vk_init(); }
     const char *vkname = nvmtl_vk_device_name();
     NSString *full = [NSString stringWithUTF8String:(vkname ? vkname : "NVIDIA GPU")];
-    NSRange cut = [full rangeOfString:@" (NVK "];
-    NSString *marketing = (cut.location != NSNotFound) ? [full substringToIndex:cut.location] : full;
-    return [NSString stringWithFormat:@"%@ (NVMTL over %@)", marketing, full];
+    for (NSString *suffix in @[@" (RADV ", @" (NVK "]) {
+        NSRange cut = [full rangeOfString:suffix];
+        if (cut.location != NSNotFound && cut.location > 0) return [full substringToIndex:cut.location];
+    }
+    return full;
 }
 - (id<MTLCommandQueue>)newCommandQueue { return [self newCommandQueueWithMaxCommandBufferCount:64]; }
 - (id<MTLCommandQueue>)newCommandQueueWithMaxCommandBufferCount:(NSUInteger)n {
@@ -2274,6 +2276,7 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
     switch ((NSInteger)f) {
         case MTLGPUFamilyMac2: case MTLGPUFamilyCommon1: case MTLGPUFamilyCommon2: case MTLGPUFamilyCommon3: return YES;
         case 2001 : return YES;
+        case 4001: case 4002: return YES;  // Mac Catalyst equivalents of Mac1 and Mac2
         case 5001 : return YES;
         default: return NO;
     }
