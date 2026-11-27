@@ -5975,16 +5975,45 @@ int nvmtl_vk_pre_copy(nvk_buffer *src, size_t srcOff, nvk_buffer *dst, size_t ds
     p->n++; p->copies++; p->bytes += size;
     return 0;
 }
-int nvmtl_vk_pre_fill(nvk_buffer *b, size_t offset, size_t size, uint32_t word)
+// vkCmdFillBuffer only writes complete words. A permanent, read-only transfer source
+// supplies the last 1–3 bytes without touching a neighbour or changing descriptor bounds.
+static nvk_buffer g_zero_word;
+static _Atomic int g_zero_word_ready;
+static pthread_mutex_t g_zero_word_lock = PTHREAD_MUTEX_INITIALIZER;
+int nvmtl_vk_prepare_zero_tail(void)
 {
-    nvmtl_prologue *p = g_pre_cur;
-    if (!p || !p->begun || !b) return -1;
-    if (!size) return 0;
-    if ((offset | size) & 3 || offset > b->size || size > b->size - offset) return -1;
-    pvkCmdFillBuffer(p->cb.cb, (VkBuffer)b->buf, offset, size, word);
-    p->n++; p->fills++; p->bytes += size;
+    if (atomic_load(&g_zero_word_ready)) return 0;
+    pthread_mutex_lock(&g_zero_word_lock);
+    if (!g_zero_word.buf && nvmtl_vk_buffer_create(4, 1, &g_zero_word) == 0) {
+        memset(g_zero_word.map, 0, 4);
+        atomic_store(&g_zero_word_ready, 1);
+    }
+    pthread_mutex_unlock(&g_zero_word_lock);
+    return atomic_load(&g_zero_word_ready) ? 0 : -1;
+}
+
+int nvmtl_vk_zero_new_buffer(nvk_cmdbuf *c, nvk_buffer *b)
+{
+    nvmtl_prologue *p = c ? NULL : g_pre_cur;
+    if (!b || !b->buf || (!c && (!p || !p->begun))) return -1;
+    VkCommandBuffer cb = c ? c->cb : p->cb.cb;
+    const size_t words = b->size & ~(size_t)3;
+    const size_t tail = b->size - words;
+    if (tail && !atomic_load(&g_zero_word_ready)) return -1;
+    if (c) nvmtl_vk_cmd_barrier(c);
+    if (words) pvkCmdFillBuffer(cb, (VkBuffer)b->buf, 0, words, 0);
+    if (tail) {
+        VkBufferCopy copy = {0, words, tail};
+        pvkCmdCopyBuffer(cb, (VkBuffer)g_zero_word.buf, (VkBuffer)b->buf, 1, &copy);
+    }
+    if (c) nvmtl_vk_cmd_barrier(c);
+    else {
+        // Both writes belong to initialization. pre_copy orders all of them before Managed uploads.
+        p->n++; p->fills++; p->bytes += b->size;
+    }
     return 0;
 }
+
 void nvmtl_vk_pre_hold(void *retained)
 {
     nvmtl_prologue *p = g_pre_cur;
@@ -6052,7 +6081,6 @@ int nvmtl_vk_submit_begin_at(nvk_cmdbuf *c, nvmtl_inflight *f, const char *who)
     else c->timing.clock.valid = 0;
     pt[0] = nvmtl_perf_now();
     const int pro = nvmtl_prologue_on();
-    if (!pro && nvmtl_pre_submit_hook) { const int k0 = g_perf_kind; g_perf_kind |= 1; nvmtl_pre_submit_hook(); g_perf_kind = k0; }
     const uint64_t sA = nvmtl_perf_now();
     const uint32_t wseq = nvmtl_keep_on() ? nvmtl_wit_record(c) : 0;
     VkResult result = pvkEndCommandBuffer(c->cb);
@@ -6064,8 +6092,10 @@ int nvmtl_vk_submit_begin_at(nvk_cmdbuf *c, nvmtl_inflight *f, const char *who)
     if (result != VK_SUCCESS) { nvmtl_cmd_retire(c); return -1; }
     nvmtl_prologue *const pre = &f->pre;
     pthread_mutex_lock(&nvmtl_submit_mutex);
-    if (pro && nvmtl_pre_submit_hook) {
-        nvmtl_prologue *const up = g_pre_cur; g_pre_cur = pre;
+    // Claim pending initialization in queue order in both modes. The recursive lock also
+    // covers the standalone uploads when prologues are disabled.
+    if (nvmtl_pre_submit_hook) {
+        nvmtl_prologue *const up = g_pre_cur; g_pre_cur = pro ? pre : NULL;
         const int k0 = g_perf_kind; g_perf_kind |= 1; nvmtl_pre_submit_hook(); g_perf_kind = k0;
         g_pre_cur = up;
     }

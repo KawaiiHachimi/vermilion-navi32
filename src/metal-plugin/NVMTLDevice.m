@@ -670,7 +670,7 @@ static void nvmtl_install_hw_resource_pools(id dev)
     if (nvmtl_vk_queue_create(&q->_q)) { nvlog("newCommandQueue: command pool FAILED"); return nil; }
     nvlog("newCommandQueue -> %p (NVK command pool)", (__bridge void *)q); return q; }
 
-static void nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len);
+static BOOL nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len);
 static __thread int gZeroSkip;
 // NVMTL_MANAGED_SYSMEM=1: a Managed buffer lives in mapped system memory (no VRAM copy + shadow pair). This was a bare
 // getenv() on every call, so any value - "0" included - switched it on, nothing said whether it had, and a release
@@ -709,7 +709,7 @@ static int nvmtl_managed_sysmem(void)
         memset(&b->_shadow, 0, sizeof b->_shadow); nvmtl_vk_buffer_destroy(&b->_b);
         if (nvmtl_vk_buffer_create(len, 1, &b->_b)) { nvmtl_alloc_failed("newBufferWithLength"); return nil; }
     }
-    if (!gZeroSkip) nvmtl_zero_new_buffer(b, len);
+    if (!gZeroSkip && !nvmtl_zero_new_buffer(b, len)) return nil;
     nvlog("newBufferWithLength:%lu storage %d -> %p%s", (unsigned long)len, (int)b->_storage, (__bridge void *)b, b->_b.map ? "" : " VRAM"); return b; }
 
 - (id<MTLBuffer>)newBufferWithBytes:(const void *)bytes length:(NSUInteger)len options:(MTLResourceOptions)opt {

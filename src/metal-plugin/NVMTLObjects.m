@@ -636,6 +636,14 @@ static int nvmtl_managed_snapshot_on(void) {
         if (on) nvlog("managed: uploads carry the bytes as of the commit (NVMTL_MANAGED_SNAPSHOT)"); }
     return on;
 }
+static int nvmtl_managed_sync(void) {
+    // NVMTL_MANAGED_SYNC=1 (garbled-text study, layer L1): upload with a copy the CPU waits for here, before the commit is submitted,
+    // instead of a copy in the submission's prologue that reads the shadow whenever the GPU gets to it.
+    static int sync = -1;
+    if (sync < 0) { const char *e = getenv("NVMTL_MANAGED_SYNC"); sync = e && e[0] == '1';
+        if (sync) nvlog("managed: uploads finish before the commit is submitted (NVMTL_MANAGED_SYNC)"); }
+    return sync;
+}
 static void nvmtl_zero_flush(void);
 static void nvmtl_mc_zero_late(void);   // nvmtl_imgmem.c (ours, nm458): MEMCENSUS count of NullMoth PR #458's window
 static void nvmtl_managed_flush(void) {
@@ -654,12 +662,7 @@ static void nvmtl_managed_flush(void) {
     // snapshot. Claim its initial clear before uploading this dirty snapshot;
     // otherwise the next submission can clear data already uploaded here.
     if (todo.count) nvmtl_zero_flush();
-    // NVMTL_MANAGED_SYNC=1 (garbled-text study, layer L1): upload with a copy the CPU waits for here, before the commit is submitted,
-    // instead of a copy in the submission's prologue that reads the shadow whenever the GPU gets to it.
-    static int sync = -1;
-    if (sync < 0) { const char *e = getenv("NVMTL_MANAGED_SYNC"); sync = e && e[0] == '1';
-        if (sync) nvlog("managed: uploads finish before the commit is submitted (NVMTL_MANAGED_SYNC)"); }
-    if (todo.count && !sync && nvmtl_vk_pre_open()) {
+    if (todo.count && !nvmtl_managed_sync() && nvmtl_vk_pre_open()) {
         NSMutableArray *snaps = [NSMutableArray new];
         for (NSArray *t in todo) {
             NVMTLBuffer *b = t[0]; NSUInteger lo = [t[1] unsignedIntegerValue], n = [t[2] unsignedIntegerValue] - lo;
@@ -702,7 +705,7 @@ static os_unfair_lock gZeroLock = OS_UNFAIR_LOCK_INIT;
 static NSHashTable *gZeroOwed;
 static _Atomic int gZeroAny;
 static __thread int gZeroInFlush;
-static _Atomic unsigned long long gZeroHostN, gZeroHostB, gZeroGpuN, gZeroGpuB, gZeroTail;
+static _Atomic unsigned long long gZeroHostN, gZeroHostB, gZeroGpuN, gZeroGpuB;
 static int nvmtl_zero_mode(void) {
     static int m = -1;
     if (m < 0) { const char *e = getenv("NVMTL_ZERO_FILL");
@@ -712,8 +715,8 @@ static int nvmtl_zero_mode(void) {
     return m;
 }
 static void nvmtl_zero_census(void) {
-    nvlog("zero-fill census: %llu CPU-mapped buffers (%llu bytes) cleared by memset, %llu Private (%llu bytes) by the GPU, %llu tail bytes left (length not a multiple of 4)",
-          (unsigned long long)gZeroHostN, (unsigned long long)gZeroHostB, (unsigned long long)gZeroGpuN, (unsigned long long)gZeroGpuB, (unsigned long long)gZeroTail);
+    nvlog("zero-fill census: %llu CPU-mapped buffers (%llu bytes) cleared by memset, %llu Private (%llu bytes) by the GPU",
+          (unsigned long long)gZeroHostN, (unsigned long long)gZeroHostB, (unsigned long long)gZeroGpuN, (unsigned long long)gZeroGpuB);
 }
 static void nvmtl_zero_flush(void) {
     if (!atomic_load(&gZeroAny) || gZeroInFlush) return;
@@ -722,23 +725,35 @@ static void nvmtl_zero_flush(void) {
     NSArray *todo = gZeroOwed.allObjects; [gZeroOwed removeAllObjects]; atomic_store(&gZeroAny, 0);
     os_unfair_lock_unlock(&gZeroLock);
     nvk_cmdbuf c; unsigned n = 0; size_t bytes = 0;
-    if (todo.count && nvmtl_vk_pre_open()) {
-        for (NVMTLBuffer *b in todo) { const size_t w = b->_b.size & ~(size_t)3;
-            if (b->_b.buf && w && nvmtl_vk_pre_fill(&b->_b, 0, w, 0) == 0) { n++; bytes += w; gZeroTail += b->_b.size - w; } }
-        nvmtl_pre_release_hook = nvmtl_pre_release;
-        nvmtl_vk_pre_hold((__bridge_retained void *)todo);
-        const unsigned long long k = atomic_fetch_add(&gZeroGpuN, n); gZeroGpuB += bytes;
-        if (!k || (k >> 12) != ((k + n) >> 12)) nvmtl_zero_census();
-    } else if (todo.count && nvmtl_vk_cmd_begin(nvmtl_device_queue(), &c) == 0) {
-        for (NVMTLBuffer *b in todo) { const size_t w = b->_b.size & ~(size_t)3;
-            if (b->_b.buf && w && nvmtl_vk_cmd_fill_buffer(&c, &b->_b, 0, w, 0) == 0) { n++; bytes += w; gZeroTail += b->_b.size - w; } }
-        if (nvmtl_vk_submit_wait(&c)) nvlog("zero-fill: GPU clear of %u Private buffers (%zu bytes) FAILED - they hold what VRAM held", n, bytes);
-        else { const unsigned long long k = atomic_fetch_add(&gZeroGpuN, n); gZeroGpuB += bytes;
-               if (!k || (k >> 12) != ((k + n) >> 12)) nvmtl_zero_census(); }
-    } else if (todo.count) nvlog("zero-fill: no command buffer for %lu Private clears - they hold what VRAM held", (unsigned long)todo.count);
+    // A synchronous Managed upload must observe its initial clear even before the outer submission.
+    const BOOL prologue = todo.count && !nvmtl_managed_sync() && nvmtl_vk_pre_open();
+    if (todo.count && (prologue || nvmtl_vk_cmd_begin(nvmtl_device_queue(), &c) == 0)) {
+        for (NVMTLBuffer *b in todo) {
+            if (nvmtl_vk_zero_new_buffer(prologue ? NULL : &c, &b->_b) == 0) {
+                n++; bytes += b->_b.size;
+            }
+        }
+        if (prologue) {
+            nvmtl_pre_release_hook = nvmtl_pre_release;
+            nvmtl_vk_pre_hold((__bridge_retained void *)todo);
+        }
+        if (!prologue && nvmtl_vk_submit_wait(&c))
+            nvlog("zero-fill: GPU clear of %u Private buffers (%zu bytes) FAILED", n, bytes);
+        else {
+            const unsigned long long k = atomic_fetch_add(&gZeroGpuN, n);
+            gZeroGpuB += bytes;
+            if (!k || (k >> 12) != ((k + n) >> 12)) nvmtl_zero_census();
+        }
+    } else if (todo.count) nvlog("zero-fill: no command buffer for %lu Private clears", (unsigned long)todo.count);
     gZeroInFlush = 0;
 }
-static void nvmtl_presubmit(void) { @autoreleasepool { nvmtl_zero_flush(); } @autoreleasepool { nvmtl_managed_flush(); } }
+static void nvmtl_presubmit(void) {
+    // A standalone initialization submission is already inside the outer flush. Recursing here
+    // would submit a Managed update before the clear that is about to be queued.
+    if (gZeroInFlush || gManagedInFlush) return;
+    @autoreleasepool { nvmtl_zero_flush(); }
+    @autoreleasepool { nvmtl_managed_flush(); }
+}
 static int nvmtl_mzero_on(void) {
     static int on = -1;
     if (on < 0) { const char *e = getenv("NVMTL_MANAGED_EAGER_ZERO"); on = !(e && e[0] == '1');
@@ -746,9 +761,9 @@ static int nvmtl_mzero_on(void) {
               : "memset their CPU copy at creation and upload it (old)", e ? e : "unset"); }
     return on;
 }
-static void nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len) {
+static BOOL nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len) {
     const int m = nvmtl_zero_mode();
-    if (!m || !b || !len) return;
+    if (!m || !b || !len) return YES;
     const int mz = b->_shadow.map && m >= 2 && b->_b.buf && !b->_b.map && nvmtl_mzero_on();
     if (mz) __atomic_store_n(&b->_zshadow, 1, __ATOMIC_RELEASE);
     if (b->_shadow.map && !mz) {
@@ -756,17 +771,22 @@ static void nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len) {
     } else if (b->_b.map && !mz) {
         memset(b->_b.map, 0, len);
     } else {
-        if (m < 2 || !b->_b.buf) return;
+        if (m < 2 || !b->_b.buf) return YES;
+        if ((len & 3) && nvmtl_vk_prepare_zero_tail()) {
+            nvlog("zero-fill: could not allocate the zero source for a %zu-byte buffer", (size_t)len);
+            return NO;
+        }
         os_unfair_lock_lock(&gZeroLock);
         if (!gZeroOwed) gZeroOwed = [NSHashTable weakObjectsHashTable];
         @autoreleasepool { [gZeroOwed addObject:b]; }
         atomic_store(&gZeroAny, 1);
         nvmtl_pre_submit_hook = nvmtl_presubmit;
         os_unfair_lock_unlock(&gZeroLock);
-        return;
+        return YES;
     }
     const unsigned long long k = atomic_fetch_add(&gZeroHostN, 1); gZeroHostB += len;
     if (!k || ((k + 1) & 0xFFF) == 0) nvmtl_zero_census();
+    return YES;
 }
 #define NVMTL_BUFPARK 4
 static _Atomic uint64_t gBTNew, gBTRecycled, gBTParked, gBTEvicted;
