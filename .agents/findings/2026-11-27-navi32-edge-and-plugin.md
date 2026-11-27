@@ -1,6 +1,6 @@
 # RX 7800 XT graphics verification, November 26–27, 2026
 
-The RX 7800 XT (16 GiB, PCI 1002:747e) ran macOS 26.7.3 build 25G342 and Edge 158.0.4370.33. The original desktop used 1920×1080 HiDPI at 165 Hz. The Edge comparisons used the installed driver. Metal API tests loaded each candidate in a separate process on the same NMXAccel service.
+The RX 7800 XT (16 GiB, PCI 1002:747e) ran macOS 26.7.3 build 25G342 and Edge 158.0.4370.33. The original desktop used 1920×1080 HiDPI at 165 Hz. The initial Edge comparisons used the installed driver. The final Edge A/B used a temporarily installed candidate. Metal API tests loaded each candidate in a separate process on the same NMXAccel service.
 
 ## Geekbench icon
 
@@ -15,9 +15,17 @@ Screen Sharing showed two Edge windows on the same desktop. In the affected wind
 
 Open [the offline test](../../tools/validation/gradient-coverage.html) in the browser under test and check the backend separately at `edge://gpu`. It draws a self-contained SVG path twice, varying the gradient stops. The legacy sRGB control preserved coverage and opacity. Display P3 stops on the normal accelerated canvas painted an uncovered point [251,229,86] over a background of [0,59,123]. The center was [253,184,60] against the expected translucent [102,110,98]. Three repetitions agreed. The readback-optimized canvas, software Edge and accelerated Apple M5 Pro passed.
 
-The failing Graphite trace includes a four-sample BGRA8/D24S8 regular cover pipeline labelled “w/ msaa load”. Winding and cover occur in the same group of pipeline-use events. The label alone cannot establish a pass split. In isolation the extracted paint shader produced the expected opacity at 1.0 and 0.4 across eleven color-space selectors. A separate Metal test on the RX 7800 XT checked all 1,024 pixels after sampling a texture into a 4× attachment, applying a stencil-tested draw and resolving. Both separate-source and shared resolve-target cases passed with D24S8 and D32FS8. An attempted native Metal capture restarted the disposable Edge GPU helper and produced no usable capture. The command or driver state responsible for the browser defect is still open.
+The failing Graphite trace includes a four-sample BGRA8/D24S8 regular cover pipeline labelled “w/ msaa load”. Winding and cover occur in the same group of pipeline-use events. The label alone cannot establish a pass split. In isolation the extracted paint shader produced the expected opacity at 1.0 and 0.4 across eleven color-space selectors. A separate Metal test on the RX 7800 XT checked all 1,024 pixels after sampling a texture into a 4× attachment, applying a stencil-tested draw and resolving. Both separate-source and shared resolve-target cases passed with D24S8 and D32FS8. An attempted native Metal capture restarted the disposable Edge GPU helper and produced no usable capture.
 
 A temporarily installed diagnostic plugin logged the failing frame in Edge's GPU process while rendering the saved website SVG. The log contains 4× BGRA and depth/stencil pipeline binds, winding operations, and stencil comparisons. No incompatible pipeline rejection appeared. Reapplying depth/stencil state after compatible pipeline switches, using a plain multisampled pass for shaders without framebuffer fetch, and combining those two changes all produced the same number of mismatching pixels as the diagnostic control. These experiments were discarded. After each swap the original plugin was restored and verified by inode and SHA-256. Code signature verification succeeded, and WindowServer kept its PID.
+
+## Stencil replay fix
+
+The gradient's SPIR-V contained `OpMemberDecorate … 12 Offset 160` on an ordinary data structure. The plugin recognized any member at this offset as a request for emulated stencil export. A draw with a full stencil write mask consequently ran once at reference zero and eight more times with per-bit references. This explains both the extension of the paint beyond the path and the near-opaque stacked blends. Replacing only the affected fragment program with a constant color restored the contour.
+
+Commit `cfde624` follows the actual push-constant variable and its pointer to the translator's single-uint block before enabling replay. In the [native Metal regression](../../tests/plugin/test_stencil_export.m) one shader exports two distinct stencil values and another reads ordinary paint data at byte 160. The original RX 7800 XT plugin produced 64/128 correct pixels. The fixed plugin and Apple M5 Pro each produced 128/128.
+
+With the candidate installed temporarily, Edge reported GPU rasterization enabled and Graphite active on the RX 7800 XT. Three reloads of the offline test passed all four cases. The default P3 canvas preserved the uncovered pixel [0,59,123] and produced [102,109,97] at the center. On an isolated 256×256 rendering of the saved, unmodified homepage SVG, the number of pixels differing from the Apple hardware capture by more than 16 in any RGB channel went from 14,016 to zero. The maximum remaining channel difference was one. The live homepage showed a verification interstitial during the final check. The asset-level result used the SVG previously retrieved from that site. The installed bundle was restored after the comparison.
 
 ## Changes exercised on hardware
 
@@ -42,3 +50,12 @@ The installed driver also completed the offscreen render, submit and compute ben
 | [Cobalt64 d1f7bad](https://github.com/Almosst-DEV/Cobalt64/commit/d1f7bad8408a), [nullarc 3497d87](https://github.com/luuumi-dev/nullarc/commit/3497d87b229e), [RadeArc fa1eb34](https://github.com/Kreytus/RadeArc/commit/fa1eb34a1e58) | The respective tips document IOAccel layout tooling, DCN mapping/MPS reproduction, and SCDC readback. None supplies a measured fix for this SVG. |
 
 Mesa RADV also landed a [depth/stencil HTILE copy fix](https://gitlab.freedesktop.org/mesa/mesa/-/commit/839ef9d5e1843681e6fde4347fa604a66a1e397a) on its SDMA transfer path. This Metal plugin submits to a graphics+compute queue, and the Darwin WSI patch disables private SDMA blits. The upstream change therefore does not target the observed browser draw. A separate [ACO LDS spill ordering fix](https://gitlab.freedesktop.org/mesa/mesa/-/commit/7918498b88e647f66cf1253c78bd3db6a7652e49) would require evidence of spills in the affected shader before attributing the icon to it.
+
+
+## Additional picks
+
+`10fb16d` adapts XTX [71dc5b5](https://github.com/ownback/vermilion-xtx/commit/71dc5b5614cc1724a197c77c1e0238029608edd8) and [767e160](https://github.com/ownback/vermilion-xtx/commit/767e1605d3076a541e7ae157ea0bcc9a0c664c03). On the card, Metal now reports AMD Radeon RX 7800 XT and both Mac Catalyst family queries return true. Mac1, Mac2 and Metal3 remained true and Metal4 remained false.
+
+An adapted [XTX #31](https://github.com/ownback/vermilion-xtx/pull/31) passed its upload-table host test under ASan/UBSan. In four alternating runs on the RX 7800 XT, each loose plugin processed four batches of 128 textures at 64×64 RGBA8. All bytes matched after each upload. Some warm asynchronous batches completed upload and readback verification in about 9 ms compared with about 13 ms synchronous. Intermittent delays exceeded 170 ms and affected both configurations. The default change is deferred pending representative frame-time and residency measurements.
+
+NullMoth [6a501a0](https://github.com/nullmoth/nvidia-macos-driver/commit/6a501a059d98b3c39496aebbb3d5c86ecb70c86b) adds retry logic for shader translation refusals. It depends on the helper inliner from its VFX work. The gradient here translated successfully. NullMoth [566190b](https://github.com/nullmoth/nvidia-macos-driver/commit/566190bf29e5fb9450c3a289d35078ca609a5536) memoizes a grid-only compute scan; the Navi 32 tree lacks that scan.
